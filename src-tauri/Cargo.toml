@@ -1,0 +1,33 @@
+[package]
+name = "projects-runner-app"
+version = "0.4.0"
+description = "A desktop command runner for coding projects"
+authors = ["Projects Runner"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "tauri_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1.23.2", features = ["v4"] }
+rfd = "0.17.2"
+chrono = { version = "0.4.45", features = ["serde"] }
+diesel = { version = "2.3.10", features = ["sqlite", "chrono", "returning_clauses_for_sqlite_3_35"] }
+libsqlite3-sys = { version = "0.37.0", features = ["bundled"] }
+base64 = "0.22.1"
+mime_guess = "2.0.5"
+sha2 = "0.10.9"

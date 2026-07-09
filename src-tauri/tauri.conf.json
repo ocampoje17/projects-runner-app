@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Projects Runner",
+  "version": "0.4.0",
+  "identifier": "com.projectsrunner.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:6810",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Projects Runner",
+        "width": 1200,
+        "height": 760,
+        "minWidth": 920,
+        "minHeight": 620
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "fileAssociations": [
+      {
+        "ext": ["prd"],
+        "name": "Projects Runner Data",
+        "description": "Projects Runner shared project file",
+        "mimeType": "application/x-projects-runner-prd",
+        "role": "Editor",
+        "rank": "Default",
+        "exportedType": {
+          "identifier": "com.projectsrunner.desktop.prd",
+          "conformsTo": ["public.data"]
+        }
+      }
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
