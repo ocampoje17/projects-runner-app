@@ -79,12 +79,12 @@ export function ProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="project-dialog">
+      <DialogContent className="w-[min(500px,calc(100vw-20px))]">
         <DialogHeader>
           <DialogTitle>{project ? "Edit project" : "Add project"}</DialogTitle>
           <DialogDescription>Save a folder you work in and group its commands.</DialogDescription>
         </DialogHeader>
-        <DialogForm className="project-form" onSubmit={form.handleSubmit((values) => onSubmit(values))}>
+        <DialogForm className="flex flex-col gap-2" onSubmit={form.handleSubmit((values) => onSubmit(values))}>
           <AvatarPicker
             name={form.watch("name") || "Project"}
             avatarPath={avatar}
@@ -146,12 +146,12 @@ export function ExportProjectDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="export-dialog">
+      <DialogContent className="w-[min(480px,calc(100vw-20px))]">
         <DialogHeader>
           <DialogTitle>Export project</DialogTitle>
           <DialogDescription>Save this project and its commands as a .prd file.</DialogDescription>
         </DialogHeader>
-        <div className="dialog-surface grid grid-cols-[34px_minmax(0,1fr)] items-center gap-2.5">
+        <div className="grid grid-cols-[34px_minmax(0,1fr)] items-center gap-2.5">
           <EntityAvatar name={project.name} path={project.avatar_path} />
           <div>
             <strong>{project.name}</strong>
@@ -168,3 +168,4 @@ export function ExportProjectDialog({
     </Dialog>
   );
 }
+

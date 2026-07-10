@@ -89,14 +89,14 @@ export function ProjectDetailCommands({
   onAddCommand: (section?: string) => void;
 }) {
   return (
-    <div className="content-grid grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
-      <section className="command-sections flex min-h-0 flex-col gap-3 overflow-y-auto">
+    <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
+      <section className="flex min-h-0 flex-col gap-3 overflow-y-auto">
         {commandSections.map(({ section, commands: sectionCommands }) => (
-          <div className="command-section rounded-[10px] border border-app-border bg-card/40 p-2.5" key={section}>
-            <div className="section-header mb-2 flex w-full items-center justify-between gap-2">
+          <div className="rounded-[10px] border border-app-border bg-[var(--command-section-bg)] p-2.5" key={section}>
+            <div className="group mb-2 flex w-full items-center justify-between gap-2">
               {renamingSection === section ? (
                 <form
-                  className="rename-section-form"
+                  className="flex items-center gap-1.5"
                   onSubmit={(event) => {
                     event.preventDefault();
                     void onRenameSection(section, renameSectionValue);
@@ -104,7 +104,7 @@ export function ProjectDetailCommands({
                 >
                   <Input
                     type="text"
-                    className="rename-section-input"
+                    className="h-7 max-w-[150px] px-2 text-[12.5px]"
                     value={renameSectionValue}
                     onChange={(event) => onRenameSectionValueChange(event.target.value)}
                     onKeyDown={(event) => {
@@ -114,14 +114,14 @@ export function ProjectDetailCommands({
                     }}
                     autoFocus
                   />
-                  <Button type="submit" size="icon" variant="ghost" className="rename-save-btn" title="Save">
+                  <Button type="submit" size="icon" variant="ghost" className="h-6 w-6 p-0" title="Save">
                     <Check size={14} />
                   </Button>
                   <Button
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="rename-cancel-btn"
+                    className="h-6 w-6 p-0"
                     onClick={onCancelRenameSection}
                     title="Cancel"
                   >
@@ -129,12 +129,12 @@ export function ProjectDetailCommands({
                   </Button>
                 </form>
               ) : (
-                <div className="section-title-row flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2">
                   <h3>{section}</h3>
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="rename-section-btn"
+                    className="h-6 w-6 p-0 opacity-0 transition-opacity group-hover:opacity-100"
                     onClick={() => onStartRenameSection(section)}
                     title="Rename section"
                   >
@@ -144,7 +144,7 @@ export function ProjectDetailCommands({
               )}
               <Badge variant="muted">{sectionCommands.length}</Badge>
             </div>
-            <div className="command-grid grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
               {sectionCommands.map((command) => (
                 <CommandCard
                   command={command}
@@ -163,13 +163,13 @@ export function ProjectDetailCommands({
                 />
               ))}
               {sectionCommands.length === 0 && (
-                <Card className="empty-section-card col-span-full flex flex-wrap items-center justify-between gap-2.5 rounded-[10px] border border-dashed border-app-border bg-transparent p-2.5 text-muted-foreground shadow-none">
-                  <Terminal size={24} className="empty-section-icon" />
-                  <div className="empty-section-info space-y-1">
-                    <h4>No commands in this section</h4>
-                    <p>Add a command to run in this section.</p>
+                <Card className="col-span-full flex flex-wrap items-center justify-between gap-2.5 rounded-[10px] border border-dashed border-app-border bg-transparent p-2.5 text-muted-foreground shadow-none">
+                  <Terminal size={24} className="shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <h4 className="text-[12.5px] font-semibold text-app-title">No commands in this section</h4>
+                    <p className="text-[11.5px] text-muted-foreground">Add a command to run in this section.</p>
                   </div>
-                  <div className="empty-section-actions flex flex-wrap gap-1.5">
+                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                     <Button size="sm" onClick={() => onAddCommand(section)}>
                       <Plus size={14} /> Add command
                     </Button>
@@ -185,22 +185,22 @@ export function ProjectDetailCommands({
           </div>
         ))}
 
-        <div className="add-section-wrapper">
-          <div className="add-section-shell flex flex-wrap items-center justify-between gap-2.5 rounded-[10px] border border-dashed border-primary/30 bg-primary/[0.03] p-2.5">
-            <div className="add-section-copy flex min-w-0 flex-col gap-0.5">
-              <strong>Add another section</strong>
+        <div className="w-full py-0.5">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-[10px] border border-dashed border-primary/30 bg-primary/[0.03] p-2.5">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <strong className="text-[12.5px] text-app-title">Add another section</strong>
               <span>Group related commands into compact desktop lanes.</span>
             </div>
             {isAddingSection ? (
-              <form className="add-section-form flex flex-wrap items-center gap-2" onSubmit={onAddSectionSubmit}>
+              <form className="flex w-full max-w-[460px] flex-wrap items-center gap-2" onSubmit={onAddSectionSubmit}>
                 <Input
                   ref={addSectionInputRef}
                   placeholder="New section name..."
                   value={newSectionName}
                   onChange={(event) => onNewSectionNameChange(event.target.value)}
-                  className="add-section-input"
+                  className="min-w-[180px] flex-1"
                 />
-                <div className="add-section-actions flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5">
                   <Button type="submit" size="sm">
                     Add
                   </Button>
@@ -210,7 +210,7 @@ export function ProjectDetailCommands({
                 </div>
               </form>
             ) : (
-              <Button variant="outline" className="add-section-button" onClick={onStartAddSection}>
+              <Button variant="outline" className="border-primary/30 text-primary hover:bg-primary/10" onClick={onStartAddSection}>
                 <Plus size={16} />
                 Add Section
               </Button>
@@ -219,9 +219,9 @@ export function ProjectDetailCommands({
         </div>
 
         {showEmptyCommandsState && (
-          <Card className="empty-card workspace-empty-card flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-app-border bg-card/20 p-4 text-center">
+          <Card className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-app-border bg-card/20 p-4 text-center">
             <Terminal size={28} />
-            <div className="empty-state-copy space-y-1">
+            <div className="space-y-1">
               <h3>No commands yet</h3>
               <p>Add commands like frontend dev servers, API workers, tests, or build steps.</p>
             </div>

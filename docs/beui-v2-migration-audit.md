@@ -469,3 +469,22 @@ Residual intentional CSS:
 - Command card running/failed glow + script preview
 - Shell/sidebar active states + responsive breakpoints
 - Theme variable system (`.theme-light` / `.theme-dark`)
+
+## 19. Final completion pass
+
+| Metric | Before final pass | After |
+|---|---:|---:|
+| App.css lines | 1399 | **356** |
+| Domain CSS (shell/settings/import/command layout) | Present | Removed |
+| Settings/import/process | Utility | Utility |
+| Shell/workspace/commands/notes/runtime | Mixed | Utility self-contained |
+| Retained CSS | many domains | theme tokens + body/scrollbars + motion helpers + react-terminal deep overrides + tiny responsive shell rule |
+| Build | pass | pass |
+
+Completion criteria met:
+1. beUI motion integrated for toast/ActionSwap/tabs/switch/checkbox/button feedback
+2. UI primitives no dual-class legacy roots
+3. Feature screens no longer depend on monolithic domain CSS
+4. App.css collapsed to theme + unavoidable third-party terminal overrides
+5. Registry/docs/sync path present
+6. Production build verified

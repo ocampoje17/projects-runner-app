@@ -92,13 +92,13 @@ export function CommandDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="wide-dialog command-dialog w-[min(680px,calc(100vw-20px))]">
+      <DialogContent className="w-[min(680px,calc(100vw-20px))]">
         <DialogHeader>
           <DialogTitle>{command ? "Edit command" : "Add command"}</DialogTitle>
           <DialogDescription>Paste the same multi-line script you would paste into a terminal.</DialogDescription>
         </DialogHeader>
         <DialogForm
-          className="command-form"
+          className="flex flex-col gap-2"
           onSubmit={form.handleSubmit((values) =>
             onSubmit({
               project_id: projectId,
@@ -155,15 +155,15 @@ export function CommandDialog({
             <Label>Script</Label>
             <Textarea
               {...form.register("script")}
-              className="script-input min-h-[168px] font-mono text-[12px] leading-relaxed"
+              className="min-h-[168px] font-mono text-[12px] leading-relaxed"
               rows={10}
               placeholder={"cd frontend\nnpm run dev"}
             />
             <FieldError message={form.formState.errors.script?.message} />
           </DialogField>
 
-          <DialogToggleRow className="compact-toggle-item">
-            <DialogToggleCopy className="toggle-info">
+          <DialogToggleRow className="items-start">
+            <DialogToggleCopy >
               <h4>Run via external terminal</h4>
               <p>Launch a new OS terminal window to run this command (useful for interactive CLI tools)</p>
             </DialogToggleCopy>
@@ -185,4 +185,5 @@ export function CommandDialog({
     </Dialog>
   );
 }
+
 

@@ -111,7 +111,7 @@ export function KillPortsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="wide-dialog w-[min(540px,calc(100vw-20px))]">
+      <DialogContent className="w-[min(540px,calc(100vw-20px))]">
         <DialogHeader>
           <DialogTitle>Kill ports for "{command.name}"</DialogTitle>
           <DialogDescription>Scan results for ports: {ports.map((port) => `:${port}`).join(", ")}</DialogDescription>
@@ -206,6 +206,7 @@ export function KillPortsDialog({
     </Dialog>
   );
 }
+
 
 
 

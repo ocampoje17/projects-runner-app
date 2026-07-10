@@ -61,14 +61,14 @@ export function CommandCard({
 
   return (
     <Card
-      className={`draggable-card command-card-shell ${isRunning ? "running" : ""} ${run?.status === "failed" ? "failed" : ""}`}
+      className={`overflow-hidden rounded-[10px] border border-app-border bg-card shadow-app-card transition-all ${isRunning ? "command-card-running" : ""} ${run?.status === "failed" ? "command-card-failed" : "hover:-translate-y-px hover:border-primary/30 hover:shadow-app-card-hover"}`}
     >
-      <CardHeader className="command-card-header">
-        <div className="title-cluster flex min-w-0 items-center gap-2">
+      <CardHeader className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
           <EntityAvatar name={command.name} path={command.avatar_path} />
-          <div className="command-card-title-block">
-            <h3 className="command-card-title">{command.name}</h3>
-            <div className="command-card-meta">
+          <div className="min-w-0">
+            <h3 className="truncate text-[13px] font-semibold text-app-title">{command.name}</h3>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <Badge variant={badgeVariant}>{run?.status ?? "ready"}</Badge>
               {Boolean(command.run_in_external_terminal) && (
                 <Badge variant="muted" title="Runs in external terminal">
@@ -78,7 +78,7 @@ export function CommandCard({
             </div>
           </div>
         </div>
-        <div className="icon-menu command-card-menu flex items-center gap-1">
+        <div className="flex items-center gap-1">
           <Button size="icon" variant="ghost" onClick={onEdit} aria-label="Edit command">
             <Pencil size={16} />
           </Button>
@@ -87,9 +87,9 @@ export function CommandCard({
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="command-card-body">
+      <CardContent className="space-y-2">
         {ports.length > 0 && (
-          <div className="port-list command-card-ports mb-2 flex flex-wrap gap-1">
+          <div className="mb-2 flex flex-wrap gap-1">
             {ports.map((port) => (
               <Badge key={port} variant="muted">
                 :{port}
@@ -97,15 +97,15 @@ export function CommandCard({
             ))}
           </div>
         )}
-        <pre className="script-preview command-card-script overflow-x-auto rounded-[8px] bg-input p-2 text-[11px] text-muted-foreground">{command.script}</pre>
-        <div className="card-actions command-card-actions mt-2 flex flex-wrap items-center gap-1.5">
+        <pre className="overflow-x-auto rounded-[8px] border border-app-border/70 bg-[var(--script-preview-bg)] p-2 font-mono text-[11px] leading-relaxed text-[var(--script-preview-color)]">{command.script}</pre>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <ActionSwapButton
             size="sm"
             variant={isRunning || isStopping ? "outline" : "primary"}
             animation="blur"
             cycle={false}
             disabled={isStopping}
-            className={isRunning || isStopping ? "btn-stop border-destructive text-destructive hover:bg-destructive/10" : undefined}
+            className={isRunning || isStopping ? "min-w-[95px] justify-center border-destructive text-destructive hover:bg-destructive/10" : undefined}
             value={isStopping ? "stopping" : isRunning ? "stop" : "run"}
             onClick={() => {
               if (isStopping) return;
@@ -256,48 +256,48 @@ export function LogPanel({
   }, [activeCommandId, onActiveCommandChange, selectedCommandId]);
 
   return (
-    <aside className="log-panel" style={{ height: panelHeight }}>
+    <aside className="log-panel relative flex h-[320px] min-h-[200px] shrink-0 flex-col overflow-hidden rounded-[10px] border border-app-border bg-[var(--log-panel-bg)] shadow-app-card" style={{ height: panelHeight }}>
       <div
-        className={`terminal-resize-handle ${isResizing ? "active" : ""}`}
+        className={`absolute left-0 right-0 top-[-4px] z-50 h-2 cursor-ns-resize bg-transparent transition-colors ${isResizing ? "bg-primary/40" : "hover:bg-primary/40"}`}
         onMouseDown={startResize}
         onDoubleClick={handleDoubleClick}
         title="Drag to resize, double click to reset"
       />
       {visibleCommands.length === 0 ? (
         <>
-          <div className="log-header">
-            <div className="log-header-copy">
-              <h3>Terminal Output</h3>
-              <p>No command is selected yet</p>
+          <div className="flex items-center justify-between gap-3 border-b border-app-border bg-[var(--log-header-bg)] px-2.5 py-1">
+            <div className="min-w-0 px-1 py-1">
+              <h3 className="text-[13px] font-semibold text-app-title">Terminal Output</h3>
+              <p className="text-[11px] text-muted-foreground">No command is selected yet</p>
             </div>
           </div>
-          <div className="log-terminal" ref={terminalRef}>
+          <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[#03050a]" ref={terminalRef}>
             <TerminalUi colorMode={theme === "light" ? ColorMode.Light : ColorMode.Dark} height="100%" name="Output" prompt="" TopButtonsPanel={() => null}>
               <TerminalOutput>
-                <span className="terminal-muted">Run a command to open its terminal tab.</span>
+                <span className="terminal-muted text-muted-foreground">Run a command to open its terminal tab.</span>
               </TerminalOutput>
             </TerminalUi>
           </div>
         </>
       ) : (
         <Tabs
-          className="terminal-tabs"
+          className="flex min-h-0 flex-1 flex-col"
           value={String(selectedCommandId)}
           onValueChange={(value) => onActiveCommandChange(Number(value))}
         >
-          <div className="log-header">
-            <TabsList className="terminal-tabs-list">
+          <div className="flex items-center justify-between gap-3 border-b border-app-border bg-[var(--log-header-bg)] px-2.5 py-1">
+            <TabsList className="flex min-h-8 items-center gap-1 overflow-x-auto border-0 bg-transparent p-0.5">
               {visibleCommands.map((command) => (
-                <div className="terminal-tab-chip" key={command.id}>
-                  <TabsTrigger className="terminal-tabs-trigger" value={String(command.id)}>
-                    <span className="terminal-tab-label">{command.name}</span>
+                <div className="inline-flex items-center gap-0.5" key={command.id}>
+                  <TabsTrigger className="max-w-[170px] gap-2 rounded-[6px] border border-transparent px-2 text-[11.5px] data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-app-title" value={String(command.id)}>
+                    <span className="truncate">{command.name}</span>
                     {runs[command.id]?.status === "running" && <span className="terminal-tab-status" />}
                   </TabsTrigger>
                   <Button
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="close-tab-btn"
+                    className="ml-0.5 h-6 w-6 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                     onClick={() => onCloseTab(command.id)}
                     aria-label={`Close ${command.name} log tab`}
                     title="Close tab and stop process"
@@ -307,7 +307,7 @@ export function LogPanel({
                 </div>
               ))}
             </TabsList>
-            <div className="log-actions">
+            <div className="flex items-center gap-1.5 pr-1">
               <Button
                 size="sm"
                 variant="secondary"
@@ -319,8 +319,8 @@ export function LogPanel({
             </div>
           </div>
           {selectedCommand && (
-            <TabsContent className="terminal-tabs-content" value={String(selectedCommand.id)}>
-              <div className="log-terminal" key={selectedCommand.id} ref={terminalRef}>
+            <TabsContent className="m-0 flex h-full min-h-0 flex-1 overflow-hidden" value={String(selectedCommand.id)}>
+              <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[#03050a]" key={selectedCommand.id} ref={terminalRef}>
                 <TerminalUi
                   colorMode={theme === "light" ? ColorMode.Light : ColorMode.Dark}
                   height="100%"
@@ -330,14 +330,14 @@ export function LogPanel({
                 >
                   {selectedLogs.length === 0 ? (
                     <TerminalOutput>
-                      <span className="terminal-muted">Waiting for output...</span>
+                      <span className="terminal-muted text-muted-foreground">Waiting for output...</span>
                     </TerminalOutput>
                   ) : (
                     selectedLogs.map((line) => (
                       <TerminalOutput key={line.id}>
-                        <span className={`terminal-stream ${line.stream}`}>
-                          {showLogsTimestamp && <span className="terminal-timestamp">[{line.timestamp}]</span>}
-                          {showStreamName && <span className="terminal-stream-name">[{line.stream}] </span>}
+                        <span className={`terminal-stream font-inherit whitespace-inherit ${line.stream === "stdout" ? "text-emerald-200" : "text-rose-200"} ${line.stream}`}>
+                          {showLogsTimestamp && <span className="mr-1 opacity-50">[{line.timestamp}]</span>}
+                          {showStreamName && <span className="mr-1 opacity-70">[{line.stream}] </span>}
                           {line.line}
                         </span>
                       </TerminalOutput>
