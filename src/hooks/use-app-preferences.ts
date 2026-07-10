@@ -1,0 +1,109 @@
+import { useEffect, useState } from "react";
+import { ACCENT_THEMES, type AccentColor } from "../lib/theme";
+
+const SYSTEM_MONO_FAMILY = '"Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace';
+
+export function useAppPreferences() {
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    const saved = localStorage.getItem("theme");
+    return saved === "dark" || saved === "light" ? saved : "light";
+  });
+
+  const [accent, setAccent] = useState<AccentColor>(() => {
+    const saved = localStorage.getItem("accent") as AccentColor;
+    return saved === "indigo" || saved === "emerald" || saved === "rose" || saved === "amber" || saved === "sky"
+      ? saved
+      : "indigo";
+  });
+
+  const [terminalFontSize, setTerminalFontSize] = useState(() => localStorage.getItem("terminalFontSize") || "13px");
+
+  const [terminalFontFamily, setTerminalFontFamily] = useState(() => {
+    const saved = localStorage.getItem("terminalFontFamily");
+    if (saved === "System Mono" || saved === "Consolas" || saved === "SF Mono" || saved === "Monospace") {
+      return saved;
+    }
+
+    return "System Mono";
+  });
+
+  const [autoClearLogs, setAutoClearLogs] = useState(() => {
+    const saved = localStorage.getItem("autoClearLogs");
+    return saved === null ? true : saved === "true";
+  });
+
+  const [showLogsTimestamp, setShowLogsTimestamp] = useState(() => localStorage.getItem("showLogsTimestamp") === "true");
+
+  const [showStreamName, setShowStreamName] = useState(() => {
+    const saved = localStorage.getItem("showStreamName");
+    return saved === null ? true : saved === "true";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("theme", theme);
+    const root = document.documentElement;
+    if (theme === "light") {
+      root.classList.add("theme-light");
+      root.classList.remove("theme-dark");
+    } else {
+      root.classList.add("theme-dark");
+      root.classList.remove("theme-light");
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("accent", accent);
+    const root = document.documentElement;
+    const colors = ACCENT_THEMES[accent] || ACCENT_THEMES.indigo;
+    root.style.setProperty("--primary-color", colors.primary);
+    root.style.setProperty("--primary-gradient", colors.gradient);
+    root.style.setProperty("--primary-glow", colors.glow);
+  }, [accent]);
+
+  useEffect(() => {
+    localStorage.setItem("terminalFontSize", terminalFontSize);
+    document.documentElement.style.setProperty("--terminal-font-size", terminalFontSize);
+  }, [terminalFontSize]);
+
+  useEffect(() => {
+    localStorage.setItem("terminalFontFamily", terminalFontFamily);
+    const fontValue =
+      terminalFontFamily === "System Mono" || terminalFontFamily === "JetBrains Mono" || terminalFontFamily === "Fira Code"
+        ? SYSTEM_MONO_FAMILY
+        : terminalFontFamily === "Consolas"
+          ? '"Consolas", "Cascadia Mono", monospace'
+          : terminalFontFamily === "SF Mono"
+            ? '"SF Mono", Menlo, Monaco, monospace'
+            : "monospace";
+    document.documentElement.style.setProperty("--terminal-font-family", fontValue);
+  }, [terminalFontFamily]);
+
+  useEffect(() => {
+    localStorage.setItem("autoClearLogs", String(autoClearLogs));
+  }, [autoClearLogs]);
+
+  useEffect(() => {
+    localStorage.setItem("showLogsTimestamp", String(showLogsTimestamp));
+  }, [showLogsTimestamp]);
+
+  useEffect(() => {
+    localStorage.setItem("showStreamName", String(showStreamName));
+  }, [showStreamName]);
+
+  return {
+    theme,
+    setTheme,
+    accent,
+    setAccent,
+    terminalFontSize,
+    setTerminalFontSize,
+    terminalFontFamily,
+    setTerminalFontFamily,
+    autoClearLogs,
+    setAutoClearLogs,
+    showLogsTimestamp,
+    setShowLogsTimestamp,
+    showStreamName,
+    setShowStreamName,
+  };
+}

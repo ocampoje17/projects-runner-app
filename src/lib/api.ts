@@ -1,5 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 
+const BROWSER_PREVIEW_ONLY_MESSAGE = "This action is only available in the desktop app.";
+
+export function isDesktopRuntime() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return typeof (window as typeof window & {
+    __TAURI_INTERNALS__?: { invoke?: unknown };
+  }).__TAURI_INTERNALS__?.invoke === "function";
+}
+
+async function invokeDesktop<T>(command: string, args?: Record<string, unknown>) {
+  if (!isDesktopRuntime()) {
+    throw new Error(BROWSER_PREVIEW_ONLY_MESSAGE);
+  }
+
+  return invoke<T>(command, args);
+}
+
 export type Project = {
   id: number;
   name: string;
@@ -176,43 +196,50 @@ export type RunFinishedPayload = {
 };
 
 export const api = {
-  listProjects: () => invoke<Project[]>("list_projects"),
+  listProjects: () => (isDesktopRuntime() ? invokeDesktop<Project[]>("list_projects") : Promise.resolve([])),
   createProject: (input: ProjectInput) =>
-    invoke<Project>("create_project", { input }),
+    invokeDesktop<Project>("create_project", { input }),
   updateProject: (id: number, input: ProjectInput) =>
-    invoke<Project>("update_project", { id, input }),
-  deleteProject: (id: number) => invoke<void>("delete_project", { id }),
+    invokeDesktop<Project>("update_project", { id, input }),
+  deleteProject: (id: number) => invokeDesktop<void>("delete_project", { id }),
   listCommands: (projectId: number) =>
-    invoke<ProjectCommand[]>("list_commands", { projectId }),
+    isDesktopRuntime()
+      ? invokeDesktop<ProjectCommand[]>("list_commands", { projectId })
+      : Promise.resolve([]),
   createCommand: (input: CommandInput) =>
-    invoke<ProjectCommand>("create_command", { input }),
+    invokeDesktop<ProjectCommand>("create_command", { input }),
   updateCommand: (id: number, input: CommandInput) =>
-    invoke<ProjectCommand>("update_command", { id, input }),
-  deleteCommand: (id: number) => invoke<void>("delete_command", { id }),
+    invokeDesktop<ProjectCommand>("update_command", { id, input }),
+  deleteCommand: (id: number) => invokeDesktop<void>("delete_command", { id }),
   runCommand: (commandId: number) =>
-    invoke<CommandRun>("run_command", { commandId }),
-  stopCommand: (runId: number) => invoke<void>("stop_command", { runId }),
-  killPorts: (ports: number[]) => invoke<void>("kill_ports", { ports }),
-  getPortsProcesses: (ports: number[]) => invoke<PortProcess[]>("get_ports_processes", { ports }),
-  killProcesses: (pids: number[]) => invoke<void>("kill_processes", { pids }),
-  appInfo: () => invoke<AppInfo>("app_info"),
+    invokeDesktop<CommandRun>("run_command", { commandId }),
+  stopCommand: (runId: number) => invokeDesktop<void>("stop_command", { runId }),
+  killPorts: (ports: number[]) => invokeDesktop<void>("kill_ports", { ports }),
+  getPortsProcesses: (ports: number[]) => invokeDesktop<PortProcess[]>("get_ports_processes", { ports }),
+  killProcesses: (pids: number[]) => invokeDesktop<void>("kill_processes", { pids }),
+  appInfo: () =>
+    (isDesktopRuntime()
+      ? invokeDesktop<AppInfo>("app_info")
+      : Promise.resolve({ name: "Projects Runner", version: "Browser Preview" })),
   exportProject: (projectId: number) =>
-    invoke<string | null>("export_project", { projectId }),
-  pickPrdFile: () => invoke<ImportPreview | null>("pick_prd_file"),
+    invokeDesktop<string | null>("export_project", { projectId }),
+  pickPrdFile: () => invokeDesktop<ImportPreview | null>("pick_prd_file"),
   analyzePrdFile: (filePath: string) =>
-    invoke<PrdImportAnalysis>("analyze_prd_file", { filePath }),
+    invokeDesktop<PrdImportAnalysis>("analyze_prd_file", { filePath }),
   importPrdFile: (filePath: string) =>
-    invoke<Project>("import_prd_file", { filePath }),
+    invokeDesktop<Project>("import_prd_file", { filePath }),
   applyPrdImport: (request: ApplyPrdImportRequest) =>
-    invoke<Project>("apply_prd_import", { request }),
-  pickProjectFolder: () => invoke<string | null>("pick_project_folder"),
+    invokeDesktop<Project>("apply_prd_import", { request }),
+  pickProjectFolder: () => invokeDesktop<string | null>("pick_project_folder"),
   pickAndCopyAvatar: (kind: "project" | "command", ownerId?: number) =>
-    invoke<string | null>("pick_and_copy_avatar", {
+    invokeDesktop<string | null>("pick_and_copy_avatar", {
       kind,
       ownerId: ownerId ?? null,
     }),
-  showProjectInExplorer: (path: string) => invoke<void>("show_project_in_explorer", { path }),
-  openInExternalTerminal: (path: string) => invoke<void>("open_in_external_terminal", { path }),
+  showProjectInExplorer: (path: string) => invokeDesktop<void>("show_project_in_explorer", { path }),
+  openInExternalTerminal: (path: string) => invokeDesktop<void>("open_in_external_terminal", { path }),
   takePendingPrdOpenRequests: () =>
-    invoke<string[]>("take_pending_prd_open_requests"),
+    (isDesktopRuntime()
+      ? invokeDesktop<string[]>("take_pending_prd_open_requests")
+      : Promise.resolve([])),
 };

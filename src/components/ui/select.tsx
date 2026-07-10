@@ -1,7 +1,7 @@
 import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
-import { cn } from "../../lib/utils";
+import { cn } from "@/lib/utils";
 
 export const Select = SelectPrimitive.Root;
 export const SelectGroup = SelectPrimitive.Group;
@@ -13,7 +13,10 @@ export const SelectTrigger = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <SelectPrimitive.Trigger
     ref={ref}
-    className={cn("select-trigger", className)}
+    className={cn(
+      "select-trigger flex h-8 w-full items-center justify-between rounded-[8px] border border-app-border bg-input px-2.5 py-1 text-left text-[12.5px] text-foreground outline-none transition-colors app-focus-ring",
+      className,
+    )}
     {...props}
   >
     {children}
@@ -31,7 +34,11 @@ export const SelectContent = React.forwardRef<
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
-      className={cn("select-content", position === "popper" && "select-content-popper", className)}
+      className={cn(
+        "select-content z-[1100] min-w-[8rem] overflow-hidden rounded-[8px] border border-app-border bg-popover text-popover-foreground shadow-app-dialog",
+        position === "popper" && "select-content-popper",
+        className,
+      )}
       position={position}
       {...props}
     >
@@ -40,7 +47,7 @@ export const SelectContent = React.forwardRef<
       </SelectPrimitive.ScrollUpButton>
       <SelectPrimitive.Viewport
         className={cn(
-          "select-viewport",
+          "select-viewport p-1",
           position === "popper" && "select-viewport-popper"
         )}
       >
@@ -60,7 +67,10 @@ export const SelectItem = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
-    className={cn("select-item", className)}
+    className={cn(
+      "select-item relative flex min-h-7 w-full cursor-default items-center rounded-[6px] py-1 pl-7 pr-2 text-[12.5px] text-app-text-secondary outline-none transition-colors data-[disabled]:pointer-events-none data-[highlighted]:bg-muted data-[highlighted]:text-app-title",
+      className,
+    )}
     {...props}
   >
     <span className="select-item-indicator-container">
