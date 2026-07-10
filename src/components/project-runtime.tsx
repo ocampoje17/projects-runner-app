@@ -393,7 +393,7 @@ export function LogPanel({
           variant="underline"
         >
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border bg-[var(--log-header-bg)] px-2.5 py-1">
-            <TabsList className="flex min-h-9 min-w-0 flex-1 items-center gap-1 overflow-x-auto border-0 bg-transparent p-0">
+            <TabsList className="flex min-h-9 min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden border-0 bg-transparent p-0">
               {visibleCommands.map((command) => (
                 <div className="inline-flex items-center gap-0.5" key={command.id}>
                   <TabsTrigger className="max-w-[180px] gap-2 px-3 text-[12px]" value={String(command.id)}>
