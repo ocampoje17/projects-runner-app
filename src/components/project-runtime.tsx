@@ -1,3 +1,4 @@
+import { ActionSwapButton } from "./motion/action-swap";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
@@ -98,26 +99,30 @@ export function CommandCard({
         )}
         <pre className="script-preview command-card-script">{command.script}</pre>
         <div className="card-actions command-card-actions">
-          {isRunning ? (
-            <Button size="sm" variant="danger" className="btn-stop" onClick={onStop} disabled={isStopping}>
-              {isStopping ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Stopping
-                </>
-              ) : (
-                <>
-                  <Square size={14} />
-                  Stop
-                </>
-              )}
-            </Button>
-          ) : (
-            <Button size="sm" onClick={onRun}>
-              <Play size={14} />
-              Run
-            </Button>
-          )}
+          <ActionSwapButton
+            size="sm"
+            variant={isRunning || isStopping ? "outline" : "primary"}
+            animation="blur"
+            cycle={false}
+            disabled={isStopping}
+            className={isRunning || isStopping ? "btn-stop border-destructive text-destructive hover:bg-destructive/10" : undefined}
+            value={isStopping ? "stopping" : isRunning ? "stop" : "run"}
+            onClick={() => {
+              if (isStopping) return;
+              if (isRunning) onStop();
+              else onRun();
+            }}
+            items={[
+              { id: "run", label: "Run", icon: <Play size={14} />, ariaLabel: `Run ${command.name}` },
+              { id: "stop", label: "Stop", icon: <Square size={14} />, ariaLabel: `Stop ${command.name}` },
+              {
+                id: "stopping",
+                label: "Stopping",
+                icon: <Loader2 size={14} className="animate-spin" />,
+                ariaLabel: `Stopping ${command.name}`,
+              },
+            ]}
+          />
           {isRunning && (
             <Button size="sm" variant="secondary" onClick={onRestart} disabled={isRestarting}>
               {isRestarting ? (
@@ -347,3 +352,4 @@ export function LogPanel({
     </aside>
   );
 }
+

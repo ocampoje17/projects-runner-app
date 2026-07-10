@@ -3,6 +3,7 @@ import appIcon from "../assets/app-icon.png";
 import type { Project } from "../lib/api";
 import { EntityAvatar } from "./entity-avatar";
 import { Button } from "./ui/button";
+import { cn } from "@/lib/utils";
 
 export interface ProjectsSidebarProps {
   projects: Project[];
@@ -24,17 +25,17 @@ export function ProjectsSidebar({
   onSelectProject,
 }: ProjectsSidebarProps) {
   return (
-    <aside className="sidebar">
-      <div className="sidebar-header">
-        <div className="brand-lockup">
-          <img className="app-icon" src={appIcon} alt="" />
+    <aside className="sidebar flex h-full w-[260px] shrink-0 flex-col border-r border-app-border bg-sidebar">
+      <div className="sidebar-header border-b border-app-border px-3 py-3">
+        <div className="brand-lockup flex items-center gap-2.5">
+          <img className="app-icon h-8 w-8 rounded-[8px]" src={appIcon} alt="" />
           <div>
-            <h1>Projects Runner</h1>
-            <p>{projects.length} projects</p>
+            <h1 className="text-[14px] font-semibold text-app-title">Projects Runner</h1>
+            <p className="text-[11px] text-muted-foreground">{projects.length} projects</p>
           </div>
         </div>
       </div>
-      <div className="sidebar-actions">
+      <div className="sidebar-actions flex flex-col gap-2 border-b border-app-border p-3">
         <Button onClick={onAddProject}>
           <Plus size={15} />
           Add Project
@@ -45,25 +46,36 @@ export function ProjectsSidebar({
         </Button>
       </div>
 
-      <div className="project-list">
+      <div className="project-list flex-1 space-y-1 overflow-y-auto p-2">
         {projects.map((project) => (
           <Button
             type="button"
             variant="ghost"
-            className={`project-row ${selectedProjectId === project.id ? "active" : ""}`}
+            className={cn(
+              "project-row h-auto w-full justify-start gap-2 rounded-[8px] px-2 py-2 text-left",
+              selectedProjectId === project.id && "active bg-primary/10 text-app-title",
+            )}
             key={project.id}
             onClick={() => onSelectProject(project.id)}
           >
             <EntityAvatar name={project.name} path={project.avatar_path} />
-            <span>
-              <strong>{project.name}</strong>
+            <span className="min-w-0 flex-1">
+              <strong className="block truncate text-[12.5px] font-semibold">{project.name}</strong>
             </span>
           </Button>
         ))}
-        {projects.length === 0 && <p className="empty-text">Create your first project to start running commands.</p>}
+        {projects.length === 0 && (
+          <p className="empty-text px-2 py-3 text-[12px] text-muted-foreground">
+            Create your first project to start running commands.
+          </p>
+        )}
       </div>
-      <div className="sidebar-footer">
-        <Button className="settings-button" variant={settingsOpen ? "secondary" : "ghost"} onClick={onOpenSettings}>
+      <div className="sidebar-footer border-t border-app-border p-2">
+        <Button
+          className="settings-button w-full justify-start"
+          variant={settingsOpen ? "secondary" : "ghost"}
+          onClick={onOpenSettings}
+        >
           <Settings size={16} />
           Settings
         </Button>
@@ -91,16 +103,16 @@ export function ProjectWorkspaceHeader({
 }: ProjectWorkspaceHeaderProps) {
   return (
     <>
-      <header className="workspace-header">
-        <div className="title-cluster">
+      <header className="workspace-header flex flex-wrap items-start justify-between gap-3">
+        <div className="title-cluster flex min-w-0 items-center gap-2.5">
           <EntityAvatar name={selectedProject.name} path={selectedProject.avatar_path} />
-          <div className="workspace-title-block">
-            <h2>{selectedProject.name}</h2>
-            <p className="workspace-path">{selectedProject.path}</p>
+          <div className="workspace-title-block min-w-0">
+            <h2 className="truncate text-[18px] font-semibold text-app-title">{selectedProject.name}</h2>
+            <p className="workspace-path truncate text-[12px] text-muted-foreground">{selectedProject.path}</p>
           </div>
         </div>
-        <div className="toolbar project-toolbar">
-          <div className="toolbar-group toolbar-group-utility">
+        <div className="toolbar project-toolbar flex flex-wrap items-center gap-2">
+          <div className="toolbar-group toolbar-group-utility flex items-center gap-1.5">
             <Button variant="outline" size="icon" onClick={onOpenExplorer} title="Show in Explorer">
               <FolderOpen size={16} />
             </Button>
@@ -111,7 +123,7 @@ export function ProjectWorkspaceHeader({
               <Share2 size={16} />
             </Button>
           </div>
-          <div className="toolbar-group toolbar-group-primary">
+          <div className="toolbar-group toolbar-group-primary flex items-center gap-1.5">
             <Button variant="outline" onClick={onEditProject}>
               <Pencil size={16} />
               Edit
@@ -124,7 +136,9 @@ export function ProjectWorkspaceHeader({
         </div>
       </header>
 
-      {selectedProject.description && <p className="project-description">{selectedProject.description}</p>}
+      {selectedProject.description && (
+        <p className="project-description text-[12.5px] text-muted-foreground">{selectedProject.description}</p>
+      )}
     </>
   );
 }
@@ -136,13 +150,15 @@ export interface WelcomeWorkspaceProps {
 
 export function WelcomeWorkspace({ onAddProject, onImportProject }: WelcomeWorkspaceProps) {
   return (
-    <div className="welcome">
-      <img className="welcome-icon" src={appIcon} alt="" />
-      <div className="welcome-copy">
-        <h2>Manage repeat project commands</h2>
-        <p>Add a project folder, then save multi-line commands you run often.</p>
+    <div className="welcome mx-auto flex max-w-[520px] flex-col items-center gap-4 py-16 text-center">
+      <img className="welcome-icon h-16 w-16 rounded-[14px]" src={appIcon} alt="" />
+      <div className="welcome-copy space-y-2">
+        <h2 className="text-[20px] font-semibold text-app-title">Manage repeat project commands</h2>
+        <p className="text-[13px] text-muted-foreground">
+          Add a project folder, then save multi-line commands you run often.
+        </p>
       </div>
-      <div className="welcome-actions">
+      <div className="welcome-actions flex flex-wrap items-center justify-center gap-2">
         <Button onClick={onAddProject}>
           <Plus size={16} />
           Add project

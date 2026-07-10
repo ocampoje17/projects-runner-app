@@ -129,11 +129,12 @@ function App() {
   const projectMutation = useMutation({
     mutationFn: ({ id, input }: { id?: number; input: ProjectInput }) =>
       id ? api.updateProject(id, input) : api.createProject(input),
-    onSuccess: (project) => {
+    onSuccess: (project, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
       setSelectedProjectId(project.id);
       setProjectDialogOpen(false);
       setEditingProject(null);
+      showSuccess(variables.id ? "Project updated" : "Project created", project.name);
     },
     onError: showError,
   });
@@ -142,6 +143,7 @@ function App() {
     mutationFn: ({ id, input }: { id: number; input: ProjectInput }) => api.updateProject(id, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      showSuccess("Notes saved");
     },
     onError: showError,
   });
@@ -151,6 +153,7 @@ function App() {
     onSuccess: (_, id) => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
       setSelectedProjectId((current) => (current === id ? null : current));
+      showSuccess("Project deleted");
     },
     onError: showError,
   });
@@ -158,10 +161,11 @@ function App() {
   const commandMutation = useMutation({
     mutationFn: ({ id, input }: { id?: number; input: CommandInput }) =>
       id ? api.updateCommand(id, input) : api.createCommand(input),
-    onSuccess: () => {
+    onSuccess: (_command, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["commands", selectedProject?.id] });
       setCommandDialogOpen(false);
       setEditingCommand(null);
+      showSuccess(variables.id ? "Command updated" : "Command created", variables.input.name);
     },
     onError: showError,
   });
@@ -170,13 +174,17 @@ function App() {
     mutationFn: api.deleteCommand,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["commands", selectedProject?.id] });
+      showSuccess("Command deleted");
     },
     onError: showError,
   });
 
   const exportProjectMutation = useMutation({
     mutationFn: api.exportProject,
-    onSuccess: () => setExportDialogOpen(false),
+    onSuccess: () => {
+      setExportDialogOpen(false);
+      showSuccess("Project exported", selectedProject?.name);
+    },
     onError: showError,
   });
 
@@ -187,6 +195,7 @@ function App() {
       void queryClient.invalidateQueries({ queryKey: ["commands"] });
       setSelectedProjectId(project.id);
       resetImportFlow();
+      showSuccess("Project imported", project.name);
     },
     onError: showError,
   });
@@ -293,6 +302,16 @@ function App() {
       duration: 6200,
     });
   }
+
+  function showSuccess(title: string, description?: string) {
+    showToast({
+      status: "success",
+      title,
+      description,
+      duration: 4200,
+    });
+  }
+
 
   function openProjectDialog(project?: Project) {
     setEditingProject(project ?? null);
@@ -566,9 +585,11 @@ function App() {
         onRefreshProcesses={handleRefreshProcesses}
       />
 
-      <AnimatedToastStack toasts={toasts} onDismiss={dismissToast} />
+      <AnimatedToastStack toasts={toasts} onDismiss={dismissToast} position="top-right" />
     </main>
   );
 }
 
 export default App;
+
+

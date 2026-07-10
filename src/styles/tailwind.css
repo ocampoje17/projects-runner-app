@@ -19,6 +19,9 @@
   --color-primary-foreground: #ffffff;
   --color-destructive: var(--danger-color);
   --color-destructive-foreground: #ffffff;
+  --color-success: var(--success-color);
+  --color-warning: var(--warning-color);
+  --color-ring: var(--primary-color);
 
   --color-shell: var(--bg-shell);
   --color-workspace: var(--bg-workspace);

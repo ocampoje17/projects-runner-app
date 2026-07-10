@@ -34,8 +34,8 @@ export function AppearanceSettingsPanel({
   setAccent: (accent: AccentColor) => void;
 }) {
   return (
-    <div className="settings-pane fade-in">
-      <div className="settings-card">
+    <div className="settings-pane fade-in space-y-3">
+      <div className="settings-card rounded-[10px] border border-app-border bg-card p-3 shadow-app-card">
         <div className="settings-card-header">
           <Palette className="accent-icon" size={20} />
           <div>
@@ -44,7 +44,7 @@ export function AppearanceSettingsPanel({
           </div>
         </div>
         <div className="settings-card-body">
-          <div className="theme-grid">
+          <div className="theme-grid grid grid-cols-2 gap-2">
             <Button
               type="button"
               variant="ghost"
@@ -90,7 +90,7 @@ export function AppearanceSettingsPanel({
         </div>
       </div>
 
-      <div className="settings-card">
+      <div className="settings-card rounded-[10px] border border-app-border bg-card p-3 shadow-app-card">
         <div className="settings-card-header">
           <Sparkles className="accent-icon" size={20} />
           <div>
@@ -146,8 +146,8 @@ export function TerminalSettingsPanel({
   setShowStreamName: (show: boolean) => void;
 }) {
   return (
-    <div className="settings-pane fade-in">
-      <div className="settings-card">
+    <div className="settings-pane fade-in space-y-3">
+      <div className="settings-card rounded-[10px] border border-app-border bg-card p-3 shadow-app-card">
         <div className="settings-card-header">
           <Terminal className="accent-icon" size={20} />
           <div>
@@ -192,7 +192,7 @@ export function TerminalSettingsPanel({
         </div>
       </div>
 
-      <div className="settings-card">
+      <div className="settings-card rounded-[10px] border border-app-border bg-card p-3 shadow-app-card">
         <div className="settings-card-header">
           <Layout className="accent-icon" size={20} />
           <div>
@@ -201,8 +201,8 @@ export function TerminalSettingsPanel({
           </div>
         </div>
         <div className="settings-card-body">
-          <div className="toggle-list">
-            <div className="toggle-item">
+          <div className="toggle-list flex flex-col gap-3">
+            <div className="toggle-item flex items-center justify-between gap-3">
               <div className="toggle-info">
                 <h4>Auto-clear logs on command execution</h4>
                 <p>Automatically wipe prior stdout/stderr logs whenever a command starts</p>
@@ -210,7 +210,7 @@ export function TerminalSettingsPanel({
               <Switch checked={autoClearLogs} onCheckedChange={setAutoClearLogs} />
             </div>
 
-            <div className="toggle-item">
+            <div className="toggle-item flex items-center justify-between gap-3">
               <div className="toggle-info">
                 <h4>Display line timestamps</h4>
                 <p>Prepend console logs with their arrival time (e.g. [10:32:01])</p>
@@ -218,7 +218,7 @@ export function TerminalSettingsPanel({
               <Switch checked={showLogsTimestamp} onCheckedChange={setShowLogsTimestamp} />
             </div>
 
-            <div className="toggle-item">
+            <div className="toggle-item flex items-center justify-between gap-3">
               <div className="toggle-info">
                 <h4>Show stream identifiers</h4>
                 <p>Show stdout / stderr badges alongside outputs</p>
@@ -229,7 +229,7 @@ export function TerminalSettingsPanel({
         </div>
       </div>
 
-      <div className="settings-card">
+      <div className="settings-card rounded-[10px] border border-app-border bg-card p-3 shadow-app-card">
         <div className="settings-card-header">
           <Info className="accent-icon" size={16} />
           <div>
@@ -282,7 +282,7 @@ export function SystemSettingsPanel({
   onResetCache: () => void;
 }) {
   return (
-    <div className="settings-pane fade-in">
+    <div className="settings-pane fade-in space-y-3">
       <div className="settings-card brand-details-card">
         <div className="brand-detail-header">
           <img className="welcome-icon" src={appIcon} alt="" />
@@ -328,3 +328,5 @@ export function SystemSettingsPanel({
     </div>
   );
 }
+
+
