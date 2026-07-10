@@ -1,10 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Download, FolderOpen, Loader2, Save, Trash2 } from "lucide-react";
+import { Download, FolderOpen, Save, Trash2 } from "lucide-react";
+
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { EntityAvatar, lucideIconValue } from "./entity-avatar";
 import { AvatarPicker, FieldError } from "./dialog-shared";
-import { Button } from "./ui/button";
+import { Button } from "./ui/button"
+import { StatefulButton } from "./ui/stateful-button";
 import {
   Dialog,
   DialogContent,
@@ -120,10 +122,14 @@ export function ProjectDialog({
                 Delete
               </Button>
             )}
-            <Button type="submit" disabled={isPending}>
-              {isPending ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
+            <StatefulButton
+              type="submit"
+              state={isPending ? "loading" : "idle"}
+              icon={<Save size={16} />}
+              loadingText="Saving"
+            >
               Save
-            </Button>
+            </StatefulButton>
           </DialogFooter>
         </DialogForm>
       </DialogContent>
@@ -159,10 +165,10 @@ export function ExportProjectDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={onSave} disabled={isPending}>
-            {isPending ? <Loader2 className="spin" size={16} /> : <Download size={16} />}
-            Save
-          </Button>
+          <StatefulButton onClick={onSave} state={isPending ? "loading" : "idle"} icon={<Download size={16} />} loadingText="Exporting">
+              Save
+          
+            </StatefulButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>

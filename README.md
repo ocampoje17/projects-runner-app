@@ -38,6 +38,7 @@ See `docs/beui-v2-migration-audit.md` for the migration scoreboard and PR histor
 npm run dev
 npm run build
 npm run tauri
+npm run beui:sync
 ```
 
 ## Recommended IDE Setup

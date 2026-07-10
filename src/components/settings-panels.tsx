@@ -22,6 +22,7 @@ import {
 import { Switch } from "./ui/switch";
 import type { AppInfo } from "../lib/api";
 import { ACCENT_THEMES, type AccentColor } from "../lib/theme";
+import { ThemeToggle } from "./motion/theme-toggle";
 import { cn } from "@/lib/utils";
 
 function SettingsCard({
@@ -66,6 +67,13 @@ export function AppearanceSettingsPanel({
 }) {
   return (
     <div className="fade-in space-y-3">
+      <div className="flex items-center justify-between gap-3 rounded-[12px] border border-app-border bg-card p-3 shadow-app-card">
+        <div>
+          <h3 className="text-[13px] font-semibold text-app-title">Quick theme toggle</h3>
+          <p className="text-[12px] text-muted-foreground">Animated light/dark switch with view-transition reveal</p>
+        </div>
+        <ThemeToggle theme={theme} onThemeChange={setTheme} variant="circle" start="center" />
+      </div>
       <SettingsCard
         icon={<Palette size={18} />}
         title="Visual Theme"
@@ -358,3 +366,4 @@ export function SystemSettingsPanel({
     </div>
   );
 }
+

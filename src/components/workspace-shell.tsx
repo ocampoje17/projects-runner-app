@@ -2,6 +2,7 @@ import { FileInput, FolderOpen, Pencil, Plus, Settings, Share2, Terminal } from 
 import appIcon from "../assets/app-icon.png";
 import type { Project } from "../lib/api";
 import { EntityAvatar } from "./entity-avatar";
+import { Tooltip } from "./motion/tooltip";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 
@@ -111,15 +112,21 @@ export function ProjectWorkspaceHeader({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="icon" onClick={onOpenExplorer} title="Show in Explorer">
-              <FolderOpen size={16} />
-            </Button>
-            <Button variant="outline" size="icon" onClick={onOpenTerminal} title="Open in External Terminal">
-              <Terminal size={16} />
-            </Button>
-            <Button variant="outline" size="icon" onClick={onShareProject} title="Share Project">
-              <Share2 size={16} />
-            </Button>
+            <Tooltip content="Show in Explorer">
+              <Button variant="outline" size="icon" onClick={onOpenExplorer} aria-label="Show in Explorer">
+                <FolderOpen size={16} />
+              </Button>
+            </Tooltip>
+            <Tooltip content="Open in External Terminal">
+              <Button variant="outline" size="icon" onClick={onOpenTerminal} aria-label="Open in External Terminal">
+                <Terminal size={16} />
+              </Button>
+            </Tooltip>
+            <Tooltip content="Share Project">
+              <Button variant="outline" size="icon" onClick={onShareProject} aria-label="Share Project">
+                <Share2 size={16} />
+              </Button>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-1.5">
             <Button variant="outline" onClick={onEditProject}>
@@ -168,3 +175,4 @@ export function WelcomeWorkspace({ onAddProject, onImportProject }: WelcomeWorks
     </div>
   );
 }
+

@@ -1,6 +1,8 @@
 import { ActionSwapButton } from "./motion/action-swap";
+import { Tooltip } from "./motion/tooltip";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { StatefulButton } from "./ui/stateful-button";
 import { Card, CardContent, CardHeader } from "./ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { EntityAvatar } from "./entity-avatar";
@@ -79,12 +81,16 @@ export function CommandCard({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Button size="icon" variant="ghost" onClick={onEdit} aria-label="Edit command">
-            <Pencil size={16} />
-          </Button>
-          <Button size="icon" variant="ghost" onClick={onDelete} aria-label="Delete command">
-            <Trash2 size={16} />
-          </Button>
+          <Tooltip content="Edit command">
+            <Button size="icon" variant="ghost" onClick={onEdit} aria-label="Edit command">
+              <Pencil size={16} />
+            </Button>
+          </Tooltip>
+          <Tooltip content="Delete command">
+            <Button size="icon" variant="ghost" onClick={onDelete} aria-label="Delete command">
+              <Trash2 size={16} />
+            </Button>
+          </Tooltip>
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -124,37 +130,44 @@ export function CommandCard({
             ]}
           />
           {isRunning && (
-            <Button size="sm" variant="secondary" onClick={onRestart} disabled={isRestarting}>
-              {isRestarting ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Restarting...
-                </>
-              ) : (
-                <>
-                  <RotateCcw size={14} />
-                  Rerun
-                </>
-              )}
-            </Button>
+            <ActionSwapButton
+              size="sm"
+              variant="secondary"
+              animation="blur"
+              cycle={false}
+              disabled={isRestarting}
+              value={isRestarting ? "restarting" : "restart"}
+              onClick={() => {
+                if (!isRestarting) onRestart();
+              }}
+              items={[
+                { id: "restart", label: "Rerun", icon: <RotateCcw size={14} />, ariaLabel: `Rerun ${command.name}` },
+                {
+                  id: "restarting",
+                  label: "Restarting",
+                  icon: <Loader2 size={14} className="animate-spin" />,
+                  ariaLabel: `Restarting ${command.name}`,
+                },
+              ]}
+            />
           )}
-          <Button size="sm" variant="secondary" onClick={onKillPorts} disabled={ports.length === 0 || isScanningPorts}>
-            {isScanningPorts ? (
-              <>
-                <Loader2 size={14} className="animate-spin" />
-                Scanning...
-              </>
-            ) : (
-              <>
-                <Trash2 size={14} />
-                Kill ports
-              </>
-            )}
-          </Button>
-          <Button size="sm" variant="secondary" onClick={onOpenLogs}>
-            <Terminal size={14} />
-            Logs
-          </Button>
+          <StatefulButton
+            size="sm"
+            variant="secondary"
+            onClick={onKillPorts}
+            disabled={ports.length === 0}
+            state={isScanningPorts ? "loading" : "idle"}
+            icon={<Trash2 size={14} />}
+            loadingText="Scanning..."
+          >
+            Kill ports
+          </StatefulButton>
+          <Tooltip content="Open terminal logs">
+            <Button size="sm" variant="secondary" onClick={onOpenLogs}>
+              <Terminal size={14} />
+              Logs
+            </Button>
+          </Tooltip>
         </div>
       </CardContent>
     </Card>
@@ -293,17 +306,18 @@ export function LogPanel({
                     <span className="truncate">{command.name}</span>
                     {runs[command.id]?.status === "running" && <span className="terminal-tab-status" />}
                   </TabsTrigger>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="ml-0.5 h-6 w-6 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => onCloseTab(command.id)}
-                    aria-label={`Close ${command.name} log tab`}
-                    title="Close tab and stop process"
-                  >
-                    <X size={12} />
-                  </Button>
+                  <Tooltip content="Close tab and stop process">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="ml-0.5 h-6 w-6 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => onCloseTab(command.id)}
+                      aria-label={`Close ${command.name} log tab`}
+                    >
+                      <X size={12} />
+                    </Button>
+                  </Tooltip>
                 </div>
               ))}
             </TabsList>

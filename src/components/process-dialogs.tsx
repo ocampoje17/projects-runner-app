@@ -1,8 +1,10 @@
-import { Check, Loader2 } from "lucide-react";
+import { Check } from "lucide-react";
+
 import { useEffect, useState } from "react";
 import type { PortProcess, ProjectCommand } from "../lib/api";
 import { commandPorts } from "../lib/command-utils";
-import { Button } from "./ui/button";
+import { Button } from "./ui/button"
+import { StatefulButton } from "./ui/stateful-button";
 import { Checkbox } from "./ui/checkbox";
 import {
   Dialog,
@@ -185,21 +187,16 @@ export function KillPortsDialog({
             Close
           </Button>
           {processes.length > 0 && (
-            <Button
+            <StatefulButton
               type="button"
               variant="danger"
-              disabled={selectedPids.size === 0 || isKilling}
+              disabled={selectedPids.size === 0}
+              state={isKilling ? "loading" : "idle"}
+              loadingText="Killing..."
               onClick={() => onKill(Array.from(selectedPids))}
             >
-              {isKilling ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Killing...
-                </>
-              ) : (
-                `Kill Selected (${selectedPids.size})`
-              )}
-            </Button>
+              {`Kill Selected (${selectedPids.size})`}
+            </StatefulButton>
           )}
         </DialogFooter>
       </DialogContent>

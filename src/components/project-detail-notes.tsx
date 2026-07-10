@@ -1,8 +1,10 @@
-import { Eye, EyeOff, Loader2, Pin, PinOff, Plus, Save, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Pin, PinOff, Plus, Save, Trash2 } from "lucide-react";
+
 import type { Project } from "../lib/api";
 import type { ProjectNote } from "./project-detail-types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { StatefulButton } from "./ui/stateful-button";
 import { Textarea } from "./ui/textarea";
 
 export function ProjectDetailNotes({
@@ -51,10 +53,7 @@ export function ProjectDetailNotes({
             placeholder="Thêm một note mới, ví dụ: cách start local, tài khoản test, checklist deploy..."
           />
           <div className="flex justify-end">
-            <Button onClick={onAddProjectNote} disabled={!newProjectNote.trim() || isSavingNotes}>
-              {isSavingNotes ? <Loader2 className="spin" size={16} /> : <Plus size={16} />}
-              Thêm note
-            </Button>
+            <StatefulButton onClick={onAddProjectNote} disabled={!newProjectNote.trim()} state={isSavingNotes ? "loading" : "idle"} icon={<Plus size={16} />} loadingText="Saving">Thêm note</StatefulButton>
           </div>
         </div>
 
@@ -94,14 +93,7 @@ export function ProjectDetailNotes({
                         className="min-h-[96px]"
                       />
                       <div className="flex items-center justify-between gap-2">
-                        <Button
-                          size="sm"
-                          onClick={() => onSaveProjectNote(note.id)}
-                          disabled={!note.content.trim() || isSavingNotes}
-                        >
-                          {isSavingNotes ? <Loader2 className="spin" size={14} /> : <Save size={14} />}
-                          Lưu
-                        </Button>
+                        <StatefulButton size="sm" onClick={() => onSaveProjectNote(note.id)} disabled={!note.content.trim()} state={isSavingNotes ? "loading" : "idle"} icon={<Save size={14} />} loadingText="Saving">Lưu</StatefulButton>
                       </div>
                     </>
                   ) : (
@@ -122,4 +114,5 @@ export function ProjectDetailNotes({
     </div>
   );
 }
+
 

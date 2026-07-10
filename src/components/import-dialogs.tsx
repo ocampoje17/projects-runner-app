@@ -1,5 +1,7 @@
-import { Check, FileInput, Loader2 } from "lucide-react";
-import { Button } from "./ui/button";
+import { Check, FileInput } from "lucide-react";
+
+import { Button } from "./ui/button"
+import { StatefulButton } from "./ui/stateful-button";
 import {
   Dialog,
   DialogContent,
@@ -90,10 +92,9 @@ export function ImportProjectDialog({
             </DialogMetaGrid>
             {preview.description && <p className="project-description preview-description">{preview.description}</p>}
             <DialogFooter>
-              <Button onClick={() => onImport(preview)} disabled={isPending}>
-                {isPending ? <Loader2 className="spin" size={16} /> : <FileInput size={16} />}
+              <StatefulButton onClick={() => onImport(preview)} state={isPending ? "loading" : "idle"} icon={<FileInput size={16} />} loadingText="Importing">
                 Import
-              </Button>
+              </StatefulButton>
             </DialogFooter>
           </>
         )}
@@ -177,10 +178,9 @@ export function ImportWizardDialog({
                   Continue to notes
                 </Button>
               )}
-              <Button type="button" onClick={onSubmit} disabled={isPending}>
-                {isPending ? <Loader2 className="spin" size={16} /> : <FileInput size={16} />}
+              <StatefulButton type="button" onClick={onSubmit} state={isPending ? "loading" : "idle"} icon={<FileInput size={16} />} loadingText="Applying">
                 Import selected
-              </Button>
+              </StatefulButton>
             </DialogFooter>
           </>
         )}
@@ -219,10 +219,16 @@ export function OverwritePreviewDialog({
               <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
                 Back
               </Button>
-              <Button type="button" variant="danger" onClick={onConfirm} disabled={isPending}>
-                {isPending ? <Loader2 className="spin" size={16} /> : <Check size={16} />}
+              <StatefulButton
+                type="button"
+                variant="danger"
+                onClick={onConfirm}
+                state={isPending ? "loading" : "idle"}
+                icon={<Check size={16} />}
+                loadingText="Importing"
+              >
                 Confirm overwrite and import
-              </Button>
+              </StatefulButton>
             </DialogFooter>
           </>
         )}

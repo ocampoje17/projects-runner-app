@@ -488,3 +488,22 @@ Completion criteria met:
 4. App.css collapsed to theme + unavoidable third-party terminal overrides
 5. Registry/docs/sync path present
 6. Production build verified
+
+
+## 20. Optional polish implementation
+
+- StatefulButton for save/import/export/kill: Done
+- Theme toggle motion: Done
+- Tooltip for icon actions: Done
+- ActionSwap restart/rerun: Done
+- Sync hygiene script: npm run beui:sync
+- App.css terminal residual: kept intentionally
+
+### Visual QA checklist
+1. Sidebar project select + settings open
+2. Theme light/dark toggle animation + accent
+3. Command Run/Stop ActionSwap + Rerun ActionSwap
+4. Kill ports scanning stateful button
+5. Import/export/save form stateful buttons
+6. Terminal tabs open/close + stream colors light/dark
+7. Tooltips on explorer/terminal/share and edit/delete/logs

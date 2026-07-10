@@ -1,10 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Controller, useForm } from "react-hook-form";
-import { Loader2, Save } from "lucide-react";
+import { Save } from "lucide-react";
+
 import { z } from "zod";
 import { lucideIconValue } from "./entity-avatar";
 import { AvatarPicker, FieldError } from "./dialog-shared";
-import { Button } from "./ui/button";
+import { StatefulButton } from "./ui/stateful-button";
 import {
   Dialog,
   DialogContent,
@@ -175,15 +176,20 @@ export function CommandDialog({
           </DialogToggleRow>
 
           <DialogFooter>
-            <Button type="submit" disabled={isPending}>
-              {isPending ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
+            <StatefulButton
+              type="submit"
+              state={isPending ? "loading" : "idle"}
+              icon={<Save size={16} />}
+              loadingText="Saving"
+            >
               Save
-            </Button>
+            </StatefulButton>
           </DialogFooter>
         </DialogForm>
       </DialogContent>
     </Dialog>
   );
 }
+
 
 
