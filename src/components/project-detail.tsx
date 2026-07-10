@@ -118,7 +118,7 @@ export function ProjectDetail({
 }: ProjectDetailProps) {
   return (
     <Tabs
-      className="project-detail-tabs flex min-h-0 flex-1 flex-col"
+      className="project-detail-tabs flex min-h-0 flex-1 flex-col gap-0 p-3"
       value={projectTab}
       onValueChange={(value) => onProjectTabChange(value as "commands" | "notes")}
     >
@@ -195,4 +195,5 @@ export function ProjectDetail({
     </Tabs>
   );
 }
+
 

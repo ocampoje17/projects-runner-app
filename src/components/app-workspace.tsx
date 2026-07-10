@@ -26,8 +26,8 @@ function WorkspaceSuspenseFallback({
   description?: string;
 }) {
   return (
-    <div className="welcome">
-      <div className="welcome-copy">
+    <div className="welcome flex h-full min-h-[170px] flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.03)_0%,transparent_68%)] px-4 py-10 text-center">
+      <div className="welcome-copy flex flex-col gap-1">
         <h2>{title}</h2>
         <p>{description}</p>
       </div>
@@ -80,7 +80,7 @@ export function AppWorkspace({
         onSelectProject={onSelectProject}
       />
 
-      <section className="workspace flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3">
+      <section className="workspace flex min-h-0 min-w-0 flex-col overflow-hidden bg-workspace">
         {settingsOpen ? (
           <Suspense
             fallback={
@@ -121,4 +121,5 @@ export function AppWorkspace({
     </>
   );
 }
+
 

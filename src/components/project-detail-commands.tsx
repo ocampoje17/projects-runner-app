@@ -163,7 +163,7 @@ export function ProjectDetailCommands({
                 />
               ))}
               {sectionCommands.length === 0 && (
-                <Card className="empty-section-card flex flex-col items-start gap-2 p-3 text-muted-foreground">
+                <Card className="empty-section-card col-span-full flex flex-wrap items-center justify-between gap-2.5 rounded-[10px] border border-dashed border-app-border bg-transparent p-2.5 text-muted-foreground shadow-none">
                   <Terminal size={24} className="empty-section-icon" />
                   <div className="empty-section-info space-y-1">
                     <h4>No commands in this section</h4>
@@ -186,8 +186,8 @@ export function ProjectDetailCommands({
         ))}
 
         <div className="add-section-wrapper">
-          <div className="add-section-shell rounded-[10px] border border-dashed border-app-border p-3">
-            <div className="add-section-copy mb-2 space-y-1">
+          <div className="add-section-shell flex flex-wrap items-center justify-between gap-2.5 rounded-[10px] border border-dashed border-primary/30 bg-primary/[0.03] p-2.5">
+            <div className="add-section-copy flex min-w-0 flex-col gap-0.5">
               <strong>Add another section</strong>
               <span>Group related commands into compact desktop lanes.</span>
             </div>
@@ -219,7 +219,7 @@ export function ProjectDetailCommands({
         </div>
 
         {showEmptyCommandsState && (
-          <Card className="empty-card workspace-empty-card flex flex-col items-start gap-2 p-4">
+          <Card className="empty-card workspace-empty-card flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-app-border bg-card/20 p-4 text-center">
             <Terminal size={28} />
             <div className="empty-state-copy space-y-1">
               <h3>No commands yet</h3>
@@ -248,4 +248,5 @@ export function ProjectDetailCommands({
     </div>
   );
 }
+
 

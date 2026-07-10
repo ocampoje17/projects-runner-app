@@ -34,7 +34,7 @@ export function ConfirmDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="confirm-dialog compact-dialog">
+      <DialogContent className="w-[min(420px,calc(100vw-20px))]">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -111,16 +111,16 @@ export function KillPortsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="kill-ports-dialog wide-dialog">
+      <DialogContent className="wide-dialog w-[min(540px,calc(100vw-20px))]">
         <DialogHeader>
           <DialogTitle>Kill ports for "{command.name}"</DialogTitle>
           <DialogDescription>Scan results for ports: {ports.map((port) => `:${port}`).join(", ")}</DialogDescription>
         </DialogHeader>
 
-        <div className="kill-ports-content">
+        <div className="my-3 flex min-h-[110px] flex-col">
           {processes.length === 0 ? (
             <div className="no-processes-state flex flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-app-border bg-input px-4 py-8 text-center text-muted-foreground">
-              <Check className="success-icon animate-bounce-subtle" size={24} />
+              <Check className="text-app-success animate-bounce-subtle" size={24} />
               <p>No active processes found using these ports.</p>
             </div>
           ) : (
@@ -145,7 +145,7 @@ export function KillPortsDialog({
                   return (
                     <div
                       key={`${process.pid}-${process.port}`}
-                      className={`process-item-row flex items-center gap-2.5 rounded-[8px] border border-app-border bg-card px-2.5 py-2 transition-colors ${isChecked ? "selected border-primary bg-primary/5" : "hover:border-primary hover:bg-muted"}`}
+                      className={`group flex items-center gap-2.5 rounded-[8px] border border-app-border bg-card px-2.5 py-2 transition-colors ${isChecked ? "border-primary bg-primary/5" : "hover:border-primary hover:bg-muted"}`}
                       onClick={() => !isKilling && toggleSelectPid(process.pid)}
                     >
                       <Checkbox
@@ -154,16 +154,16 @@ export function KillPortsDialog({
                         disabled={isKilling}
                         onClick={(event) => event.stopPropagation()}
                       />
-                      <div className="process-details">
-                        <span className="process-name">{process.name}</span>
-                        <span className="process-meta">
-                          PID: <code>{process.pid}</code> | Port: <code>:{process.port}</code>
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="text-[13px] font-semibold text-foreground">{process.name}</span>
+                        <span className="mt-0.5 text-[11.5px] text-muted-foreground">
+                          PID: <code className="rounded bg-black/10 px-1 py-0.5 font-mono text-[11px] dark:bg-white/10">{process.pid}</code> | Port: <code className="rounded bg-black/10 px-1 py-0.5 font-mono text-[11px] dark:bg-white/10">:{process.port}</code>
                         </span>
                       </div>
                       <Button
                         size="sm"
                         variant="danger"
-                        className="single-kill-btn"
+                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                         onClick={(event) => {
                           event.stopPropagation();
                           onKill([process.pid]);
@@ -206,4 +206,6 @@ export function KillPortsDialog({
     </Dialog>
   );
 }
+
+
 

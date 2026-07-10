@@ -25,8 +25,8 @@ export function ProjectsSidebar({
   onSelectProject,
 }: ProjectsSidebarProps) {
   return (
-    <aside className="sidebar flex h-full w-[260px] shrink-0 flex-col border-r border-app-border bg-sidebar">
-      <div className="sidebar-header border-b border-app-border px-3 py-3">
+    <aside className="sidebar flex h-full min-w-0 flex-col border-r border-app-border bg-sidebar">
+      <div className="sidebar-header flex items-center gap-2.5 border-b border-app-border px-3 py-3.5">
         <div className="brand-lockup flex items-center gap-2.5">
           <img className="app-icon h-8 w-8 rounded-[8px]" src={appIcon} alt="" />
           <div>
@@ -35,7 +35,7 @@ export function ProjectsSidebar({
           </div>
         </div>
       </div>
-      <div className="sidebar-actions flex flex-col gap-2 border-b border-app-border p-3">
+      <div className="sidebar-actions flex gap-1.5 border-b border-app-border px-3 py-2.5">
         <Button onClick={onAddProject}>
           <Plus size={15} />
           Add Project
@@ -46,15 +46,12 @@ export function ProjectsSidebar({
         </Button>
       </div>
 
-      <div className="project-list flex-1 space-y-1 overflow-y-auto p-2">
+      <div className="project-list flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 py-2.5">
         {projects.map((project) => (
           <Button
             type="button"
             variant="ghost"
-            className={cn(
-              "project-row h-auto w-full justify-start gap-2 rounded-[8px] px-2 py-2 text-left",
-              selectedProjectId === project.id && "active bg-primary/10 text-app-title",
-            )}
+            className={cn("project-row grid h-auto min-h-10 w-full grid-cols-[32px_minmax(0,1fr)] items-center justify-start gap-2 rounded-[8px] border border-transparent px-1.5 py-1.5 text-left text-muted-foreground hover:bg-muted hover:text-app-title", selectedProjectId === project.id && "active border-primary/30 bg-primary/10 text-app-title")}
             key={project.id}
             onClick={() => onSelectProject(project.id)}
           >
@@ -70,7 +67,7 @@ export function ProjectsSidebar({
           </p>
         )}
       </div>
-      <div className="sidebar-footer border-t border-app-border p-2">
+      <div className="sidebar-footer border-t border-app-border bg-sidebar p-2">
         <Button
           className="settings-button w-full justify-start"
           variant={settingsOpen ? "secondary" : "ghost"}
@@ -103,7 +100,7 @@ export function ProjectWorkspaceHeader({
 }: ProjectWorkspaceHeaderProps) {
   return (
     <>
-      <header className="workspace-header flex flex-wrap items-start justify-between gap-3">
+      <header className="workspace-header flex flex-wrap items-center justify-between gap-2.5 border-b border-app-border bg-workspace px-3 py-2.5">
         <div className="title-cluster flex min-w-0 items-center gap-2.5">
           <EntityAvatar name={selectedProject.name} path={selectedProject.avatar_path} />
           <div className="workspace-title-block min-w-0">
@@ -171,3 +168,4 @@ export function WelcomeWorkspace({ onAddProject, onImportProject }: WelcomeWorks
     </div>
   );
 }
+

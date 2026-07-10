@@ -30,10 +30,10 @@ function formatPorts(ports: number[]) {
 
 function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
-    <div className="import-pane-header">
+    <div className="mb-2 flex items-start justify-between gap-2">
       <div>
-        <h3>{title}</h3>
-        <p>{description}</p>
+        <h3 className="text-[13px] font-semibold text-app-title">{title}</h3>
+        <p className="text-[12px] text-muted-foreground">{description}</p>
       </div>
     </div>
   );
@@ -55,8 +55,8 @@ function CommandPanel({
   overwriteFields?: string[];
 }) {
   return (
-    <div className={`import-diff-panel ${title === "Incoming" ? "incoming" : ""}`.trim()}>
-      <div className="import-card-head">
+    <div className={title === "Incoming" ? "rounded-[10px] border border-primary/30 bg-primary/5 p-2.5" : "rounded-[10px] border border-app-border bg-input/30 p-2.5"}>
+      <div className="mb-1.5 flex flex-wrap items-center gap-2">
         <span>{title}</span>
         {command ? (
           <strong>
@@ -68,15 +68,15 @@ function CommandPanel({
         {status ? <StatusBadge status={status} /> : null}
       </div>
       {command ? (
-        <div className="import-card-body">
+        <div className="flex flex-col gap-1 text-[12px] text-muted-foreground">
           <span>{formatPorts(command.ports)}</span>
           <span>{command.run_in_external_terminal ? "External terminal" : "Inline terminal"}</span>
           {command.avatar_label && <span>{command.avatar_label}</span>}
           {overwriteFields && overwriteFields.length > 0 && <span>Changes: {overwriteFields.join(", ")}</span>}
-          <pre>{command.script}</pre>
+          <pre className="mt-1 overflow-x-auto rounded-[8px] bg-input p-2 text-[11px] text-foreground">{command.script}</pre>
         </div>
       ) : (
-        <div className="import-card-empty">This command does not exist yet.</div>
+        <div className="rounded-[8px] border border-dashed border-app-border px-2.5 py-3 text-[12px] text-muted-foreground">This command does not exist yet.</div>
       )}
     </div>
   );
@@ -94,21 +94,21 @@ function NotePanel({
   overwriteFields?: string[];
 }) {
   return (
-    <div className={`import-diff-panel ${title === "Incoming" ? "incoming" : ""}`.trim()}>
-      <div className="import-card-head">
+    <div className={title === "Incoming" ? "rounded-[10px] border border-primary/30 bg-primary/5 p-2.5" : "rounded-[10px] border border-app-border bg-input/30 p-2.5"}>
+      <div className="mb-1.5 flex flex-wrap items-center gap-2">
         <span>{title}</span>
         <strong>{note ? note.id : "No matching note"}</strong>
         {status ? <StatusBadge status={status} /> : null}
       </div>
       {note ? (
-        <div className="import-card-body">
+        <div className="flex flex-col gap-1 text-[12px] text-muted-foreground">
           <span>{note.pinned ? "Pinned" : "Not pinned"}</span>
           <span>{new Date(note.updatedAt).toLocaleString()}</span>
           {overwriteFields && overwriteFields.length > 0 && <span>Changes: {overwriteFields.join(", ")}</span>}
-          <pre>{note.content}</pre>
+          <pre className="mt-1 overflow-x-auto rounded-[8px] bg-input p-2 text-[11px] text-foreground">{note.content}</pre>
         </div>
       ) : (
-        <div className="import-card-empty">This note does not exist yet.</div>
+        <div className="rounded-[8px] border border-dashed border-app-border px-2.5 py-3 text-[12px] text-muted-foreground">This note does not exist yet.</div>
       )}
     </div>
   );
@@ -130,29 +130,29 @@ function OverwriteCard({
   incomingLabel?: string;
 }) {
   return (
-    <div className="overwrite-card">
-      <strong>{title}</strong>
+    <div className="flex flex-col gap-1 rounded-[12px] border border-app-border bg-card/40 p-2.5">
+      <strong className="text-[12.5px] text-app-title">{title}</strong>
       {fields && fields.length > 0 ? <span>Fields: {fields.join(", ")}</span> : null}
       <span>{currentLabel}:</span>
-      <pre>{currentContent}</pre>
+      <pre className="overflow-x-auto rounded-[8px] bg-input p-2 text-[11px] text-foreground">{currentContent}</pre>
       <span>{incomingLabel}:</span>
-      <pre>{incomingContent}</pre>
+      <pre className="overflow-x-auto rounded-[8px] bg-input p-2 text-[11px] text-foreground">{incomingContent}</pre>
     </div>
   );
 }
 
 export function ImportWizardSummary({ analysis }: { analysis: PrdImportAnalysis }) {
   return (
-    <div className="import-wizard-summary mt-2.5 grid grid-cols-2 gap-2">
-      <div>
-        <span>Current project</span>
-        <strong>{analysis.existing_project?.name}</strong>
-        <small>{analysis.existing_project?.path}</small>
+    <div className="mt-2.5 grid grid-cols-2 gap-2">
+      <div className="rounded-[12px] border border-app-border bg-card/40 p-2.5">
+        <span className="text-[12px] text-muted-foreground">Current project</span>
+        <strong className="block text-[13px] text-app-title">{analysis.existing_project?.name}</strong>
+        <small className="block text-[11.5px] text-muted-foreground">{analysis.existing_project?.path}</small>
       </div>
-      <div>
-        <span>.prd file</span>
-        <strong>{analysis.project_name}</strong>
-        <small>{analysis.project_path}</small>
+      <div className="rounded-[12px] border border-app-border bg-card/40 p-2.5">
+        <span className="text-[12px] text-muted-foreground">.prd file</span>
+        <strong className="block text-[13px] text-app-title">{analysis.project_name}</strong>
+        <small className="block text-[11.5px] text-muted-foreground">{analysis.project_path}</small>
       </div>
     </div>
   );
@@ -168,11 +168,11 @@ export function ImportWizardStepper({
   onNext: () => void;
 }) {
   return (
-    <div className="import-wizard-stepper">
-      <Button type="button" variant="ghost" className={`import-step ${step === "commands" ? "active" : ""}`} onClick={onBack}>
+    <div className="mt-2.5 flex flex-wrap gap-2">
+      <Button type="button" variant="ghost" className={step === "commands" ? "min-h-8 rounded-full border border-primary bg-primary/10 px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-full border border-app-border px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onBack}>
         1. Commands
       </Button>
-      <Button type="button" variant="ghost" className={`import-step ${step === "notes" ? "active" : ""}`} onClick={onNext}>
+      <Button type="button" variant="ghost" className={step === "notes" ? "min-h-8 rounded-full border border-primary bg-primary/10 px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-full border border-app-border px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onNext}>
         2. Notes
       </Button>
     </div>
@@ -189,25 +189,25 @@ export function ProjectFieldsSection({
   onToggleField: (field: string) => void;
 }) {
   return (
-    <div className="import-project-fields">
+    <div className="space-y-2">
       <SectionHeader
         title="Project details"
         description="Choose whether to update the current project metadata before importing commands."
       />
-      <div className="import-field-list flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
         {changes.map((change) => {
           const checked = selectedFields.includes(change.field);
           return (
-            <label key={change.field} className="import-field-item flex items-start gap-2 rounded-[12px] border border-app-border p-2.5">
+            <label key={change.field} className="flex items-start gap-2 rounded-[12px] border border-app-border bg-card/40 p-2.5">
               <Checkbox checked={checked} onCheckedChange={() => onToggleField(change.field)} />
-              <div className="import-field-copy">
-                <div className="import-field-row">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <strong>{change.label}</strong>
                   <Badge variant={change.status === "overwrite" ? "danger" : "success"}>
                     {change.status === "overwrite" ? "Overwrite" : "New"}
                   </Badge>
                 </div>
-                <div className="import-field-diff">
+                <div className="grid gap-1 text-[12px] text-muted-foreground sm:grid-cols-2">
                   <div>
                     <span>Current</span>
                     <strong>{formatImportValue(change.existing_value)}</strong>
@@ -236,18 +236,18 @@ export function CommandDiffSection({
   onToggleCommand: (index: number) => void;
 }) {
   return (
-    <div className="import-diff-layout">
+    <div className="grid gap-2 md:grid-cols-2">
       <SectionHeader
         title="Commands"
         description="Left is your current project, right is the content from the `.prd` file."
       />
-      <div className="import-diff-list flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
         {diffs.map((diff) => {
           const checked = selectedIndexes.includes(diff.index);
           return (
-            <label key={`command-${diff.index}`} className="import-diff-item flex items-start gap-2 rounded-[12px] border border-app-border p-2.5">
+            <label key={`command-${diff.index}`} className="flex flex-col gap-2 rounded-[12px] border border-app-border bg-card/40 p-2.5">
               <Checkbox checked={checked} onCheckedChange={() => onToggleCommand(diff.index)} />
-              <div className="import-diff-panels">
+              <div className="grid gap-2 md:grid-cols-2">
                 <CommandPanel title="Current" command={diff.existing} />
                 <CommandPanel
                   title="Incoming"
@@ -274,18 +274,18 @@ export function NoteDiffSection({
   onToggleNote: (index: number) => void;
 }) {
   return (
-    <div className="import-diff-layout">
+    <div className="grid gap-2 md:grid-cols-2">
       <SectionHeader
         title="Notes"
         description="Pick the notes you want to merge in from the `.prd` file."
       />
-      <div className="import-diff-list flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
         {diffs.map((diff) => {
           const checked = selectedIndexes.includes(diff.index);
           return (
-            <label key={`note-${diff.index}`} className="import-diff-item flex items-start gap-2 rounded-[12px] border border-app-border p-2.5">
+            <label key={`note-${diff.index}`} className="flex flex-col gap-2 rounded-[12px] border border-app-border bg-card/40 p-2.5">
               <Checkbox checked={checked} onCheckedChange={() => onToggleNote(diff.index)} />
-              <div className="import-diff-panels">
+              <div className="grid gap-2 md:grid-cols-2">
                 <NotePanel title="Current" note={diff.existing} />
                 <NotePanel
                   title="Incoming"
@@ -304,11 +304,11 @@ export function NoteDiffSection({
 
 export function OverwriteProjectFieldsSection({ fields }: { fields: ProjectFieldChange[] }) {
   return (
-    <div className="overwrite-section">
+    <div className="space-y-2">
       <h3>Project details</h3>
-      <div className="overwrite-grid">
+      <div className="grid gap-2">
         {fields.map((field) => (
-          <div key={field.field} className="overwrite-card">
+          <div key={field.field} className="flex flex-col gap-1 rounded-[12px] border border-app-border bg-card/40 p-2.5">
             <strong>{field.label}</strong>
             <span>Current: {formatImportValue(field.existing_value)}</span>
             <span>Incoming: {formatImportValue(field.incoming_value)}</span>
@@ -321,9 +321,9 @@ export function OverwriteProjectFieldsSection({ fields }: { fields: ProjectField
 
 export function OverwriteCommandsSection({ diffs }: { diffs: CommandImportDiff[] }) {
   return (
-    <div className="overwrite-section">
+    <div className="space-y-2">
       <h3>Commands</h3>
-      <div className="overwrite-grid">
+      <div className="grid gap-2">
         {diffs.map((diff) => (
           <OverwriteCard
             key={`command-overwrite-${diff.index}`}
@@ -342,9 +342,9 @@ export function OverwriteCommandsSection({ diffs }: { diffs: CommandImportDiff[]
 
 export function OverwriteNotesSection({ diffs }: { diffs: NoteImportDiff[] }) {
   return (
-    <div className="overwrite-section">
+    <div className="space-y-2">
       <h3>Notes</h3>
-      <div className="overwrite-grid">
+      <div className="grid gap-2">
         {diffs.map((diff) => (
           <OverwriteCard
             key={`note-overwrite-${diff.index}`}
@@ -358,4 +358,5 @@ export function OverwriteNotesSection({ diffs }: { diffs: NoteImportDiff[] }) {
     </div>
   );
 }
+
 

@@ -451,3 +451,21 @@ Architecture now:
 - beUI motion for toast + action-swap + tabs/switch/checkbox/button feedback
 - Tailwind primitives without dual-class roots
 - App.css mostly theme tokens + complex domain layouts
+
+## 18. Domain migration completion pass
+
+| Area | Result |
+|---|---|
+| Settings UI | Fully Tailwind self-contained (`settings-panels`, `SettingsPage`) |
+| Import dialog sections | Fully utility-classed; no import-* CSS dependency |
+| Process/kill dialogs | Utility-classed; process CSS removed |
+| App.css size | 2523 → **1399** lines |
+| Dead CSS domains removed | settings redesign, import details, kill-ports, add/empty section blocks |
+| Retained CSS | theme tokens, shell/sidebar/workspace, command cards, terminal/react-terminal overrides, animations, rename controls |
+| Build | Passing after domain pass |
+
+Residual intentional CSS:
+- Terminal/react-terminal-ui integration
+- Command card running/failed glow + script preview
+- Shell/sidebar active states + responsive breakpoints
+- Theme variable system (`.theme-light` / `.theme-dark`)
