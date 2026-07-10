@@ -89,11 +89,11 @@ export function ProjectDetailCommands({
   onAddCommand: (section?: string) => void;
 }) {
   return (
-    <div className="content-grid">
-      <section className="command-sections">
+    <div className="content-grid grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
+      <section className="command-sections flex min-h-0 flex-col gap-3 overflow-y-auto">
         {commandSections.map(({ section, commands: sectionCommands }) => (
-          <div className="command-section" key={section}>
-            <div className="section-header">
+          <div className="command-section rounded-[10px] border border-app-border bg-card/40 p-2.5" key={section}>
+            <div className="section-header mb-2 flex w-full items-center justify-between gap-2">
               {renamingSection === section ? (
                 <form
                   className="rename-section-form"
@@ -129,7 +129,7 @@ export function ProjectDetailCommands({
                   </Button>
                 </form>
               ) : (
-                <div className="section-title-row">
+                <div className="section-title-row flex min-w-0 items-center gap-2">
                   <h3>{section}</h3>
                   <Button
                     size="icon"
@@ -144,7 +144,7 @@ export function ProjectDetailCommands({
               )}
               <Badge variant="muted">{sectionCommands.length}</Badge>
             </div>
-            <div className="command-grid">
+            <div className="command-grid grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
               {sectionCommands.map((command) => (
                 <CommandCard
                   command={command}
@@ -163,13 +163,13 @@ export function ProjectDetailCommands({
                 />
               ))}
               {sectionCommands.length === 0 && (
-                <Card className="empty-section-card">
+                <Card className="empty-section-card flex flex-col items-start gap-2 p-3 text-muted-foreground">
                   <Terminal size={24} className="empty-section-icon" />
-                  <div className="empty-section-info">
+                  <div className="empty-section-info space-y-1">
                     <h4>No commands in this section</h4>
                     <p>Add a command to run in this section.</p>
                   </div>
-                  <div className="empty-section-actions">
+                  <div className="empty-section-actions flex flex-wrap gap-1.5">
                     <Button size="sm" onClick={() => onAddCommand(section)}>
                       <Plus size={14} /> Add command
                     </Button>
@@ -186,13 +186,13 @@ export function ProjectDetailCommands({
         ))}
 
         <div className="add-section-wrapper">
-          <div className="add-section-shell">
-            <div className="add-section-copy">
+          <div className="add-section-shell rounded-[10px] border border-dashed border-app-border p-3">
+            <div className="add-section-copy mb-2 space-y-1">
               <strong>Add another section</strong>
               <span>Group related commands into compact desktop lanes.</span>
             </div>
             {isAddingSection ? (
-              <form className="add-section-form" onSubmit={onAddSectionSubmit}>
+              <form className="add-section-form flex flex-wrap items-center gap-2" onSubmit={onAddSectionSubmit}>
                 <Input
                   ref={addSectionInputRef}
                   placeholder="New section name..."
@@ -200,7 +200,7 @@ export function ProjectDetailCommands({
                   onChange={(event) => onNewSectionNameChange(event.target.value)}
                   className="add-section-input"
                 />
-                <div className="add-section-actions">
+                <div className="add-section-actions flex items-center gap-1.5">
                   <Button type="submit" size="sm">
                     Add
                   </Button>
@@ -219,9 +219,9 @@ export function ProjectDetailCommands({
         </div>
 
         {showEmptyCommandsState && (
-          <Card className="empty-card workspace-empty-card">
+          <Card className="empty-card workspace-empty-card flex flex-col items-start gap-2 p-4">
             <Terminal size={28} />
-            <div className="empty-state-copy">
+            <div className="empty-state-copy space-y-1">
               <h3>No commands yet</h3>
               <p>Add commands like frontend dev servers, API workers, tests, or build steps.</p>
             </div>
@@ -248,3 +248,4 @@ export function ProjectDetailCommands({
     </div>
   );
 }
+

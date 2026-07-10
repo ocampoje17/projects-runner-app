@@ -477,7 +477,7 @@ function App() {
     : undefined;
 
   return (
-    <main className="app-shell">
+    <main className="app-shell flex h-screen overflow-hidden bg-shell text-foreground">
       <AppWorkspace
         projects={projects}
         selectedProject={selectedProject}
@@ -591,5 +591,6 @@ function App() {
 }
 
 export default App;
+
 
 

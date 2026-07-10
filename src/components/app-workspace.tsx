@@ -80,7 +80,7 @@ export function AppWorkspace({
         onSelectProject={onSelectProject}
       />
 
-      <section className="workspace">
+      <section className="workspace flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3">
         {settingsOpen ? (
           <Suspense
             fallback={
@@ -121,3 +121,4 @@ export function AppWorkspace({
     </>
   );
 }
+

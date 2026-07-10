@@ -92,7 +92,7 @@ export function CommandDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="wide-dialog command-dialog">
+      <DialogContent className="wide-dialog command-dialog w-[min(680px,calc(100vw-20px))]">
         <DialogHeader>
           <DialogTitle>{command ? "Edit command" : "Add command"}</DialogTitle>
           <DialogDescription>Paste the same multi-line script you would paste into a terminal.</DialogDescription>
@@ -155,7 +155,7 @@ export function CommandDialog({
             <Label>Script</Label>
             <Textarea
               {...form.register("script")}
-              className="script-input"
+              className="script-input min-h-[168px] font-mono text-[12px] leading-relaxed"
               rows={10}
               placeholder={"cd frontend\nnpm run dev"}
             />
@@ -185,3 +185,4 @@ export function CommandDialog({
     </Dialog>
   );
 }
+

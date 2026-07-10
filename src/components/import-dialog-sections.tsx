@@ -143,7 +143,7 @@ function OverwriteCard({
 
 export function ImportWizardSummary({ analysis }: { analysis: PrdImportAnalysis }) {
   return (
-    <div className="import-wizard-summary">
+    <div className="import-wizard-summary mt-2.5 grid grid-cols-2 gap-2">
       <div>
         <span>Current project</span>
         <strong>{analysis.existing_project?.name}</strong>
@@ -194,11 +194,11 @@ export function ProjectFieldsSection({
         title="Project details"
         description="Choose whether to update the current project metadata before importing commands."
       />
-      <div className="import-field-list">
+      <div className="import-field-list flex flex-col gap-2">
         {changes.map((change) => {
           const checked = selectedFields.includes(change.field);
           return (
-            <label key={change.field} className="import-field-item">
+            <label key={change.field} className="import-field-item flex items-start gap-2 rounded-[12px] border border-app-border p-2.5">
               <Checkbox checked={checked} onCheckedChange={() => onToggleField(change.field)} />
               <div className="import-field-copy">
                 <div className="import-field-row">
@@ -241,11 +241,11 @@ export function CommandDiffSection({
         title="Commands"
         description="Left is your current project, right is the content from the `.prd` file."
       />
-      <div className="import-diff-list">
+      <div className="import-diff-list flex flex-col gap-2">
         {diffs.map((diff) => {
           const checked = selectedIndexes.includes(diff.index);
           return (
-            <label key={`command-${diff.index}`} className="import-diff-item">
+            <label key={`command-${diff.index}`} className="import-diff-item flex items-start gap-2 rounded-[12px] border border-app-border p-2.5">
               <Checkbox checked={checked} onCheckedChange={() => onToggleCommand(diff.index)} />
               <div className="import-diff-panels">
                 <CommandPanel title="Current" command={diff.existing} />
@@ -279,11 +279,11 @@ export function NoteDiffSection({
         title="Notes"
         description="Pick the notes you want to merge in from the `.prd` file."
       />
-      <div className="import-diff-list">
+      <div className="import-diff-list flex flex-col gap-2">
         {diffs.map((diff) => {
           const checked = selectedIndexes.includes(diff.index);
           return (
-            <label key={`note-${diff.index}`} className="import-diff-item">
+            <label key={`note-${diff.index}`} className="import-diff-item flex items-start gap-2 rounded-[12px] border border-app-border p-2.5">
               <Checkbox checked={checked} onCheckedChange={() => onToggleNote(diff.index)} />
               <div className="import-diff-panels">
                 <NotePanel title="Current" note={diff.existing} />
@@ -358,3 +358,4 @@ export function OverwriteNotesSection({ diffs }: { diffs: NoteImportDiff[] }) {
     </div>
   );
 }
+

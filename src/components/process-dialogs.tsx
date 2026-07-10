@@ -119,14 +119,14 @@ export function KillPortsDialog({
 
         <div className="kill-ports-content">
           {processes.length === 0 ? (
-            <div className="no-processes-state">
+            <div className="no-processes-state flex flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-app-border bg-input px-4 py-8 text-center text-muted-foreground">
               <Check className="success-icon animate-bounce-subtle" size={24} />
               <p>No active processes found using these ports.</p>
             </div>
           ) : (
-            <div className="processes-list-wrapper">
-              <div className="processes-list-header">
-                <label className="checkbox-container">
+            <div className="processes-list-wrapper flex flex-col gap-2">
+              <div className="processes-list-header flex items-center justify-between px-1">
+                <label className="inline-flex items-center gap-2 text-[13px] font-medium text-muted-foreground">
                   <Checkbox
                     checked={selectedPids.size === processes.length && processes.length > 0}
                     onCheckedChange={toggleSelectAll}
@@ -139,13 +139,13 @@ export function KillPortsDialog({
                 </Button>
               </div>
 
-              <div className="processes-list">
+              <div className="processes-list flex max-h-[280px] flex-col gap-2 overflow-y-auto pr-1">
                 {processes.map((process) => {
                   const isChecked = selectedPids.has(process.pid);
                   return (
                     <div
                       key={`${process.pid}-${process.port}`}
-                      className={`process-item-row ${isChecked ? "selected" : ""}`}
+                      className={`process-item-row flex items-center gap-2.5 rounded-[8px] border border-app-border bg-card px-2.5 py-2 transition-colors ${isChecked ? "selected border-primary bg-primary/5" : "hover:border-primary hover:bg-muted"}`}
                       onClick={() => !isKilling && toggleSelectPid(process.pid)}
                     >
                       <Checkbox
@@ -206,3 +206,4 @@ export function KillPortsDialog({
     </Dialog>
   );
 }
+

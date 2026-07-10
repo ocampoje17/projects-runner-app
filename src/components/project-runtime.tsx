@@ -64,7 +64,7 @@ export function CommandCard({
       className={`draggable-card command-card-shell ${isRunning ? "running" : ""} ${run?.status === "failed" ? "failed" : ""}`}
     >
       <CardHeader className="command-card-header">
-        <div className="title-cluster">
+        <div className="title-cluster flex min-w-0 items-center gap-2">
           <EntityAvatar name={command.name} path={command.avatar_path} />
           <div className="command-card-title-block">
             <h3 className="command-card-title">{command.name}</h3>
@@ -78,7 +78,7 @@ export function CommandCard({
             </div>
           </div>
         </div>
-        <div className="icon-menu command-card-menu">
+        <div className="icon-menu command-card-menu flex items-center gap-1">
           <Button size="icon" variant="ghost" onClick={onEdit} aria-label="Edit command">
             <Pencil size={16} />
           </Button>
@@ -89,7 +89,7 @@ export function CommandCard({
       </CardHeader>
       <CardContent className="command-card-body">
         {ports.length > 0 && (
-          <div className="port-list command-card-ports">
+          <div className="port-list command-card-ports mb-2 flex flex-wrap gap-1">
             {ports.map((port) => (
               <Badge key={port} variant="muted">
                 :{port}
@@ -97,8 +97,8 @@ export function CommandCard({
             ))}
           </div>
         )}
-        <pre className="script-preview command-card-script">{command.script}</pre>
-        <div className="card-actions command-card-actions">
+        <pre className="script-preview command-card-script overflow-x-auto rounded-[8px] bg-input p-2 text-[11px] text-muted-foreground">{command.script}</pre>
+        <div className="card-actions command-card-actions mt-2 flex flex-wrap items-center gap-1.5">
           <ActionSwapButton
             size="sm"
             variant={isRunning || isStopping ? "outline" : "primary"}
@@ -352,4 +352,5 @@ export function LogPanel({
     </aside>
   );
 }
+
 

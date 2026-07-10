@@ -58,8 +58,8 @@ export function SettingsPage({
 
   return (
     <>
-      <header className="workspace-header">
-        <div className="title-cluster">
+      <header className="workspace-header flex flex-wrap items-start justify-between gap-3">
+        <div className="title-cluster flex min-w-0 items-center gap-2.5">
           <Settings className="app-icon settings-header-icon" size={24} />
           <div>
             <h2>Settings</h2>
@@ -68,23 +68,23 @@ export function SettingsPage({
         </div>
       </header>
       
-      <div className="settings-container">
-        <aside className="settings-nav">
-          <Button type="button" variant="ghost" className={`settings-nav-item ${activeTab === "appearance" ? "active" : ""}`} onClick={() => setActiveTab("appearance")}>
+      <div className="settings-container grid min-h-0 flex-1 gap-3 md:grid-cols-[200px_minmax(0,1fr)]">
+        <aside className="settings-nav flex flex-col gap-1 rounded-[10px] border border-app-border bg-card p-2 shadow-app-card">
+          <Button type="button" variant="ghost" className={`settings-nav-item justify-start ${activeTab === "appearance" ? "active bg-primary/10 text-app-title" : ""}`} onClick={() => setActiveTab("appearance")}>
             <Palette size={16} />
             <span>Appearance</span>
           </Button>
-          <Button type="button" variant="ghost" className={`settings-nav-item ${activeTab === "terminal" ? "active" : ""}`} onClick={() => setActiveTab("terminal")}>
+          <Button type="button" variant="ghost" className={`settings-nav-item justify-start ${activeTab === "terminal" ? "active bg-primary/10 text-app-title" : ""}`} onClick={() => setActiveTab("terminal")}>
             <Terminal size={16} />
             <span>Terminal</span>
           </Button>
-          <Button type="button" variant="ghost" className={`settings-nav-item ${activeTab === "system" ? "active" : ""}`} onClick={() => setActiveTab("system")}>
+          <Button type="button" variant="ghost" className={`settings-nav-item justify-start ${activeTab === "system" ? "active bg-primary/10 text-app-title" : ""}`} onClick={() => setActiveTab("system")}>
             <Info size={16} />
             <span>System Details</span>
           </Button>
         </aside>
 
-        <div className="settings-content">
+        <div className="settings-content min-h-0 overflow-y-auto">
           {activeTab === "appearance" && (
             <AppearanceSettingsPanel
               theme={theme}
@@ -122,3 +122,5 @@ export function SettingsPage({
     </>
   );
 }
+
+

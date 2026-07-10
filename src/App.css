@@ -779,16 +779,14 @@ h1, h2, h3, h4, p {
 }
 
 /* Command Cards Style */
-.card {
+.draggable-card {
+  user-select: none;
   background: var(--bg-card);
   border: 1px solid var(--color-border);
   border-radius: 10px;
   box-shadow: var(--card-shadow);
-  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
   overflow: hidden;
-}
-.draggable-card {
-  user-select: none;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 .draggable-card:hover {
   background: var(--bg-card-hover);
@@ -810,9 +808,6 @@ h1, h2, h3, h4, p {
   box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.14), 0 8px 18px rgba(244, 63, 94, 0.05);
 }
 
-.card-header {
-  padding: 12px 12px 8px;
-}
 
 .command-card-header {
   display: flex;
@@ -854,9 +849,6 @@ h1, h2, h3, h4, p {
   align-self: flex-start;
 }
 
-.card-content {
-  padding: 0 12px 12px;
-}
 
 /* Ports list */
 .port-list {
@@ -908,12 +900,6 @@ h1, h2, h3, h4, p {
   font-size: 0.74rem;
 }
 
-.card-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 
 .command-card-actions {
   gap: 5px;
@@ -1193,138 +1179,6 @@ h1, h2, h3, h4, p {
   text-align: center;
 }
 
-/* Buttons style system */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  max-width: 100%;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 0.88rem;
-  white-space: nowrap;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-  transform: none !important;
-}
-
-.btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-.btn-default {
-  color: #ffffff;
-  background: var(--primary-color);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-}
-.btn-default:hover:not(:disabled) {
-  filter: brightness(1.04);
-}
-
-.btn-secondary {
-  color: var(--btn-secondary-text);
-  background: var(--btn-secondary-bg);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--btn-secondary-hover);
-}
-
-.btn-outline {
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  background: transparent;
-}
-
-.btn-outline:hover:not(:disabled) {
-  background: var(--btn-secondary-bg);
-  border-color: var(--color-border-hover);
-}
-
-.btn-ghost {
-  color: var(--color-text-secondary);
-  background: transparent;
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background: var(--btn-ghost-hover-bg);
-  color: var(--btn-ghost-hover-text);
-}
-
-.btn-danger {
-  color: #ffffff;
-  background: var(--danger-color);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}
-
-.btn-danger:hover:not(:disabled) {
-  filter: brightness(1.04);
-}
-
-.btn-size-default {
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-}
-
-.btn-size-sm {
-  min-height: 26px;
-  padding: 0 9px;
-  font-size: 0.76rem;
-  border-radius: 6px;
-}
-
-.btn-size-icon {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  padding: 0;
-  border-radius: 7px;
-}
-
-/* Fields & Forms */
-.field {
-  width: 100%;
-  min-height: 32px;
-  padding: 5px 10px;
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  outline: none;
-  background: var(--bg-input);
-  transition: all 0.2s ease;
-}
-
-.field::placeholder {
-  color: var(--color-text-muted);
-}
-
-.field:focus {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.18);
-  background: var(--bg-input);
-}
-
-select.field {
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 14px;
-  padding-right: 32px;
-}
-
-.textarea {
-  resize: vertical;
-}
-
 .script-input {
   min-height: 168px;
   font-family: var(--font-mono);
@@ -1332,127 +1186,9 @@ select.field {
   line-height: 1.4;
 }
 
-.label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  margin-top: 4px;
-  margin-bottom: 2px;
-}
-
-/* Badges styling */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  min-height: 18px;
-  padding: 0 7px;
-  border-radius: 999px;
-  font-size: 0.62rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border: 1px solid transparent;
-}
-
-.badge-default,
-.badge-muted {
-  color: var(--color-text-secondary);
-  background: var(--btn-secondary-bg);
-  border-color: var(--color-border);
-}
-
-.badge-success {
-  color: var(--success-color);
-  background: var(--success-bg);
-  border-color: var(--success-border);
-}
-
-.badge-danger {
-  color: var(--danger-color);
-  background: var(--danger-bg);
-  border-color: var(--danger-border);
-}
-
-/* Avatars */
-.avatar {
-  display: inline-flex;
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  overflow: hidden;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.16);
-}
-
-.avatar-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.avatar-fallback {
-  color: #6366f1;
-  font-weight: 700;
-  font-size: 0.78rem;
-}
-
-/* Dialog Overlay & Content Blurs */
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(2, 4, 8, 0.58);
-  z-index: 1000;
-  animation: fadeIn 0.2s ease-out;
-}
-
-.dialog-content {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  width: min(480px, calc(100vw - 18px));
-  max-height: calc(100vh - 22px);
-  overflow-y: auto;
-  transform: translate(-50%, -50%);
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--bg-dialog);
-  padding: 14px;
-  box-shadow: var(--dialog-shadow);
-  z-index: 1001;
-  animation: fadeIn 0.14s ease-out;
-}
 
 .wide-dialog {
   width: min(680px, calc(100vw - 20px));
-}
-
-.dialog-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-}
-
-.dialog-header {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-right: 34px;
-  margin-bottom: 10px;
-}
-
-.dialog-header h2 {
-  font-size: 1.05rem;
-  font-weight: 650;
-  color: var(--color-title);
-}
-
-.dialog-header p {
-  color: var(--color-text-secondary);
-  font-size: 0.8rem;
 }
 
 /* Settings, ImportDetails */
@@ -2578,114 +2314,6 @@ select.field {
 }
 .theme-light .terminal-muted {
   color: #64748b;
-}
-
-/* Select Component Styles */
-.select-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  min-height: 32px;
-  padding: 5px 10px;
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  outline: none;
-  background: var(--bg-input);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.select-trigger:focus {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.18);
-}
-
-.select-icon {
-  width: 16px;
-  height: 16px;
-  opacity: 0.5;
-  transition: opacity 0.2s ease;
-}
-
-.select-trigger:hover .select-icon {
-  opacity: 1;
-}
-
-.select-content {
-  position: relative;
-  z-index: 1100;
-  min-width: 8rem;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--bg-dialog);
-  color: var(--color-text);
-  box-shadow: var(--dialog-shadow);
-  animation: fadeIn 0.1s ease-out;
-}
-
-.select-content-popper {
-  width: var(--radix-select-trigger-width);
-  max-height: var(--radix-select-content-available-height);
-}
-
-.select-viewport {
-  padding: 4px;
-}
-
-.select-viewport-popper {
-  width: 100%;
-  min-width: var(--radix-select-trigger-width);
-}
-
-.select-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: 28px;
-  padding: 0 8px 0 28px;
-  font-size: 0.86rem;
-  color: var(--color-text-secondary);
-  border-radius: 6px;
-  user-select: none;
-  cursor: pointer;
-  outline: none;
-  transition: all 0.15s ease;
-}
-
-.select-item:hover,
-.select-item:focus {
-  background: var(--split-menu-hover-bg);
-  color: var(--color-title);
-}
-
-.select-item-indicator-container {
-  position: absolute;
-  left: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-}
-
-.select-check-icon {
-  width: 14px;
-  height: 14px;
-  color: var(--primary-color);
-}
-
-.select-scroll-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 24px;
-  background: var(--bg-dialog);
-  color: var(--color-text-secondary);
-  cursor: default;
 }
 
 /* Kill Ports Dialog styling */

@@ -436,3 +436,18 @@ Remaining optional polish:
 - deeper App.css deletion pass after visual QA
 - optional beUI select/input/theme-toggle full replacements
 - broader ActionSwap states (restart) if desired
+
+## 17. Follow-up completion (post-commit 7f6d0ab)
+
+| Item | Status |
+|---|---|
+| Purge obsolete primitive CSS (btn/field/badge/avatar/dialog/select/card base) | Done |
+| Keep domain CSS (terminal/import/settings/shell) | Intentional residual |
+| Screen utility migration (shell, settings, notes, commands, process, import) | Done (major hotspots) |
+| Build after purge | Passing |
+| App.css size | reduced ~2895 → ~2523 lines |
+
+Architecture now:
+- beUI motion for toast + action-swap + tabs/switch/checkbox/button feedback
+- Tailwind primitives without dual-class roots
+- App.css mostly theme tokens + complex domain layouts

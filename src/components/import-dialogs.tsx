@@ -59,7 +59,7 @@ export function ImportProjectDialog({
 }) {
   return (
     <Dialog open={Boolean(preview)} onOpenChange={onOpenChange}>
-      <DialogContent className="import-preview-dialog">
+      <DialogContent className="import-preview-dialog w-[min(560px,calc(100vw-20px))]">
         <DialogHeader>
           <DialogTitle>Import project</DialogTitle>
           <DialogDescription>Review the .prd file before adding it to the app.</DialogDescription>
@@ -128,7 +128,7 @@ export function ImportWizardDialog({
 
   return (
     <Dialog open={Boolean(wizard)} onOpenChange={onOpenChange}>
-      <DialogContent className="wide-dialog import-wizard-dialog">
+      <DialogContent className="wide-dialog import-wizard-dialog w-[min(1120px,calc(100vw-48px))]">
         <DialogHeader>
           <DialogTitle>Import .prd into existing project</DialogTitle>
           <DialogDescription>
@@ -202,7 +202,7 @@ export function OverwritePreviewDialog({
 }) {
   return (
     <Dialog open={Boolean(preview)} onOpenChange={onOpenChange}>
-      <DialogContent className="wide-dialog overwrite-preview-dialog">
+      <DialogContent className="wide-dialog overwrite-preview-dialog w-[min(760px,calc(100vw-24px))]">
         <DialogHeader>
           <DialogTitle>Confirm overwrite</DialogTitle>
           <DialogDescription>
@@ -230,3 +230,4 @@ export function OverwritePreviewDialog({
     </Dialog>
   );
 }
+
