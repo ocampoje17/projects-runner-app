@@ -108,16 +108,7 @@ export function ProjectDetailNotes({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-      <div className="flex shrink-0 items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
-          <div>
-            <h3 className="text-[14px] font-semibold text-app-title">Project notes</h3>
-            <p className="text-[12px] text-muted-foreground">
-              Ghi chú theo từng mảnh, hỗ trợ Markdown và có thể ghim note quan trọng lên đầu.
-            </p>
-          </div>
-          <Badge variant="muted">{selectedProject.name}</Badge>
-        </div>
+      <div className="flex shrink-0 justify-end">
         <Button size="sm" onClick={openAddDialog}>
           <Plus size={14} />
           Thêm note

@@ -35,6 +35,7 @@ export interface ProjectDetailProps {
   onRestartCommand: (command: ProjectCommand) => void;
   onRunCommand: (command: ProjectCommand) => void;
   onStopCommand: (command: ProjectCommand) => void;
+  onForceStopCommand: (command: ProjectCommand) => void;
   stoppingRunIds: Set<number>;
   restartPendingCommandIds: number[];
   scanningCommandId: number | null;
@@ -90,6 +91,7 @@ export function ProjectDetail({
   onRestartCommand,
   onRunCommand,
   onStopCommand,
+  onForceStopCommand,
   stoppingRunIds,
   restartPendingCommandIds,
   scanningCommandId,
@@ -159,6 +161,7 @@ export function ProjectDetail({
           onRestartCommand={onRestartCommand}
           onRunCommand={onRunCommand}
           onStopCommand={onStopCommand}
+          onForceStopCommand={onForceStopCommand}
           stoppingRunIds={stoppingRunIds}
           restartPendingCommandIds={restartPendingCommandIds}
           scanningCommandId={scanningCommandId}

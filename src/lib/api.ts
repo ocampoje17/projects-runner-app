@@ -175,6 +175,10 @@ export type PortProcess = {
   name: string;
 };
 
+export type StopCommandResult = {
+  was_active: boolean;
+};
+
 export type RunStartedPayload = {
   run_id: number;
   command_id: number;
@@ -213,7 +217,7 @@ export const api = {
   deleteCommand: (id: number) => invokeDesktop<void>("delete_command", { id }),
   runCommand: (commandId: number) =>
     invokeDesktop<CommandRun>("run_command", { commandId }),
-  stopCommand: (runId: number) => invokeDesktop<void>("stop_command", { runId }),
+  stopCommand: (runId: number) => invokeDesktop<StopCommandResult>("stop_command", { runId }),
   killPorts: (ports: number[]) => invokeDesktop<void>("kill_ports", { ports }),
   getPortsProcesses: (ports: number[]) => invokeDesktop<PortProcess[]>("get_ports_processes", { ports }),
   killProcesses: (pids: number[]) => invokeDesktop<void>("kill_processes", { pids }),

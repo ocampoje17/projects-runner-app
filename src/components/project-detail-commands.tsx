@@ -34,6 +34,7 @@ export function ProjectDetailCommands({
   onRestartCommand,
   onRunCommand,
   onStopCommand,
+  onForceStopCommand,
   stoppingRunIds,
   restartPendingCommandIds,
   scanningCommandId,
@@ -73,6 +74,7 @@ export function ProjectDetailCommands({
   onRestartCommand: (command: ProjectCommand) => void;
   onRunCommand: (command: ProjectCommand) => void;
   onStopCommand: (command: ProjectCommand) => void;
+  onForceStopCommand: (command: ProjectCommand) => void;
   stoppingRunIds: Set<number>;
   restartPendingCommandIds: number[];
   scanningCommandId: number | null;
@@ -155,6 +157,7 @@ export function ProjectDetailCommands({
                   onRestart={() => onRestartCommand(command)}
                   onRun={() => onRunCommand(command)}
                   onStop={() => onStopCommand(command)}
+                  onForceStop={() => onForceStopCommand(command)}
                   run={runs[command.id]}
                   isStopping={Boolean(runs[command.id] && stoppingRunIds.has(runs[command.id]!.runId))}
                   isRestarting={restartPendingCommandIds.includes(command.id)}

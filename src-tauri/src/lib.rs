@@ -2197,14 +2197,28 @@ fn configure_command(cmd: &mut Command) {
 fn configure_command(_cmd: &mut Command) {}
 
 #[tauri::command]
-async fn stop_command(run_id: i64, state: State<'_, AppState>) -> Result<(), String> {
+async fn stop_command(run_id: i64, state: State<'_, AppState>) -> Result<StopCommandResult, String> {
     let process = state
         .processes
         .lock()
         .map_err(|_| "Process registry lock poisoned".to_string())?
         .get(&run_id)
-        .cloned()
-        .ok_or_else(|| "Run is not active".to_string())?;
+        .cloned();
+
+    // A process can finish in the small gap between the UI rendering its
+    // running state and the user pressing Stop/Restart. Treat that as an
+    // already-completed stop rather than surfacing a spurious error.
+    let Some(process) = process else {
+        let mut conn = connect(&state.paths)?;
+        let ended_at = now();
+        sql_query(format!(
+            "UPDATE command_runs SET status = 'stopped', ended_at = '{}' WHERE id = {} AND status = 'running'",
+            ended_at, run_id
+        ))
+        .execute(&mut conn)
+        .map_err(|error| error.to_string())?;
+        return Ok(StopCommandResult { was_active: false });
+    };
 
     state
         .stopped_runs
@@ -2213,7 +2227,13 @@ async fn stop_command(run_id: i64, state: State<'_, AppState>) -> Result<(), Str
         .insert(run_id);
     tauri::async_runtime::spawn_blocking(move || kill_process_tree(&process))
         .await
-        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())??;
+    Ok(StopCommandResult { was_active: true })
+}
+
+#[derive(serde::Serialize)]
+struct StopCommandResult {
+    was_active: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]

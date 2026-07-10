@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { EntityAvatar } from "./entity-avatar";
 import { commandPorts } from "../lib/command-utils";
 import type { ProjectCommand } from "../lib/api";
-import { Loader2, Maximize2, Minimize2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
+import { BrushCleaning, Loader2, Maximize2, Minimize2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import TerminalUi, { ColorMode, TerminalOutput } from "react-terminal-ui";
@@ -38,6 +38,7 @@ export function CommandCard({
   onRestart,
   onRun,
   onStop,
+  onForceStop,
   onOpenLogs,
   run,
   isStopping = false,
@@ -51,6 +52,7 @@ export function CommandCard({
   onRestart: () => void;
   onRun: () => void;
   onStop: () => void;
+  onForceStop: () => void;
   onOpenLogs: () => void;
   run?: RunState;
   isStopping?: boolean;
@@ -58,6 +60,11 @@ export function CommandCard({
   isScanningPorts?: boolean;
 }) {
   const isRunning = run?.status === "running";
+  const stopClickTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (stopClickTimeout.current) clearTimeout(stopClickTimeout.current);
+  }, []);
   const badgeVariant = isRunning ? "success" : run?.status === "failed" ? "danger" : "muted";
   const ports = commandPorts(command);
 
@@ -105,7 +112,7 @@ export function CommandCard({
         )}
         <pre className="max-h-[calc(1.625em*5+1rem)] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-[14px] border border-border/70 bg-[var(--script-preview-bg)] p-2 font-mono text-[11px] leading-relaxed text-[var(--script-preview-color)]">{command.script}</pre>
         <div className="mt-2 flex flex-nowrap items-center gap-1">
-          <Tooltip content={isStopping ? "Stopping" : isRunning ? "Stop" : "Run"}>
+          <Tooltip content={isStopping ? "Stopping" : isRunning ? "Stop — double-click to force reset" : "Run"}>
             <ActionSwapButton
               size="icon"
               variant={isRunning || isStopping ? "outline" : "primary"}
@@ -119,8 +126,24 @@ export function CommandCard({
               value={isStopping ? "stopping" : isRunning ? "stop" : "run"}
               onClick={() => {
                 if (isStopping) return;
-                if (isRunning) onStop();
+                if (isRunning) {
+                  // Wait briefly so a double-click can be used as the
+                  // recovery action without sending two Stop requests.
+                  if (stopClickTimeout.current) clearTimeout(stopClickTimeout.current);
+                  stopClickTimeout.current = setTimeout(() => {
+                    stopClickTimeout.current = null;
+                    onStop();
+                  }, 220);
+                }
                 else onRun();
+              }}
+              onDoubleClick={() => {
+                if (!isRunning || isStopping) return;
+                if (stopClickTimeout.current) {
+                  clearTimeout(stopClickTimeout.current);
+                  stopClickTimeout.current = null;
+                }
+                onForceStop();
               }}
               items={[
                 { id: "run", label: "Run", icon: <Play size={14} />, ariaLabel: `Run ${command.name}` },
@@ -308,18 +331,16 @@ export function LogPanel({
   }, [visibleCommands.length]);
 
   const collapseToggle = (
-    <Tooltip content={isCollapsed ? "Restore terminal" : "Minimize terminal"}>
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-        onClick={() => setIsCollapsed((prev) => !prev)}
-        aria-label={isCollapsed ? "Restore terminal output" : "Minimize terminal output"}
-      >
-        {isCollapsed ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
-      </Button>
-    </Tooltip>
+    <Button
+      type="button"
+      size="icon"
+      variant="ghost"
+      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+      onClick={() => setIsCollapsed((prev) => !prev)}
+      aria-label={isCollapsed ? "Restore terminal output" : "Minimize terminal output"}
+    >
+      {isCollapsed ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+    </Button>
   );
 
   return (
@@ -379,29 +400,29 @@ export function LogPanel({
                     <span className="truncate">{command.name}</span>
                     {runs[command.id]?.status === "running" && <span className="terminal-tab-status" />}
                   </TabsTrigger>
-                  <Tooltip content="Close tab and stop process">
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="ml-0.5 h-6 w-6 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => onCloseTab(command.id)}
-                      aria-label={`Close ${command.name} log tab`}
-                    >
-                      <X size={12} />
-                    </Button>
-                  </Tooltip>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="ml-0.5 h-6 w-6 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => onCloseTab(command.id)}
+                    aria-label={`Close ${command.name} log tab`}
+                  >
+                    <X size={12} />
+                  </Button>
                 </div>
               ))}
             </TabsList>
             <div className="flex shrink-0 items-center gap-1.5 pr-1">
               <Button
-                size="sm"
+                size="icon"
                 variant="secondary"
+                className="h-7 w-7"
                 disabled={!selectedCommandId}
                 onClick={() => selectedCommandId && onClear(selectedCommandId)}
+                aria-label="Clear current terminal"
               >
-                Clear
+                <BrushCleaning size={14} />
               </Button>
               {collapseToggle}
             </div>

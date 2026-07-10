@@ -263,6 +263,7 @@ function App() {
     handleRefreshProcesses,
     openLogCommandTab,
     stopCommandByCommandId,
+    forceResetCommand,
     clearCommandLogs,
     closeLogTabNow,
   } = useCommandRuntime({
@@ -424,6 +425,17 @@ function App() {
         onRunCommand: (command: ProjectCommand) => startCommandRun(command.id),
         onStopCommand: (command: ProjectCommand) => {
           stopCommandByCommandId(command.id);
+        },
+        onForceStopCommand: (command: ProjectCommand) => {
+          setConfirmDialog({
+            isOpen: true,
+            title: "Force reset command",
+            description: `Reset \"${command.name}\" to ready and close its terminal tab? This does not stop a process that is no longer controlled by the app.`,
+            confirmLabel: "Reset and close terminal",
+            cancelLabel: "Cancel",
+            isDestructive: true,
+            onConfirm: () => forceResetCommand(command.id),
+          });
         },
         stoppingRunIds,
         restartPendingCommandIds,

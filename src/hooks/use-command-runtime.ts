@@ -183,7 +183,11 @@ export function useCommandRuntime({
     if (run?.status === "running") {
       setRestartPendingCommandIds((current) => (current.includes(command.id) ? current : [...current, command.id]));
       try {
-        await stopMutation.mutateAsync(run.runId);
+        const result = await stopMutation.mutateAsync(run.runId);
+        if (!result.was_active) {
+          setRestartPendingCommandIds((current) => current.filter((id) => id !== command.id));
+          startCommandRun(command.id);
+        }
       } catch (error) {
         setRestartPendingCommandIds((current) => current.filter((id) => id !== command.id));
         onError(error);
@@ -246,6 +250,24 @@ export function useCommandRuntime({
     }
   }
 
+  function forceResetCommand(commandId: number) {
+    setStoppingRunIds((current) => {
+      const next = new Set(current);
+      const runId = runs[commandId]?.runId;
+      if (runId !== undefined) next.delete(runId);
+      return next;
+    });
+    setRestartPendingCommandIds((current) => current.filter((id) => id !== commandId));
+    setOpenLogCommandIds((current) => current.filter((id) => id !== commandId));
+    setLogs((current) => current.filter((line) => line.commandId !== commandId));
+    setRuns((current) => {
+      const next = { ...current };
+      delete next[commandId];
+      return next;
+    });
+    setActiveLogCommandId((current) => (current === commandId ? null : current));
+  }
+
   function clearCommandLogs(commandId: number) {
     setLogs((current) => current.filter((line) => line.commandId !== commandId));
   }
@@ -295,6 +317,7 @@ export function useCommandRuntime({
     handleRefreshProcesses,
     openLogCommandTab,
     stopCommandByCommandId,
+    forceResetCommand,
     clearCommandLogs,
     closeLogTabNow,
   };
