@@ -1,7 +1,6 @@
 import {
   Check,
   Info,
-  Layout,
   Moon,
   Palette,
   Sparkles,
@@ -12,6 +11,7 @@ import {
 import type { CSSProperties, ReactNode } from "react";
 import appIcon from "../assets/app-icon.png";
 import { Button } from "./ui/button";
+import { Label } from "./ui/label";
 import {
   Select,
   SelectContent,
@@ -20,36 +20,74 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Switch } from "./ui/switch";
+import { Badge } from "./ui/badge";
 import type { AppInfo } from "../lib/api";
 import { ACCENT_THEMES, type AccentColor } from "../lib/theme";
 import { ThemeToggle } from "./motion/theme-toggle";
 import { cn } from "@/lib/utils";
 
-function SettingsCard({
+function SettingsSection({
   icon,
   title,
   description,
   children,
-  className,
-  iconClassName,
+  action,
+  tone = "default",
 }: {
   icon: ReactNode;
   title: string;
   description: string;
   children: ReactNode;
-  className?: string;
-  iconClassName?: string;
+  action?: ReactNode;
+  tone?: "default" | "danger";
 }) {
   return (
-    <div className={cn("rounded-[12px] border border-app-border bg-card p-4 shadow-app-card", className)}>
-      <div className="mb-3 flex items-start gap-3 border-b border-app-border pb-3">
-        <div className={cn("shrink-0 rounded-[8px] bg-primary/10 p-2 text-primary", iconClassName)}>{icon}</div>
-        <div className="min-w-0">
-          <h3 className="text-[14px] font-semibold text-app-title">{title}</h3>
-          <p className="text-[12px] text-muted-foreground">{description}</p>
+    <section className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <div
+            className={cn(
+              "mt-0.5 shrink-0 rounded-[12px] p-2",
+              tone === "danger" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary",
+            )}
+          >
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-[14px] font-semibold tracking-[-0.02em] text-app-title">{title}</h3>
+            <p className="text-[12px] text-muted-foreground">{description}</p>
+          </div>
         </div>
+        {action}
       </div>
-      <div className="space-y-3">{children}</div>
+      <div className="space-y-2.5">{children}</div>
+    </section>
+  );
+}
+
+function SettingsRow({
+  title,
+  description,
+  children,
+  className,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-[16px] border border-border/70 bg-input/30 px-3.5 py-3",
+        className,
+      )}
+    >
+      <div className="min-w-0">
+        <h4 className="text-[12.5px] font-semibold text-app-title">{title}</h4>
+        {description ? <p className="text-[11.5px] text-muted-foreground">{description}</p> : null}
+      </div>
+      <div className="shrink-0">{children}</div>
     </div>
   );
 }
@@ -66,24 +104,18 @@ export function AppearanceSettingsPanel({
   setAccent: (accent: AccentColor) => void;
 }) {
   return (
-    <div className="fade-in space-y-3">
-      <div className="flex items-center justify-between gap-3 rounded-[12px] border border-app-border bg-card p-3 shadow-app-card">
-        <div>
-          <h3 className="text-[13px] font-semibold text-app-title">Quick theme toggle</h3>
-          <p className="text-[12px] text-muted-foreground">Animated light/dark switch with view-transition reveal</p>
-        </div>
-        <ThemeToggle theme={theme} onThemeChange={setTheme} variant="circle" start="center" />
-      </div>
-      <SettingsCard
-        icon={<Palette size={18} />}
-        title="Visual Theme"
-        description="Select the color mode for the user interface"
+    <div className="fade-in space-y-6">
+      <SettingsSection
+        icon={<Palette size={16} />}
+        title="Theme mode"
+        description="Switch between light and dark interface styles"
+        action={<ThemeToggle theme={theme} onThemeChange={setTheme} variant="circle" start="center" />}
       >
         <div className="grid grid-cols-2 gap-2">
           {(
             [
-              { id: "light", label: "Light Mode", Icon: Sun },
-              { id: "dark", label: "Dark Mode", Icon: Moon },
+              { id: "light", label: "Light", Icon: Sun },
+              { id: "dark", label: "Dark", Icon: Moon },
             ] as const
           ).map((option) => {
             const active = theme === option.id;
@@ -93,15 +125,15 @@ export function AppearanceSettingsPanel({
                 type="button"
                 variant="ghost"
                 className={cn(
-                  "h-auto flex-col items-stretch gap-2 rounded-[12px] border-2 border-app-border bg-input p-3 text-left hover:bg-card",
-                  active && "border-primary bg-card shadow-[0_0_0_4px_var(--primary-glow)]",
+                  "h-auto flex-col items-stretch gap-2 rounded-[16px] border border-border/70 bg-input/20 p-3 text-left hover:bg-card",
+                  active && "border-primary/50 bg-primary/5 shadow-[0_0_0_3px_var(--primary-glow)]",
                 )}
                 onClick={() => setTheme(option.id)}
               >
                 <div
                   className={cn(
-                    "flex h-[90px] w-full flex-col gap-2 overflow-hidden rounded-[8px] border border-app-border p-2.5",
-                    option.id === "light" ? "bg-white" : "bg-[#0d111c]",
+                    "flex h-[78px] w-full flex-col gap-2 overflow-hidden rounded-[12px] border border-border p-2.5",
+                    option.id === "light" ? "bg-[#fafafa]" : "bg-[#151515]",
                   )}
                 >
                   <div className={cn("h-2 w-[40%] rounded", option.id === "light" ? "bg-slate-200" : "bg-slate-800")} />
@@ -125,15 +157,15 @@ export function AppearanceSettingsPanel({
             );
           })}
         </div>
-      </SettingsCard>
+      </SettingsSection>
 
-      <SettingsCard
-        icon={<Sparkles size={18} />}
-        title="Accent Color"
-        description="Customize the primary focus highlights and gradients"
+      <SettingsSection
+        icon={<Sparkles size={16} />}
+        title="Accent color"
+        description="Primary highlights, focus rings, and gradients"
       >
         <div className="flex flex-wrap gap-2">
-          {(["indigo", "emerald", "rose", "amber", "sky"] as AccentColor[]).map((col) => {
+          {(["mono", "violet", "blue", "emerald", "rose", "amber", "sky"] as AccentColor[]).map((col) => {
             const active = accent === col;
             return (
               <Button
@@ -141,7 +173,7 @@ export function AppearanceSettingsPanel({
                 type="button"
                 variant="ghost"
                 className={cn(
-                  "h-auto rounded-full border border-app-border bg-input px-3 py-2 text-[12.5px] font-semibold text-muted-foreground hover:bg-card hover:text-app-title",
+                  "h-auto rounded-full border border-border/70 bg-input/30 px-3 py-2 text-[12.5px] font-medium text-muted-foreground hover:bg-card hover:text-app-title",
                   active && "border-primary bg-card text-app-title shadow-[0_0_0_3px_var(--primary-glow)]",
                 )}
                 style={{ ["--accent-color-color" as string]: ACCENT_THEMES[col].primary } as CSSProperties}
@@ -155,7 +187,7 @@ export function AppearanceSettingsPanel({
             );
           })}
         </div>
-      </SettingsCard>
+      </SettingsSection>
     </div>
   );
 }
@@ -193,17 +225,15 @@ export function TerminalSettingsPanel({
           : "monospace";
 
   return (
-    <div className="fade-in space-y-3">
-      <SettingsCard
-        icon={<Terminal size={18} />}
-        title="Text Typography"
-        description="Change font styles and size of logs displayed in terminal"
+    <div className="fade-in space-y-6">
+      <SettingsSection
+        icon={<Terminal size={16} />}
+        title="Typography"
+        description="Font family and size used by the logs terminal"
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <label htmlFor="terminal-font" className="text-[12px] font-semibold text-muted-foreground">
-              Font Family
-            </label>
+            <Label htmlFor="terminal-font">Font family</Label>
             <Select value={terminalFontFamily} onValueChange={setTerminalFontFamily}>
               <SelectTrigger id="terminal-font">
                 <SelectValue placeholder="Select a font family" />
@@ -217,74 +247,66 @@ export function TerminalSettingsPanel({
             </Select>
           </div>
           <div className="flex flex-col gap-2">
-            <label className="text-[12px] font-semibold text-muted-foreground">Font Size</label>
-            <div className="flex gap-2">
-              {["12px", "13px", "14px", "15px"].map((size) => (
-                <Button
-                  key={size}
-                  type="button"
-                  variant="ghost"
-                  className={cn(
-                    "h-8 flex-1 rounded-[8px] border border-app-border bg-input text-[12.5px] font-semibold text-muted-foreground",
-                    terminalFontSize === size && "border-primary bg-primary/10 text-primary",
-                  )}
-                  onClick={() => setTerminalFontSize(size)}
-                >
-                  {size}
-                </Button>
-              ))}
+            <Label>Font size</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {["12px", "13px", "14px", "15px", "16px"].map((size) => {
+                const active = terminalFontSize === size;
+                return (
+                  <Button
+                    key={size}
+                    type="button"
+                    size="sm"
+                    variant={active ? "primary" : "secondary"}
+                    className={cn("min-w-12", !active && "bg-input/40")}
+                    onClick={() => setTerminalFontSize(size)}
+                  >
+                    {size.replace("px", "")}
+                  </Button>
+                );
+              })}
             </div>
           </div>
         </div>
-      </SettingsCard>
+      </SettingsSection>
 
-      <SettingsCard
-        icon={<Layout size={18} />}
-        title="Console Settings"
-        description="Manage terminal behavior and stream layouts"
-      >
-        <div className="flex flex-col gap-3">
-          {[
-            {
-              title: "Auto-clear logs on command execution",
-              description: "Automatically wipe prior stdout/stderr logs whenever a command starts",
-              checked: autoClearLogs,
-              onChange: setAutoClearLogs,
-            },
-            {
-              title: "Display line timestamps",
-              description: "Prepend console logs with their arrival time (e.g. [10:32:01])",
-              checked: showLogsTimestamp,
-              onChange: setShowLogsTimestamp,
-            },
-            {
-              title: "Show stream identifiers",
-              description: "Show stdout / stderr badges alongside outputs",
-              checked: showStreamName,
-              onChange: setShowStreamName,
-            },
-          ].map((item) => (
-            <div
-              key={item.title}
-              className="flex items-center justify-between gap-3 rounded-[10px] border border-app-border bg-input/40 px-3 py-2.5"
-            >
-              <div className="min-w-0">
-                <h4 className="text-[12.5px] font-semibold text-app-title">{item.title}</h4>
-                <p className="text-[11.5px] text-muted-foreground">{item.description}</p>
-              </div>
-              <Switch checked={item.checked} onCheckedChange={item.onChange} />
-            </div>
-          ))}
-        </div>
-      </SettingsCard>
-
-      <SettingsCard
+      <SettingsSection
         icon={<Info size={16} />}
-        title="Terminal Render Preview"
-        description="Live preview of logs using selected styles"
+        title="Log display"
+        description="Control what appears in each terminal line"
+      >
+        {[
+          {
+            title: "Auto clear logs",
+            description: "Clear previous logs whenever a command starts",
+            checked: autoClearLogs,
+            onChange: setAutoClearLogs,
+          },
+          {
+            title: "Line timestamps",
+            description: "Prepend logs with arrival time (e.g. [10:32:01])",
+            checked: showLogsTimestamp,
+            onChange: setShowLogsTimestamp,
+          },
+          {
+            title: "Stream identifiers",
+            description: "Show stdout / stderr badges next to output",
+            checked: showStreamName,
+            onChange: setShowStreamName,
+          },
+        ].map((item) => (
+          <SettingsRow key={item.title} title={item.title} description={item.description}>
+            <Switch checked={item.checked} onCheckedChange={item.onChange} />
+          </SettingsRow>
+        ))}
+      </SettingsSection>
+
+      <SettingsSection
+        icon={<Terminal size={16} />}
+        title="Render preview"
+        description="Live preview of the selected terminal styles"
       >
         <div
-          className="overflow-hidden rounded-[10px] border border-app-border bg-[#03050a] p-3 font-mono text-slate-200"
+          className="overflow-hidden rounded-[16px] border border-border/70 bg-[var(--terminal-bg)] p-3 font-mono text-[var(--terminal-fg)]"
           style={{ fontSize: terminalFontSize, fontFamily: previewFontFamily }}
         >
           <div className="text-slate-400">$ npm run dev</div>
@@ -299,7 +321,7 @@ export function TerminalSettingsPanel({
             Watching files in /projects/app-shell...
           </div>
         </div>
-      </SettingsCard>
+      </SettingsSection>
     </div>
   );
 }
@@ -316,54 +338,56 @@ export function SystemSettingsPanel({
   onResetCache: () => void;
 }) {
   return (
-    <div className="fade-in space-y-3">
-      <div className="rounded-[12px] border border-app-border bg-card p-4 shadow-app-card">
-        <div className="flex items-start gap-3">
-          <img className="h-14 w-14 rounded-[12px] border border-app-border object-cover" src={appIcon} alt="" />
-          <div className="min-w-0">
-            <h3 className="text-[15px] font-semibold text-app-title">{appInfo?.name ?? "Projects Runner"}</h3>
-            <p className="text-[12px] text-muted-foreground">Version {appInfo?.version ?? "0.1.0"}</p>
-            <p className="mt-1 text-[12.5px] text-muted-foreground">
-              Developer dashboard companion to organize, configure and run repeated project command lines synchronously.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-[10px] border border-app-border bg-input/50 p-3">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            Registered Projects
-          </span>
-          <strong className="mt-1 block text-[20px] text-app-title">{projectCount}</strong>
-        </div>
-        <div className="rounded-[10px] border border-app-border bg-input/50 p-3">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            Active Project Commands
-          </span>
-          <strong className="mt-1 block text-[20px] text-app-title">{commandCount}</strong>
-        </div>
-      </div>
-
-      <SettingsCard
-        icon={<Trash2 size={18} />}
-        title="Danger Zone"
-        description="Reset application cache, config preferences, or clear local logs cache"
-        iconClassName="bg-destructive/10 text-destructive"
+    <div className="fade-in space-y-6">
+      <SettingsSection
+        icon={<Info size={16} />}
+        title="About"
+        description="App identity and workspace inventory"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-start gap-3 rounded-[16px] border border-border/70 bg-input/20 p-3.5">
+          <img className="h-12 w-12 rounded-[14px] border border-border object-cover" src={appIcon} alt="" />
           <div className="min-w-0">
-            <h4 className="text-[12.5px] font-semibold text-app-title">Reset Application Cache</h4>
-            <p className="text-[11.5px] text-muted-foreground">
-              Wipe all theme overrides, local preferences and reload projects list
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-[14px] font-semibold text-app-title">{appInfo?.name ?? "Projects Runner"}</h4>
+              <Badge variant="muted">v{appInfo?.version ?? "0.1.0"}</Badge>
+            </div>
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              Developer dashboard companion to organize, configure and run repeated project command lines.
             </p>
           </div>
-          <Button variant="danger" onClick={onResetCache}>
-            Reset App Cache
-          </Button>
         </div>
-      </SettingsCard>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-[16px] border border-border/70 bg-input/20 p-3">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              Projects
+            </span>
+            <strong className="mt-1 block text-[20px] text-app-title">{projectCount}</strong>
+          </div>
+          <div className="rounded-[16px] border border-border/70 bg-input/20 p-3">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              Commands
+            </span>
+            <strong className="mt-1 block text-[20px] text-app-title">{commandCount}</strong>
+          </div>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        icon={<Trash2 size={16} />}
+        title="Danger zone"
+        description="Reset local preferences and cached application state"
+        tone="danger"
+      >
+        <SettingsRow
+          title="Reset application cache"
+          description="Wipe theme overrides, local preferences and reload projects"
+        >
+          <Button variant="danger" onClick={onResetCache}>
+            Reset cache
+          </Button>
+        </SettingsRow>
+      </SettingsSection>
     </div>
   );
 }
-

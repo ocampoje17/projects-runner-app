@@ -477,7 +477,7 @@ function App() {
     : undefined;
 
   return (
-    <main className="app-shell grid h-screen grid-cols-[236px_minmax(0,1fr)] overflow-hidden bg-shell text-foreground">
+    <main className="app-shell grid h-full min-h-0 flex-1 grid-cols-[236px_minmax(0,1fr)] overflow-hidden bg-shell text-foreground">
       <AppWorkspace
         projects={projects}
         selectedProject={selectedProject}
@@ -585,12 +585,14 @@ function App() {
         onRefreshProcesses={handleRefreshProcesses}
       />
 
-      <AnimatedToastStack toasts={toasts} onDismiss={dismissToast} position="top-right" />
+      <AnimatedToastStack toasts={toasts} onDismiss={dismissToast} position="top-right" placement="fixed" />
     </main>
   );
 }
 
 export default App;
+
+
 
 
 

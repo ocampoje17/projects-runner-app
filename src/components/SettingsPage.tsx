@@ -2,13 +2,12 @@ import { useState } from "react";
 import { Info, Palette, Settings, Terminal } from "lucide-react";
 import type { AppInfo } from "../lib/api";
 import type { AccentColor } from "../lib/theme";
-import { Button } from "./ui/button";
 import {
   AppearanceSettingsPanel,
   SystemSettingsPanel,
   TerminalSettingsPanel,
 } from "./settings-panels";
-import { cn } from "@/lib/utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 export interface SettingsPageProps {
   appInfo?: AppInfo;
@@ -53,54 +52,44 @@ export function SettingsPage({
 }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<"appearance" | "terminal" | "system">("appearance");
 
-  const navItems = [
-    { id: "appearance" as const, label: "Appearance", icon: Palette },
-    { id: "terminal" as const, label: "Terminal", icon: Terminal },
-    { id: "system" as const, label: "System", icon: Info },
-  ];
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <Settings className="h-8 w-8 rounded-[8px] border border-app-border p-1.5 text-primary" size={24} />
-          <div>
-            <h2 className="text-[18px] font-semibold text-app-title">Settings</h2>
-            <p className="text-[12.5px] text-muted-foreground">
-              Customize your workspace, terminal preferences, and view system information
-            </p>
-          </div>
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4">
+      <header className="flex shrink-0 items-start gap-2.5">
+        <Settings className="h-9 w-9 rounded-[14px] border border-border/70 bg-primary/5 p-2 text-primary" size={20} />
+        <div className="min-w-0">
+          <h2 className="text-[18px] font-semibold tracking-[-0.02em] text-app-title">Settings</h2>
+          <p className="text-[12.5px] text-muted-foreground">
+            Workspace appearance, terminal preferences, and system info
+          </p>
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 gap-3 md:grid-cols-[200px_minmax(0,1fr)]">
-        <aside className="flex h-fit flex-col gap-1 rounded-[12px] border border-app-border bg-card p-2 shadow-app-card">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = activeTab === item.id;
-            return (
-              <Button
-                key={item.id}
-                type="button"
-                variant="ghost"
-                className={cn(
-                  "justify-start gap-2 rounded-[10px] px-3 py-2 text-[12.5px]",
-                  active && "bg-primary/10 text-primary",
-                )}
-                onClick={() => setActiveTab(item.id)}
-              >
-                <Icon size={16} />
-                <span>{item.label}</span>
-              </Button>
-            );
-          })}
-        </aside>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as "appearance" | "terminal" | "system")}
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+        variant="pill"
+      >
+        <TabsList className="w-fit shrink-0">
+          <TabsTrigger value="appearance" className="gap-1.5">
+            <Palette size={14} />
+            Appearance
+          </TabsTrigger>
+          <TabsTrigger value="terminal" className="gap-1.5">
+            <Terminal size={14} />
+            Terminal
+          </TabsTrigger>
+          <TabsTrigger value="system" className="gap-1.5">
+            <Info size={14} />
+            System
+          </TabsTrigger>
+        </TabsList>
 
-        <div className="min-h-0 overflow-y-auto pr-1 pb-4">
-          {activeTab === "appearance" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <TabsContent value="appearance" className="block">
             <AppearanceSettingsPanel theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} />
-          ) : null}
-          {activeTab === "terminal" ? (
+          </TabsContent>
+          <TabsContent value="terminal" className="block">
             <TerminalSettingsPanel
               terminalFontSize={terminalFontSize}
               setTerminalFontSize={setTerminalFontSize}
@@ -113,18 +102,17 @@ export function SettingsPage({
               showStreamName={showStreamName}
               setShowStreamName={setShowStreamName}
             />
-          ) : null}
-          {activeTab === "system" ? (
+          </TabsContent>
+          <TabsContent value="system" className="block">
             <SystemSettingsPanel
               appInfo={appInfo}
               projectCount={projectCount}
               commandCount={commandCount}
               onResetCache={onResetCache}
             />
-          ) : null}
+          </TabsContent>
         </div>
-      </div>
+      </Tabs>
     </div>
   );
 }
-

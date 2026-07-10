@@ -118,11 +118,11 @@ export function ProjectDetail({
 }: ProjectDetailProps) {
   return (
     <Tabs
-      className="flex min-h-0 flex-1 flex-col p-3"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden p-3"
       value={projectTab}
       onValueChange={(value) => onProjectTabChange(value as "commands" | "notes")}
     >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
         <TabsList>
           <TabsTrigger value="commands">Commands</TabsTrigger>
           <TabsTrigger value="notes">Notes</TabsTrigger>
@@ -133,7 +133,7 @@ export function ProjectDetail({
         </div>
       </div>
 
-      <TabsContent value="commands" className="min-h-0 flex-1 outline-none">
+      <TabsContent value="commands" className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none">
         <ProjectDetailCommands
           commands={commands}
           commandSections={commandSections}
@@ -176,7 +176,7 @@ export function ProjectDetail({
         />
       </TabsContent>
 
-      <TabsContent value="notes" className="min-h-0 flex-1 outline-none">
+      <TabsContent value="notes" className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none">
         <ProjectDetailNotes
           selectedProject={selectedProject}
           sortedProjectNotes={sortedProjectNotes}
@@ -195,5 +195,4 @@ export function ProjectDetail({
     </Tabs>
   );
 }
-
 

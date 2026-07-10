@@ -4,12 +4,15 @@ Tauri + React + TypeScript desktop app for saving and running project commands.
 
 ## UI stack
 
+- **beUI v2 full visual language** (mono surfaces, pill controls, soft borders, spring motion)
 - **Tailwind CSS v4** token bridge in `src/styles/tailwind.css`
 - **Local UI primitives** in `src/components/ui/*` (Radix where needed + CVA/Tailwind)
-- **beUI v2 motion components** vendored under `src/components/motion/*`
+- **beUI motion components** vendored under `src/components/motion/*`
   - `animated-toast-stack` (global toasts)
   - `action-swap` (command run/stop CTA)
+  - `tooltip`, `theme-toggle`
 - Shared motion tokens: `src/lib/ease.ts`
+- Accent themes: `src/lib/theme.ts` (`mono` default + violet/blue/emerald/rose/amber/sky)
 - Class helper: `src/lib/utils.ts` (`cn`)
 
 ### Install / sync beUI components

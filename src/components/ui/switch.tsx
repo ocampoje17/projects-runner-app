@@ -75,20 +75,20 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(function 
           initial={false}
           data-state={current ? "checked" : "unchecked"}
           className={cn(
-            "group peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full px-0.5 outline-none transition-colors duration-200 app-focus-ring",
+            "group peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full px-0.5 outline-none transition-colors duration-200 app-focus-ring",
             "disabled:cursor-not-allowed disabled:opacity-60",
-            current ? "justify-end bg-primary" : "justify-start bg-muted-foreground/50",
+            current ? "justify-end bg-primary" : "justify-start bg-border-strong/70",
           )}
         >
           <motion.div
             ref={thumbRef}
             layout
             animate={{ scale: squish ? 0.9 : 1 }}
-            className="pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm"
+            className="pointer-events-none block h-[18px] w-[18px] rounded-full bg-white shadow-sm"
           />
         </motion.button>
         {label ? (
-          <label htmlFor={switchId} className="cursor-pointer text-[12.5px] text-foreground">
+          <label htmlFor={switchId} className="cursor-pointer text-[13px] text-foreground">
             {label}
           </label>
         ) : null}
@@ -98,3 +98,4 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(function 
 });
 
 Switch.displayName = "Switch";
+

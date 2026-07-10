@@ -26,43 +26,43 @@ export function ProjectsSidebar({
   onSelectProject,
 }: ProjectsSidebarProps) {
   return (
-    <aside className="app-sidebar flex h-full min-w-0 flex-col border-r border-app-border bg-sidebar">
-      <div className="flex items-center gap-2.5 border-b border-app-border px-3 py-3.5">
+    <aside className="app-sidebar flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar/95 backdrop-blur-xl">
+      <div className="flex items-center gap-2.5 border-b border-border px-3.5 py-4">
         <div className="flex min-w-0 items-center gap-2.5">
-          <img className="h-8 w-8 rounded-[8px] border border-white/10 object-cover shadow-sm" src={appIcon} alt="" />
+          <img className="h-9 w-9 rounded-[14px] border border-border object-cover shadow-sm" src={appIcon} alt="" />
           <div className="min-w-0">
-            <h1 className="truncate text-[14px] font-semibold text-app-title">Projects Runner</h1>
+            <h1 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-app-title">Projects Runner</h1>
             <p className="text-[11px] text-muted-foreground">{projects.length} projects</p>
           </div>
         </div>
       </div>
 
-      <div className="flex gap-1.5 border-b border-app-border px-3 py-2.5">
-        <Button className="flex-1" onClick={onAddProject}>
+      <div className="flex flex-col gap-1.5 border-b border-border px-3.5 py-3">
+        <Button className="w-full justify-start" onClick={onAddProject}>
           <Plus size={15} />
           Add Project
         </Button>
-        <Button className="flex-1" variant="outline" onClick={onImportProject}>
+        <Button className="w-full justify-start" variant="outline" onClick={onImportProject}>
           <FileInput size={15} />
           Import .prd
         </Button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 py-2.5">
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2.5 py-3">
         {projects.map((project) => (
           <Button
             type="button"
             variant="ghost"
             className={cn(
-              "grid h-auto min-h-10 w-full grid-cols-[32px_minmax(0,1fr)] items-center justify-start gap-2 rounded-[8px] border border-transparent px-1.5 py-1.5 text-left text-muted-foreground hover:bg-muted hover:text-app-title",
-              selectedProjectId === project.id && "border-primary/30 bg-primary/10 text-app-title",
+              "grid h-auto min-h-11 w-full grid-cols-[36px_minmax(0,1fr)] items-center justify-start gap-2.5 rounded-[14px] border border-transparent px-2 py-2 text-left text-muted-foreground hover:bg-primary/5 hover:text-app-title",
+              selectedProjectId === project.id && "border-primary/25 bg-primary/10 text-app-title shadow-sm",
             )}
             key={project.id}
             onClick={() => onSelectProject(project.id)}
           >
             <EntityAvatar name={project.name} path={project.avatar_path} />
             <span className="min-w-0 flex-1">
-              <strong className="block truncate text-[12.5px] font-semibold">{project.name}</strong>
+              <strong className="block truncate text-[13px] font-semibold tracking-[-0.01em]">{project.name}</strong>
             </span>
           </Button>
         ))}
@@ -73,7 +73,7 @@ export function ProjectsSidebar({
         )}
       </div>
 
-      <div className="border-t border-app-border p-2">
+      <div className="border-t border-border p-2.5">
         <Button className="w-full justify-start" variant={settingsOpen ? "secondary" : "ghost"} onClick={onOpenSettings}>
           <Settings size={16} />
           Settings
@@ -102,11 +102,11 @@ export function ProjectWorkspaceHeader({
 }: ProjectWorkspaceHeaderProps) {
   return (
     <>
-      <header className="flex flex-wrap items-center justify-between gap-2.5 border-b border-app-border bg-workspace px-3 py-2.5">
+      <header className="flex flex-wrap items-center justify-between gap-2.5 border-b border-border bg-[var(--workspace-header-bg)] px-4 py-3 backdrop-blur-xl">
         <div className="flex min-w-0 items-center gap-2.5">
           <EntityAvatar name={selectedProject.name} path={selectedProject.avatar_path} />
           <div className="min-w-0">
-            <h2 className="truncate text-[18px] font-semibold text-app-title">{selectedProject.name}</h2>
+            <h2 className="truncate text-[20px] font-semibold tracking-[-0.03em] text-app-title">{selectedProject.name}</h2>
             <p className="truncate text-[12px] text-muted-foreground">{selectedProject.path}</p>
           </div>
         </div>
@@ -155,9 +155,9 @@ export interface WelcomeWorkspaceProps {
 export function WelcomeWorkspace({ onAddProject, onImportProject }: WelcomeWorkspaceProps) {
   return (
     <div className="mx-auto flex h-full max-w-[520px] flex-col items-center justify-center gap-4 px-4 py-16 text-center">
-      <img className="h-16 w-16 rounded-[14px] border border-app-border object-cover shadow-md" src={appIcon} alt="" />
+      <img className="h-16 w-16 rounded-[18px] border border-border object-cover shadow-md" src={appIcon} alt="" />
       <div className="space-y-2">
-        <h2 className="text-[20px] font-semibold text-app-title">Manage repeat project commands</h2>
+        <h2 className="text-[22px] font-semibold tracking-[-0.03em] text-app-title">Manage repeat project commands</h2>
         <p className="text-[13px] text-muted-foreground">
           Add a project folder, then save multi-line commands you run often.
         </p>
@@ -175,4 +175,7 @@ export function WelcomeWorkspace({ onAddProject, onImportProject }: WelcomeWorks
     </div>
   );
 }
+
+
+
 

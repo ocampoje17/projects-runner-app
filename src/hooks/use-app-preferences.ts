@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
-import { ACCENT_THEMES, type AccentColor } from "../lib/theme";
+import { resolveAccentTheme, type AccentColor } from "../lib/theme";
 
 const SYSTEM_MONO_FAMILY = '"Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace';
+const ACCENT_VALUES: AccentColor[] = ["mono", "violet", "blue", "emerald", "rose", "amber", "sky"];
+
+function isAccentColor(value: string | null): value is AccentColor {
+  return ACCENT_VALUES.includes(value as AccentColor);
+}
 
 export function useAppPreferences() {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -10,10 +15,11 @@ export function useAppPreferences() {
   });
 
   const [accent, setAccent] = useState<AccentColor>(() => {
-    const saved = localStorage.getItem("accent") as AccentColor;
-    return saved === "indigo" || saved === "emerald" || saved === "rose" || saved === "amber" || saved === "sky"
-      ? saved
-      : "indigo";
+    const saved = localStorage.getItem("accent");
+    if (isAccentColor(saved)) return saved;
+    // migrate previous default indigo -> mono (beUI default)
+    if (saved === "indigo") return "mono";
+    return "mono";
   });
 
   const [terminalFontSize, setTerminalFontSize] = useState(() => localStorage.getItem("terminalFontSize") || "13px");
@@ -54,11 +60,13 @@ export function useAppPreferences() {
   useEffect(() => {
     localStorage.setItem("accent", accent);
     const root = document.documentElement;
-    const colors = ACCENT_THEMES[accent] || ACCENT_THEMES.indigo;
+    const colors = resolveAccentTheme(accent, theme);
     root.style.setProperty("--primary-color", colors.primary);
+    root.style.setProperty("--primary-foreground-color", colors.primaryForeground);
     root.style.setProperty("--primary-gradient", colors.gradient);
     root.style.setProperty("--primary-glow", colors.glow);
-  }, [accent]);
+    root.style.setProperty("--ring", colors.ring);
+  }, [accent, theme]);
 
   useEffect(() => {
     localStorage.setItem("terminalFontSize", terminalFontSize);

@@ -34,7 +34,7 @@ export function AvatarPicker({
             size="icon"
             variant="ghost"
             className={cn(
-              "h-8 min-w-8 rounded-[6px] border border-app-border bg-input text-app-text-secondary hover:border-app-border-hover hover:bg-muted hover:text-app-title",
+              "h-8 min-w-8 rounded-full border border-border bg-input text-app-text-secondary hover:border-border-hover hover:bg-muted hover:text-app-title",
               selectedIconId === id && "border-transparent bg-primary text-primary-foreground shadow-[0_4px_12px_var(--primary-glow)]",
             )}
             key={id}
@@ -53,3 +53,4 @@ export function AvatarPicker({
 export function FieldError({ message }: { message?: string }) {
   return message ? <DialogErrorText>{message}</DialogErrorText> : null;
 }
+

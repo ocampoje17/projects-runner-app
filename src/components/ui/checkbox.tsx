@@ -64,11 +64,11 @@ export const Checkbox = React.forwardRef<HTMLButtonElement, CheckboxProps>(funct
         transition={SPRING_PRESS}
         data-state={isChecked ? "checked" : isIndeterminate ? "indeterminate" : "unchecked"}
         className={cn(
-          "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border outline-none transition-colors duration-200 app-focus-ring",
+          "inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[6px] border outline-none transition-colors duration-200 app-focus-ring",
           "disabled:cursor-not-allowed disabled:opacity-60",
           showMark
             ? "border-primary bg-primary text-primary-foreground"
-            : "border-app-border bg-input text-transparent",
+            : "border-border bg-input text-transparent",
           className,
         )}
         onClick={(event) => {
@@ -101,7 +101,7 @@ export const Checkbox = React.forwardRef<HTMLButtonElement, CheckboxProps>(funct
         </AnimatePresence>
       </motion.button>
       {label ? (
-        <label htmlFor={checkboxId} className="cursor-pointer text-[12.5px] text-foreground">
+        <label htmlFor={checkboxId} className="cursor-pointer text-[13px] text-foreground">
           {label}
         </label>
       ) : null}
@@ -110,3 +110,4 @@ export const Checkbox = React.forwardRef<HTMLButtonElement, CheckboxProps>(funct
 });
 
 Checkbox.displayName = "Checkbox";
+

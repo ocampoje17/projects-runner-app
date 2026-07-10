@@ -1,29 +1,115 @@
-export type AccentColor = "indigo" | "emerald" | "rose" | "amber" | "sky";
+export type AccentColor = "mono" | "violet" | "blue" | "emerald" | "rose" | "amber" | "sky";
 
-export const ACCENT_THEMES: Record<AccentColor, { primary: string; gradient: string; glow: string }> = {
-  indigo: {
-    primary: "#6366f1",
-    gradient: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
-    glow: "rgba(99, 102, 241, 0.15)",
+export type AccentTheme = {
+  primary: string;
+  primaryForeground: string;
+  gradient: string;
+  glow: string;
+  ring: string;
+};
+
+export const ACCENT_THEMES: Record<AccentColor, AccentTheme> = {
+  mono: {
+    primary: "oklch(15% 0 0)",
+    primaryForeground: "oklch(99% 0 0)",
+    gradient: "linear-gradient(180deg, oklch(22% 0 0) 0%, oklch(15% 0 0) 100%)",
+    glow: "oklch(15% 0 0 / 0.12)",
+    ring: "oklch(15% 0 0 / 0.18)",
+  },
+  violet: {
+    primary: "oklch(55% 0.2 290)",
+    primaryForeground: "oklch(99% 0 0)",
+    gradient: "linear-gradient(180deg, oklch(60% 0.2 290) 0%, oklch(50% 0.18 290) 100%)",
+    glow: "oklch(55% 0.2 290 / 0.18)",
+    ring: "oklch(55% 0.2 290 / 0.45)",
+  },
+  blue: {
+    primary: "oklch(55% 0.18 255)",
+    primaryForeground: "oklch(99% 0 0)",
+    gradient: "linear-gradient(180deg, oklch(60% 0.18 255) 0%, oklch(50% 0.16 255) 100%)",
+    glow: "oklch(55% 0.18 255 / 0.18)",
+    ring: "oklch(55% 0.18 255 / 0.45)",
   },
   emerald: {
-    primary: "#10b981",
-    gradient: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-    glow: "rgba(16, 185, 129, 0.15)",
+    primary: "oklch(56% 0.14 150)",
+    primaryForeground: "oklch(99% 0 0)",
+    gradient: "linear-gradient(180deg, oklch(62% 0.14 150) 0%, oklch(50% 0.12 150) 100%)",
+    glow: "oklch(56% 0.14 150 / 0.18)",
+    ring: "oklch(56% 0.14 150 / 0.45)",
   },
   rose: {
-    primary: "#f43f5e",
-    gradient: "linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)",
-    glow: "rgba(244, 63, 94, 0.15)",
+    primary: "oklch(58% 0.2 12)",
+    primaryForeground: "oklch(99% 0 0)",
+    gradient: "linear-gradient(180deg, oklch(62% 0.2 12) 0%, oklch(52% 0.18 12) 100%)",
+    glow: "oklch(58% 0.2 12 / 0.18)",
+    ring: "oklch(58% 0.2 12 / 0.45)",
   },
   amber: {
-    primary: "#f59e0b",
-    gradient: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
-    glow: "rgba(245, 158, 11, 0.15)",
+    primary: "oklch(74% 0.15 70)",
+    primaryForeground: "oklch(20% 0.02 70)",
+    gradient: "linear-gradient(180deg, oklch(78% 0.15 70) 0%, oklch(70% 0.14 70) 100%)",
+    glow: "oklch(74% 0.15 70 / 0.2)",
+    ring: "oklch(74% 0.15 70 / 0.45)",
   },
   sky: {
-    primary: "#0ea5e9",
-    gradient: "linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)",
-    glow: "rgba(14, 165, 233, 0.15)",
+    primary: "oklch(62% 0.14 230)",
+    primaryForeground: "oklch(99% 0 0)",
+    gradient: "linear-gradient(180deg, oklch(66% 0.14 230) 0%, oklch(56% 0.13 230) 100%)",
+    glow: "oklch(62% 0.14 230 / 0.18)",
+    ring: "oklch(62% 0.14 230 / 0.45)",
   },
 };
+
+export const DARK_ACCENT_OVERRIDES: Partial<Record<AccentColor, Partial<AccentTheme>>> = {
+  mono: {
+    primary: "oklch(96% 0 0)",
+    primaryForeground: "#151515",
+    gradient: "linear-gradient(180deg, oklch(98% 0 0) 0%, oklch(92% 0 0) 100%)",
+    glow: "oklch(96% 0 0 / 0.14)",
+    ring: "oklch(96% 0 0 / 0.28)",
+  },
+  violet: {
+    primary: "oklch(72% 0.16 290)",
+    primaryForeground: "oklch(15% 0 0)",
+    glow: "oklch(72% 0.16 290 / 0.22)",
+    ring: "oklch(72% 0.16 290 / 0.5)",
+  },
+  blue: {
+    primary: "oklch(70% 0.15 255)",
+    primaryForeground: "oklch(15% 0 0)",
+    glow: "oklch(70% 0.15 255 / 0.22)",
+    ring: "oklch(70% 0.15 255 / 0.5)",
+  },
+  emerald: {
+    primary: "oklch(72% 0.15 150)",
+    primaryForeground: "oklch(15% 0 0)",
+    glow: "oklch(72% 0.15 150 / 0.22)",
+    ring: "oklch(72% 0.15 150 / 0.5)",
+  },
+  rose: {
+    primary: "oklch(70% 0.17 12)",
+    primaryForeground: "oklch(15% 0 0)",
+    glow: "oklch(70% 0.17 12 / 0.22)",
+    ring: "oklch(70% 0.17 12 / 0.5)",
+  },
+  amber: {
+    primary: "oklch(80% 0.15 75)",
+    primaryForeground: "oklch(18% 0.02 75)",
+    glow: "oklch(80% 0.15 75 / 0.22)",
+    ring: "oklch(80% 0.15 75 / 0.5)",
+  },
+  sky: {
+    primary: "oklch(74% 0.12 230)",
+    primaryForeground: "oklch(15% 0 0)",
+    glow: "oklch(74% 0.12 230 / 0.22)",
+    ring: "oklch(74% 0.12 230 / 0.5)",
+  },
+};
+
+export function resolveAccentTheme(accent: AccentColor, mode: "light" | "dark"): AccentTheme {
+  const base = ACCENT_THEMES[accent] ?? ACCENT_THEMES.mono;
+  if (mode === "dark") {
+    return { ...base, ...(DARK_ACCENT_OVERRIDES[accent] ?? {}) };
+  }
+  return base;
+}

@@ -2,14 +2,14 @@ import { ActionSwapButton } from "./motion/action-swap";
 import { Tooltip } from "./motion/tooltip";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { StatefulButton } from "./ui/stateful-button";
 import { Card, CardContent, CardHeader } from "./ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { EntityAvatar } from "./entity-avatar";
 import { commandPorts } from "../lib/command-utils";
 import type { ProjectCommand } from "../lib/api";
-import { Loader2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Maximize2, Minimize2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import TerminalUi, { ColorMode, TerminalOutput } from "react-terminal-ui";
 
 export type RunState = {
@@ -63,9 +63,9 @@ export function CommandCard({
 
   return (
     <Card
-      className={`overflow-hidden rounded-[10px] border border-app-border bg-card shadow-app-card transition-all ${isRunning ? "command-card-running" : ""} ${run?.status === "failed" ? "command-card-failed" : "hover:-translate-y-px hover:border-primary/30 hover:shadow-app-card-hover"}`}
+      className={cn("overflow-hidden transition-all", isRunning && "command-card-running", run?.status === "failed" ? "command-card-failed" : "hover:-translate-y-px hover:border-primary/30 hover:shadow-app-card-hover")}
     >
-      <CardHeader className="flex items-center justify-between gap-3">
+      <CardHeader className="flex-row items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <EntityAvatar name={command.name} path={command.avatar_path} />
           <div className="min-w-0">
@@ -103,69 +103,77 @@ export function CommandCard({
             ))}
           </div>
         )}
-        <pre className="overflow-x-auto rounded-[8px] border border-app-border/70 bg-[var(--script-preview-bg)] p-2 font-mono text-[11px] leading-relaxed text-[var(--script-preview-color)]">{command.script}</pre>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <ActionSwapButton
-            size="sm"
-            variant={isRunning || isStopping ? "outline" : "primary"}
-            animation="blur"
-            cycle={false}
-            disabled={isStopping}
-            className={isRunning || isStopping ? "min-w-[95px] justify-center border-destructive text-destructive hover:bg-destructive/10" : undefined}
-            value={isStopping ? "stopping" : isRunning ? "stop" : "run"}
-            onClick={() => {
-              if (isStopping) return;
-              if (isRunning) onStop();
-              else onRun();
-            }}
-            items={[
-              { id: "run", label: "Run", icon: <Play size={14} />, ariaLabel: `Run ${command.name}` },
-              { id: "stop", label: "Stop", icon: <Square size={14} />, ariaLabel: `Stop ${command.name}` },
-              {
-                id: "stopping",
-                label: "Stopping",
-                icon: <Loader2 size={14} className="animate-spin" />,
-                ariaLabel: `Stopping ${command.name}`,
-              },
-            ]}
-          />
-          {isRunning && (
+        <pre className="max-h-[calc(1.625em*5+1rem)] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-[14px] border border-border/70 bg-[var(--script-preview-bg)] p-2 font-mono text-[11px] leading-relaxed text-[var(--script-preview-color)]">{command.script}</pre>
+        <div className="mt-2 flex flex-nowrap items-center gap-1">
+          <Tooltip content={isStopping ? "Stopping" : isRunning ? "Stop" : "Run"}>
             <ActionSwapButton
-              size="sm"
-              variant="secondary"
+              size="icon"
+              variant={isRunning || isStopping ? "outline" : "primary"}
               animation="blur"
               cycle={false}
-              disabled={isRestarting}
-              value={isRestarting ? "restarting" : "restart"}
+              disabled={isStopping}
+              className={cn(
+                "h-8 w-8 shrink-0",
+                (isRunning || isStopping) && "border-destructive text-destructive hover:bg-destructive/10",
+              )}
+              value={isStopping ? "stopping" : isRunning ? "stop" : "run"}
               onClick={() => {
-                if (!isRestarting) onRestart();
+                if (isStopping) return;
+                if (isRunning) onStop();
+                else onRun();
               }}
               items={[
-                { id: "restart", label: "Rerun", icon: <RotateCcw size={14} />, ariaLabel: `Rerun ${command.name}` },
+                { id: "run", label: "Run", icon: <Play size={14} />, ariaLabel: `Run ${command.name}` },
+                { id: "stop", label: "Stop", icon: <Square size={14} />, ariaLabel: `Stop ${command.name}` },
                 {
-                  id: "restarting",
-                  label: "Restarting",
+                  id: "stopping",
+                  label: "Stopping",
                   icon: <Loader2 size={14} className="animate-spin" />,
-                  ariaLabel: `Restarting ${command.name}`,
+                  ariaLabel: `Stopping ${command.name}`,
                 },
               ]}
             />
+          </Tooltip>
+          {isRunning && (
+            <Tooltip content={isRestarting ? "Restarting" : "Rerun"}>
+              <ActionSwapButton
+                size="icon"
+                variant="secondary"
+                animation="blur"
+                cycle={false}
+                disabled={isRestarting}
+                className="h-8 w-8 shrink-0"
+                value={isRestarting ? "restarting" : "restart"}
+                onClick={() => {
+                  if (!isRestarting) onRestart();
+                }}
+                items={[
+                  { id: "restart", label: "Rerun", icon: <RotateCcw size={14} />, ariaLabel: `Rerun ${command.name}` },
+                  {
+                    id: "restarting",
+                    label: "Restarting",
+                    icon: <Loader2 size={14} className="animate-spin" />,
+                    ariaLabel: `Restarting ${command.name}`,
+                  },
+                ]}
+              />
+            </Tooltip>
           )}
-          <StatefulButton
-            size="sm"
-            variant="secondary"
-            onClick={onKillPorts}
-            disabled={ports.length === 0}
-            state={isScanningPorts ? "loading" : "idle"}
-            icon={<Trash2 size={14} />}
-            loadingText="Scanning..."
-          >
-            Kill ports
-          </StatefulButton>
-          <Tooltip content="Open terminal logs">
-            <Button size="sm" variant="secondary" onClick={onOpenLogs}>
+          <Tooltip content={isScanningPorts ? "Scanning ports..." : "Kill ports"}>
+            <Button
+              size="icon"
+              variant="secondary"
+              onClick={onKillPorts}
+              disabled={ports.length === 0 || isScanningPorts}
+              aria-label="Kill ports"
+              className="h-8 w-8 shrink-0"
+            >
+              {isScanningPorts ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            </Button>
+          </Tooltip>
+          <Tooltip content="Logs">
+            <Button size="icon" variant="secondary" onClick={onOpenLogs} aria-label="Logs" className="h-8 w-8 shrink-0">
               <Terminal size={14} />
-              Logs
             </Button>
           </Tooltip>
         </div>
@@ -200,6 +208,7 @@ export function LogPanel({
   showStreamName?: boolean;
 }) {
   const terminalRef = useRef<HTMLDivElement | null>(null);
+  const previousVisibleCountRef = useRef(0);
   const [panelHeight, setPanelHeight] = useState(() => {
     const saved = localStorage.getItem("logPanelHeight");
     if (saved) {
@@ -211,12 +220,22 @@ export function LogPanel({
     return 350;
   });
   const [isResizing, setIsResizing] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    const saved = localStorage.getItem("logPanelCollapsed");
+    // Default to minimized; expand only when user restores or a terminal tab opens.
+    return saved !== "false";
+  });
 
   useEffect(() => {
     localStorage.setItem("logPanelHeight", String(panelHeight));
   }, [panelHeight]);
 
+  useEffect(() => {
+    localStorage.setItem("logPanelCollapsed", String(isCollapsed));
+  }, [isCollapsed]);
+
   const startResize = (mouseDownEvent: React.MouseEvent) => {
+    if (isCollapsed) return;
     mouseDownEvent.preventDefault();
     setIsResizing(true);
     const startY = mouseDownEvent.clientY;
@@ -239,6 +258,10 @@ export function LogPanel({
   };
 
   const handleDoubleClick = () => {
+    if (isCollapsed) {
+      setIsCollapsed(false);
+      return;
+    }
     setPanelHeight(350);
   };
 
@@ -268,41 +291,91 @@ export function LogPanel({
     }
   }, [activeCommandId, onActiveCommandChange, selectedCommandId]);
 
+  // Auto-collapse when there are no terminal tabs; expand when the first tab appears.
+  useEffect(() => {
+    const previousCount = previousVisibleCountRef.current;
+    const nextCount = visibleCommands.length;
+
+    if (nextCount === 0 && previousCount !== 0) {
+      setIsCollapsed(true);
+    } else if (nextCount > 0 && previousCount === 0) {
+      setIsCollapsed(false);
+    } else if (nextCount === 0 && previousCount === 0) {
+      setIsCollapsed(true);
+    }
+
+    previousVisibleCountRef.current = nextCount;
+  }, [visibleCommands.length]);
+
+  const collapseToggle = (
+    <Tooltip content={isCollapsed ? "Restore terminal" : "Minimize terminal"}>
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+        onClick={() => setIsCollapsed((prev) => !prev)}
+        aria-label={isCollapsed ? "Restore terminal output" : "Minimize terminal output"}
+      >
+        {isCollapsed ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+      </Button>
+    </Tooltip>
+  );
+
   return (
-    <aside className="log-panel relative flex h-[320px] min-h-[200px] shrink-0 flex-col overflow-hidden rounded-[10px] border border-app-border bg-[var(--log-panel-bg)] shadow-app-card" style={{ height: panelHeight }}>
-      <div
-        className={`absolute left-0 right-0 top-[-4px] z-50 h-2 cursor-ns-resize bg-transparent transition-colors ${isResizing ? "bg-primary/40" : "hover:bg-primary/40"}`}
-        onMouseDown={startResize}
-        onDoubleClick={handleDoubleClick}
-        title="Drag to resize, double click to reset"
-      />
+    <aside
+      className={cn(
+        "log-panel relative flex w-full min-w-0 flex-col overflow-hidden rounded-[18px] border border-border bg-[var(--log-panel-bg)] shadow-app-card",
+        isCollapsed
+          ? "h-auto min-h-0 shrink-0"
+          : "h-[var(--log-panel-height)] min-h-[220px] xl:h-full xl:min-h-0",
+      )}
+      style={
+        isCollapsed
+          ? undefined
+          : ({ "--log-panel-height": `${panelHeight}px` } as CSSProperties)
+      }
+    >
+      {!isCollapsed ? (
+        <div
+          className={`absolute left-0 right-0 top-[-4px] z-50 h-2 cursor-ns-resize bg-transparent transition-colors ${isResizing ? "bg-primary/40" : "hover:bg-primary/40"}`}
+          onMouseDown={startResize}
+          onDoubleClick={handleDoubleClick}
+          title="Drag to resize, double click to reset"
+        />
+      ) : null}
+
       {visibleCommands.length === 0 ? (
         <>
-          <div className="flex items-center justify-between gap-3 border-b border-app-border bg-[var(--log-header-bg)] px-2.5 py-1">
+          <div className="flex items-center justify-between gap-3 border-b border-border bg-[var(--log-header-bg)] px-2.5 py-1">
             <div className="min-w-0 px-1 py-1">
               <h3 className="text-[13px] font-semibold text-app-title">Terminal Output</h3>
               <p className="text-[11px] text-muted-foreground">No command is selected yet</p>
             </div>
+            <div className="flex shrink-0 items-center gap-1.5 pr-1">{collapseToggle}</div>
           </div>
-          <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[#03050a]" ref={terminalRef}>
-            <TerminalUi colorMode={theme === "light" ? ColorMode.Light : ColorMode.Dark} height="100%" name="Output" prompt="" TopButtonsPanel={() => null}>
-              <TerminalOutput>
-                <span className="terminal-muted text-muted-foreground">Run a command to open its terminal tab.</span>
-              </TerminalOutput>
-            </TerminalUi>
-          </div>
+          {!isCollapsed ? (
+            <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" ref={terminalRef}>
+              <TerminalUi colorMode={theme === "light" ? ColorMode.Light : ColorMode.Dark} height="100%" name="Output" prompt="" TopButtonsPanel={() => null}>
+                <TerminalOutput>
+                  <span className="terminal-muted text-muted-foreground">Run a command to open its terminal tab.</span>
+                </TerminalOutput>
+              </TerminalUi>
+            </div>
+          ) : null}
         </>
       ) : (
         <Tabs
-          className="flex min-h-0 flex-1 flex-col"
+          className={cn("flex min-h-0 flex-col", !isCollapsed && "flex-1")}
           value={String(selectedCommandId)}
           onValueChange={(value) => onActiveCommandChange(Number(value))}
+          variant="underline"
         >
-          <div className="flex items-center justify-between gap-3 border-b border-app-border bg-[var(--log-header-bg)] px-2.5 py-1">
-            <TabsList className="flex min-h-8 items-center gap-1 overflow-x-auto border-0 bg-transparent p-0.5">
+          <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border bg-[var(--log-header-bg)] px-2.5 py-1">
+            <TabsList className="flex min-h-9 min-w-0 flex-1 items-center gap-1 overflow-x-auto border-0 bg-transparent p-0">
               {visibleCommands.map((command) => (
                 <div className="inline-flex items-center gap-0.5" key={command.id}>
-                  <TabsTrigger className="max-w-[170px] gap-2 rounded-[6px] border border-transparent px-2 text-[11.5px] data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-app-title" value={String(command.id)}>
+                  <TabsTrigger className="max-w-[180px] gap-2 px-3 text-[12px]" value={String(command.id)}>
                     <span className="truncate">{command.name}</span>
                     {runs[command.id]?.status === "running" && <span className="terminal-tab-status" />}
                   </TabsTrigger>
@@ -321,7 +394,7 @@ export function LogPanel({
                 </div>
               ))}
             </TabsList>
-            <div className="flex items-center gap-1.5 pr-1">
+            <div className="flex shrink-0 items-center gap-1.5 pr-1">
               <Button
                 size="sm"
                 variant="secondary"
@@ -330,11 +403,12 @@ export function LogPanel({
               >
                 Clear
               </Button>
+              {collapseToggle}
             </div>
           </div>
-          {selectedCommand && (
+          {!isCollapsed && selectedCommand ? (
             <TabsContent className="m-0 flex h-full min-h-0 flex-1 overflow-hidden" value={String(selectedCommand.id)}>
-              <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[#03050a]" key={selectedCommand.id} ref={terminalRef}>
+              <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" key={selectedCommand.id} ref={terminalRef}>
                 <TerminalUi
                   colorMode={theme === "light" ? ColorMode.Light : ColorMode.Dark}
                   height="100%"
@@ -360,7 +434,7 @@ export function LogPanel({
                 </TerminalUi>
               </div>
             </TabsContent>
-          )}
+          ) : null}
         </Tabs>
       )}
     </aside>

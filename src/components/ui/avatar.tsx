@@ -5,7 +5,7 @@ export function Avatar({ className, ...props }: AvatarPrimitive.AvatarProps) {
   return (
     <AvatarPrimitive.Root
       className={cn(
-        "relative inline-flex h-[30px] w-[30px] shrink-0 overflow-hidden rounded-[8px] border border-app-border bg-muted",
+        "relative inline-flex h-9 w-9 shrink-0 overflow-hidden rounded-[14px] border border-border bg-muted",
         className,
       )}
       {...props}

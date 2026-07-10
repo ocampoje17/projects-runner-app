@@ -9,23 +9,23 @@ import { useHoverCapable } from "@/lib/hooks/use-hover-capable";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap border text-[12.5px] font-semibold transition-colors duration-150 app-focus-ring disabled:pointer-events-none disabled:opacity-45 select-none",
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap font-medium transition-colors duration-150 app-focus-ring disabled:pointer-events-none disabled:opacity-50 select-none",
   {
     variants: {
       variant: {
-        default: "border-primary bg-primary text-primary-foreground hover:brightness-[1.04]",
-        primary: "border-primary bg-primary text-primary-foreground hover:brightness-[1.04]",
-        secondary: "border-app-border bg-card text-foreground hover:bg-muted",
-        ghost: "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
-        danger: "border-destructive bg-destructive text-destructive-foreground hover:brightness-[1.04]",
-        outline: "border-app-border bg-transparent text-foreground hover:bg-muted",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        primary: "bg-primary text-primary-foreground hover:bg-primary/90",
+        secondary: "border border-border bg-card text-foreground hover:border-border-strong hover:bg-muted/70",
+        ghost: "border border-transparent bg-transparent text-muted-foreground hover:bg-primary/5 hover:text-foreground",
+        danger: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline: "border border-border bg-transparent text-foreground hover:bg-primary/5",
       },
       size: {
-        default: "h-8 rounded-[8px] px-3",
-        sm: "h-[26px] rounded-[6px] px-2.5 text-[11.5px]",
-        md: "h-8 rounded-[8px] px-3",
-        lg: "h-10 rounded-[8px] px-4 text-[13px]",
-        icon: "h-[30px] w-[30px] rounded-[7px] p-0",
+        default: "h-9 rounded-full px-4 text-[13px]",
+        sm: "h-8 rounded-full px-3 text-xs gap-1.5",
+        md: "h-10 rounded-full px-5 text-sm gap-2",
+        lg: "h-12 rounded-full px-6 text-base gap-2",
+        icon: "h-9 w-9 rounded-[12px] p-0",
       },
     },
     defaultVariants: {
@@ -68,8 +68,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         type={type}
         disabled={disabled}
-        whileTap={reduce || disabled ? undefined : { scale: 0.97 }}
-        whileHover={reduce || disabled || !canHover ? undefined : { scale: 1.015 }}
+        whileTap={reduce || disabled ? undefined : { scale: 0.93 }}
+        whileHover={reduce || disabled || !canHover ? undefined : { scale: 1.02 }}
         transition={SPRING_PRESS}
         className={classes}
         {...props}

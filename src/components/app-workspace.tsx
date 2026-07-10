@@ -26,7 +26,7 @@ function WorkspaceSuspenseFallback({
   description?: string;
 }) {
   return (
-    <div className="flex h-full min-h-[170px] flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.03)_0%,transparent_68%)] px-4 py-10 text-center">
+    <div className="flex h-full min-h-[170px] flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_center,color-mix(in_oklab,var(--primary-color)_8%,transparent)_0%,transparent_68%)] px-4 py-10 text-center">
       <div className="flex flex-col gap-1">
         <h2 className="text-[16px] font-semibold text-app-title">{title}</h2>
         <p className="text-[12.5px] text-muted-foreground">{description}</p>
@@ -80,39 +80,45 @@ export function AppWorkspace({
         onSelectProject={onSelectProject}
       />
 
-      <section className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-workspace">
+      <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-workspace">
         {settingsOpen ? (
-          <Suspense
-            fallback={
-              <WorkspaceSuspenseFallback
-                title="Loading settings"
-                description="Preparing appearance, terminal, and system preferences..."
-              />
-            }
-          >
-            <SettingsPage {...settingsProps} />
-          </Suspense>
-        ) : selectedProject && projectDetailProps ? (
-          <>
-            <ProjectWorkspaceHeader
-              selectedProject={selectedProject}
-              onOpenExplorer={onOpenExplorer}
-              onOpenTerminal={onOpenTerminal}
-              onShareProject={onShareProject}
-              onEditProject={onEditProject}
-              onAddCommand={onAddCommand}
-            />
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <Suspense
               fallback={
                 <WorkspaceSuspenseFallback
-                  title="Loading project workspace"
-                  description="Preparing commands, notes, and runtime panels..."
+                  title="Loading settings"
+                  description="Preparing appearance, terminal, and system preferences..."
                 />
               }
             >
-              <ProjectDetail {...projectDetailProps} />
+              <SettingsPage {...settingsProps} />
             </Suspense>
-          </>
+          </div>
+        ) : selectedProject && projectDetailProps ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="shrink-0">
+              <ProjectWorkspaceHeader
+                selectedProject={selectedProject}
+                onOpenExplorer={onOpenExplorer}
+                onOpenTerminal={onOpenTerminal}
+                onShareProject={onShareProject}
+                onEditProject={onEditProject}
+                onAddCommand={onAddCommand}
+              />
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <Suspense
+                fallback={
+                  <WorkspaceSuspenseFallback
+                    title="Loading project workspace"
+                    description="Preparing commands, notes, and runtime panels..."
+                  />
+                }
+              >
+                <ProjectDetail {...projectDetailProps} />
+              </Suspense>
+            </div>
+          </div>
         ) : (
           <WelcomeWorkspace onAddProject={onAddProject} onImportProject={onImportProject} />
         )}
@@ -120,3 +126,6 @@ export function AppWorkspace({
     </>
   );
 }
+
+
+

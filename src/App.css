@@ -1,234 +1,298 @@
 :root {
-  /* Font and other constant properties */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --font-mono: "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
-  
-  --primary-gradient: linear-gradient(180deg, #6366f1 0%, #5855eb 100%);
-  --primary-color: #6366f1;
-  --primary-glow: rgba(99, 102, 241, 0.08);
+  /* Typography */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", ui-monospace, monospace;
 
-  /* Default compact desktop light theme variables */
-  --bg-shell: #f3f6fb;
-  --bg-workspace: #ffffff;
-  --bg-sidebar: #eef2f8;
-  --bg-card: #ffffff;
-  --bg-card-hover: #fbfcff;
-  --bg-dialog: #ffffff;
-  --bg-input: #ffffff;
-  
-  --color-text: #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-muted: #64748b;
-  --color-border: rgba(15, 23, 42, 0.1);
-  --color-border-hover: rgba(15, 23, 42, 0.18);
-  
-  --color-title: #0f172a;
-  
-  --success-color: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.06);
-  --success-border: rgba(16, 185, 129, 0.2);
-  
-  --danger-color: #ef4444;
-  --danger-bg: rgba(239, 68, 68, 0.06);
-  --danger-border: rgba(239, 68, 68, 0.2);
-  
-  --warning-color: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.06);
-  --warning-border: rgba(245, 158, 11, 0.2);
+  /* beUI-inspired base palette (light) */
+  --background: oklch(99% 0 0);
+  --foreground: oklch(15% 0 0);
+  --card: oklch(97% 0 0);
+  --card-foreground: oklch(15% 0 0);
+  --popover: oklch(98% 0 0);
+  --popover-foreground: oklch(15% 0 0);
+  --muted: oklch(96.5% 0 0);
+  --muted-foreground: oklch(50% 0 0);
+  --border: oklch(15% 0 0 / 0.08);
+  --border-strong: oklch(15% 0 0 / 0.14);
+  --input-border: oklch(15% 0 0 / 0.1);
+  --ring: oklch(15% 0 0 / 0.14);
+  --danger: oklch(62% 0.22 25);
+  --success: oklch(70% 0.18 155);
+  --warning: oklch(78% 0.18 75);
+  --glass-bg: oklch(99% 0 0 / 0.7);
+  --glass-border: oklch(15% 0 0 / 0.08);
 
-  --btn-secondary-bg: rgba(15, 23, 42, 0.04);
-  --btn-secondary-text: #0f172a;
-  --btn-secondary-hover: rgba(15, 23, 42, 0.08);
+  /* App bridge tokens */
+  --primary-color: oklch(15% 0 0);
+  --primary-foreground-color: oklch(99% 0 0);
+  --primary-gradient: linear-gradient(180deg, oklch(22% 0 0) 0%, oklch(15% 0 0) 100%);
+  --primary-glow: oklch(15% 0 0 / 0.12);
 
-  --btn-ghost-hover-bg: rgba(15, 23, 42, 0.05);
-  --btn-ghost-hover-text: #0f172a;
+  --bg-shell: oklch(97.5% 0 0);
+  --bg-workspace: var(--background);
+  --bg-sidebar: oklch(96.5% 0 0);
+  --bg-card: var(--card);
+  --bg-card-hover: oklch(98.5% 0 0);
+  --bg-dialog: var(--popover);
+  --bg-input: oklch(100% 0 0);
 
-  --sidebar-footer-bg: rgba(15, 23, 42, 0.03);
-  --sidebar-header-h1-color: #0f172a;
-  --project-row-hover-bg: rgba(15, 23, 42, 0.04);
-  --project-row-hover-text: #0f172a;
-  --project-row-active-bg: rgba(99, 102, 241, 0.08);
-  --project-row-active-border: rgba(99, 102, 241, 0.18);
-  --project-row-active-text: #4f46e5;
-  --card-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 6px 18px rgba(15, 23, 42, 0.03);
-  --card-hover-shadow: 0 2px 5px rgba(15, 23, 42, 0.06), 0 8px 22px rgba(15, 23, 42, 0.05);
-  --dialog-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
-  --split-menu-bg: #ffffff;
-  --split-menu-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
-  --split-menu-hover-bg: rgba(15, 23, 42, 0.04);
-  --split-menu-hover-text: #0f172a;
-  --workspace-header-bg: #ffffff;
-  --command-section-bg: rgba(15, 23, 42, 0.02);
+  --color-text: var(--foreground);
+  --color-text-secondary: oklch(35% 0 0);
+  --color-text-muted: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-hover: var(--border-strong);
+  --color-title: var(--foreground);
 
-  --script-preview-bg: #f8fafc;
-  --script-preview-border: rgba(15, 23, 42, 0.06);
-  --script-preview-color: #334155;
+  --success-color: var(--success);
+  --success-bg: color-mix(in oklab, var(--success) 12%, transparent);
+  --success-border: color-mix(in oklab, var(--success) 28%, transparent);
 
-  --log-panel-bg: #ffffff;
-  --log-header-bg: rgba(15, 23, 42, 0.025);
-  --terminal-tabs-bg: rgba(15, 23, 42, 0.025);
+  --danger-color: var(--danger);
+  --danger-bg: color-mix(in oklab, var(--danger) 12%, transparent);
+  --danger-border: color-mix(in oklab, var(--danger) 28%, transparent);
 
-  --icon-choice-bg: rgba(15, 23, 42, 0.02);
-  --icon-choice-border: rgba(15, 23, 42, 0.08);
+  --warning-color: var(--warning);
+  --warning-bg: color-mix(in oklab, var(--warning) 14%, transparent);
+  --warning-border: color-mix(in oklab, var(--warning) 30%, transparent);
+
+  --btn-secondary-bg: var(--card);
+  --btn-secondary-text: var(--foreground);
+  --btn-secondary-hover: oklch(94% 0 0);
+  --btn-ghost-hover-bg: oklch(15% 0 0 / 0.04);
+  --btn-ghost-hover-text: var(--foreground);
+
+  --sidebar-footer-bg: oklch(15% 0 0 / 0.02);
+  --sidebar-header-h1-color: var(--foreground);
+  --project-row-hover-bg: oklch(15% 0 0 / 0.035);
+  --project-row-hover-text: var(--foreground);
+  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 10%, transparent);
+  --project-row-active-border: color-mix(in oklab, var(--primary-color) 22%, transparent);
+  --project-row-active-text: var(--foreground);
+
+  --card-shadow: 0 1px 2px oklch(15% 0 0 / 0.04), 0 10px 30px oklch(15% 0 0 / 0.04);
+  --card-hover-shadow: 0 2px 8px oklch(15% 0 0 / 0.06), 0 16px 40px oklch(15% 0 0 / 0.06);
+  --dialog-shadow: 0 24px 80px oklch(15% 0 0 / 0.18);
+  --split-menu-bg: var(--popover);
+  --split-menu-shadow: 0 16px 40px oklch(15% 0 0 / 0.12);
+  --split-menu-hover-bg: oklch(15% 0 0 / 0.04);
+  --split-menu-hover-text: var(--foreground);
+  --workspace-header-bg: color-mix(in oklab, var(--background) 86%, transparent);
+  --command-section-bg: oklch(15% 0 0 / 0.02);
+
+  --script-preview-bg: oklch(96% 0 0);
+  --script-preview-border: var(--border);
+  --script-preview-color: oklch(32% 0 0);
+
+  --log-panel-bg: oklch(98% 0 0);
+  --log-header-bg: oklch(15% 0 0 / 0.025);
+  --terminal-tabs-bg: oklch(15% 0 0 / 0.03);
+  --terminal-bg: #f4f4f5;
+  --terminal-fg: #18181b;
+
+  --icon-choice-bg: oklch(15% 0 0 / 0.02);
+  --icon-choice-border: var(--border);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-pill: 9999px;
 
   color: var(--color-text);
   background: var(--bg-shell);
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 13.5px;
+  line-height: 1.4;
   font-weight: 400;
+  letter-spacing: -0.01em;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Light Theme explicit selector */
 .theme-light {
-  --bg-shell: #f3f6fb;
-  --bg-workspace: #ffffff;
-  --bg-sidebar: #eef2f8;
-  --bg-card: #ffffff;
-  --bg-card-hover: #fbfcff;
-  --bg-dialog: #ffffff;
-  --bg-input: #ffffff;
-  
-  --color-text: #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-muted: #64748b;
-  --color-border: rgba(15, 23, 42, 0.1);
-  --color-border-hover: rgba(15, 23, 42, 0.18);
-  
-  --color-title: #0f172a;
-  
-  --success-color: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.06);
-  --success-border: rgba(16, 185, 129, 0.2);
-  
-  --danger-color: #ef4444;
-  --danger-bg: rgba(239, 68, 68, 0.06);
-  --danger-border: rgba(239, 68, 68, 0.2);
-  
-  --warning-color: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.06);
-  --warning-border: rgba(245, 158, 11, 0.2);
+  --background: oklch(99% 0 0);
+  --foreground: oklch(15% 0 0);
+  --card: oklch(97% 0 0);
+  --card-foreground: oklch(15% 0 0);
+  --popover: oklch(98.5% 0 0);
+  --popover-foreground: oklch(15% 0 0);
+  --muted: oklch(96.5% 0 0);
+  --muted-foreground: oklch(50% 0 0);
+  --border: oklch(15% 0 0 / 0.08);
+  --border-strong: oklch(15% 0 0 / 0.14);
+  --input-border: oklch(15% 0 0 / 0.1);
+  --ring: oklch(15% 0 0 / 0.14);
+  --glass-bg: oklch(99% 0 0 / 0.72);
+  --glass-border: oklch(15% 0 0 / 0.08);
 
-  --btn-secondary-bg: rgba(15, 23, 42, 0.04);
-  --btn-secondary-text: #0f172a;
-  --btn-secondary-hover: rgba(15, 23, 42, 0.08);
+  --bg-shell: oklch(97.5% 0 0);
+  --bg-workspace: var(--background);
+  --bg-sidebar: oklch(96.5% 0 0);
+  --bg-card: var(--card);
+  --bg-card-hover: oklch(98.5% 0 0);
+  --bg-dialog: var(--popover);
+  --bg-input: oklch(100% 0 0);
 
-  --btn-ghost-hover-bg: rgba(15, 23, 42, 0.05);
-  --btn-ghost-hover-text: #0f172a;
+  --color-text: var(--foreground);
+  --color-text-secondary: oklch(35% 0 0);
+  --color-text-muted: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-hover: var(--border-strong);
+  --color-title: var(--foreground);
 
-  --sidebar-footer-bg: rgba(15, 23, 42, 0.03);
-  --sidebar-header-h1-color: #0f172a;
-  --project-row-hover-bg: rgba(15, 23, 42, 0.04);
-  --project-row-hover-text: #0f172a;
-  --project-row-active-bg: rgba(99, 102, 241, 0.08);
-  --project-row-active-border: rgba(99, 102, 241, 0.18);
-  --project-row-active-text: #4f46e5;
-  --card-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 6px 18px rgba(15, 23, 42, 0.03);
-  --card-hover-shadow: 0 2px 5px rgba(15, 23, 42, 0.06), 0 8px 22px rgba(15, 23, 42, 0.05);
-  --dialog-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
-  --split-menu-bg: #ffffff;
-  --split-menu-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
-  --split-menu-hover-bg: rgba(15, 23, 42, 0.04);
-  --split-menu-hover-text: #0f172a;
-  --workspace-header-bg: #ffffff;
-  --command-section-bg: rgba(15, 23, 42, 0.02);
+  --btn-secondary-bg: var(--card);
+  --btn-secondary-text: var(--foreground);
+  --btn-secondary-hover: oklch(94% 0 0);
+  --btn-ghost-hover-bg: oklch(15% 0 0 / 0.04);
+  --btn-ghost-hover-text: var(--foreground);
 
-  --script-preview-bg: #f8fafc;
-  --script-preview-border: rgba(15, 23, 42, 0.06);
-  --script-preview-color: #334155;
+  --sidebar-footer-bg: oklch(15% 0 0 / 0.02);
+  --sidebar-header-h1-color: var(--foreground);
+  --project-row-hover-bg: oklch(15% 0 0 / 0.035);
+  --project-row-hover-text: var(--foreground);
+  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 10%, transparent);
+  --project-row-active-border: color-mix(in oklab, var(--primary-color) 22%, transparent);
+  --project-row-active-text: var(--foreground);
 
-  --log-panel-bg: #ffffff;
-  --log-header-bg: rgba(15, 23, 42, 0.02);
-  --terminal-tabs-bg: rgba(15, 23, 42, 0.03);
+  --card-shadow: 0 1px 2px oklch(15% 0 0 / 0.04), 0 10px 30px oklch(15% 0 0 / 0.04);
+  --card-hover-shadow: 0 2px 8px oklch(15% 0 0 / 0.06), 0 16px 40px oklch(15% 0 0 / 0.06);
+  --dialog-shadow: 0 24px 80px oklch(15% 0 0 / 0.18);
+  --split-menu-bg: var(--popover);
+  --split-menu-shadow: 0 16px 40px oklch(15% 0 0 / 0.12);
+  --split-menu-hover-bg: oklch(15% 0 0 / 0.04);
+  --split-menu-hover-text: var(--foreground);
+  --workspace-header-bg: color-mix(in oklab, var(--background) 86%, transparent);
+  --command-section-bg: oklch(15% 0 0 / 0.02);
 
-  --icon-choice-bg: rgba(15, 23, 42, 0.02);
-  --icon-choice-border: rgba(15, 23, 42, 0.08);
+  --script-preview-bg: oklch(96% 0 0);
+  --script-preview-border: var(--border);
+  --script-preview-color: oklch(32% 0 0);
+
+  --log-panel-bg: oklch(98% 0 0);
+  --log-header-bg: oklch(15% 0 0 / 0.025);
+  --terminal-tabs-bg: oklch(15% 0 0 / 0.03);
+  --terminal-bg: #f4f4f5;
+  --terminal-fg: #18181b;
+
+  --icon-choice-bg: oklch(15% 0 0 / 0.02);
+  --icon-choice-border: var(--border);
 }
 
-/* Premium Dark Theme Variables */
 .theme-dark {
-  --bg-shell: #0a0d14;
-  --bg-workspace: #0f141d;
-  --bg-sidebar: #0c1119;
-  --bg-card: #121925;
-  --bg-card-hover: #172031;
-  --bg-dialog: #121925;
-  --bg-input: #111723;
-  
-  --color-text: #f8fafc;
-  --color-text-secondary: #94a3b8;
-  --color-text-muted: #64748b;
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-hover: rgba(255, 255, 255, 0.15);
-  
-  --color-title: #ffffff;
-  
-  --success-color: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.12);
-  --success-border: rgba(16, 185, 129, 0.3);
-  
-  --danger-color: #f43f5e;
-  --danger-bg: rgba(244, 63, 94, 0.12);
-  --danger-border: rgba(244, 63, 94, 0.3);
-  
-  --warning-color: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.12);
-  --warning-border: rgba(245, 158, 11, 0.3);
+  --background: #151515;
+  --foreground: oklch(96% 0 0);
+  --card: #1c1c1c;
+  --card-foreground: oklch(96% 0 0);
+  --popover: #1f1f1f;
+  --popover-foreground: oklch(96% 0 0);
+  --muted: #222222;
+  --muted-foreground: oklch(62% 0 0);
+  --border: rgb(255 255 255 / 0.06);
+  --border-strong: rgb(255 255 255 / 0.12);
+  --input-border: rgb(255 255 255 / 0.08);
+  --ring: rgb(255 255 255 / 0.14);
+  --glass-bg: rgb(28 28 28 / 0.72);
+  --glass-border: rgb(255 255 255 / 0.08);
 
-  --btn-secondary-bg: rgba(255, 255, 255, 0.07);
-  --btn-secondary-text: #ffffff;
-  --btn-secondary-hover: rgba(255, 255, 255, 0.12);
+  --bg-shell: #111111;
+  --bg-workspace: var(--background);
+  --bg-sidebar: #121212;
+  --bg-card: var(--card);
+  --bg-card-hover: #222222;
+  --bg-dialog: var(--popover);
+  --bg-input: #181818;
 
-  --btn-ghost-hover-bg: rgba(255, 255, 255, 0.04);
-  --btn-ghost-hover-text: #ffffff;
+  --color-text: var(--foreground);
+  --color-text-secondary: oklch(78% 0 0);
+  --color-text-muted: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-hover: var(--border-strong);
+  --color-title: var(--foreground);
 
-  --sidebar-footer-bg: rgba(0, 0, 0, 0.1);
-  --sidebar-header-h1-color: #ffffff;
-  --project-row-hover-bg: rgba(255, 255, 255, 0.04);
-  --project-row-hover-text: #ffffff;
-  --project-row-active-bg: rgba(99, 102, 241, 0.12);
-  --project-row-active-border: rgba(99, 102, 241, 0.2);
-  --project-row-active-text: #ffffff;
-  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 8px 20px rgba(0, 0, 0, 0.16);
-  --card-hover-shadow: 0 2px 7px rgba(0, 0, 0, 0.22), 0 10px 24px rgba(0, 0, 0, 0.2);
-  --dialog-shadow: 0 14px 34px rgba(0, 0, 0, 0.36);
-  --split-menu-bg: var(--bg-dialog);
-  --split-menu-shadow: 0 12px 30px rgba(0, 0, 0, 0.36);
-  --split-menu-hover-bg: rgba(255, 255, 255, 0.05);
-  --split-menu-hover-text: #ffffff;
-  --workspace-header-bg: #101620;
-  --command-section-bg: rgba(255, 255, 255, 0.015);
+  --btn-secondary-bg: var(--card);
+  --btn-secondary-text: var(--foreground);
+  --btn-secondary-hover: #262626;
+  --btn-ghost-hover-bg: rgb(255 255 255 / 0.05);
+  --btn-ghost-hover-text: var(--foreground);
 
-  --script-preview-bg: rgba(3, 5, 10, 0.7);
-  --script-preview-border: rgba(255, 255, 255, 0.05);
-  --script-preview-color: #c9d1d9;
+  --sidebar-footer-bg: rgb(0 0 0 / 0.25);
+  --sidebar-header-h1-color: var(--foreground);
+  --project-row-hover-bg: rgb(255 255 255 / 0.04);
+  --project-row-hover-text: var(--foreground);
+  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 14%, transparent);
+  --project-row-active-border: color-mix(in oklab, var(--primary-color) 28%, transparent);
+  --project-row-active-text: var(--foreground);
 
-  --log-panel-bg: #040711;
-  --log-header-bg: rgba(0, 0, 0, 0.2);
-  --terminal-tabs-bg: rgba(0, 0, 0, 0.3);
+  --card-shadow: 0 1px 0 rgb(255 255 255 / 0.03), 0 12px 36px rgb(0 0 0 / 0.28);
+  --card-hover-shadow: 0 1px 0 rgb(255 255 255 / 0.04), 0 18px 48px rgb(0 0 0 / 0.36);
+  --dialog-shadow: 0 28px 90px rgb(0 0 0 / 0.55);
+  --split-menu-bg: var(--popover);
+  --split-menu-shadow: 0 18px 50px rgb(0 0 0 / 0.45);
+  --split-menu-hover-bg: rgb(255 255 255 / 0.05);
+  --split-menu-hover-text: var(--foreground);
+  --workspace-header-bg: color-mix(in oklab, var(--background) 88%, transparent);
+  --command-section-bg: rgb(255 255 255 / 0.02);
 
-  --icon-choice-bg: rgba(255, 255, 255, 0.02);
-  --icon-choice-border: rgba(255, 255, 255, 0.08);
+  --script-preview-bg: #111111;
+  --script-preview-border: var(--border);
+  --script-preview-color: oklch(82% 0 0);
+
+  --log-panel-bg: #101010;
+  --log-header-bg: rgb(0 0 0 / 0.28);
+  --terminal-tabs-bg: rgb(0 0 0 / 0.22);
+  --terminal-bg: #0d0d0d;
+  --terminal-fg: #e8e8e8;
+
+  --icon-choice-bg: rgb(255 255 255 / 0.02);
+  --icon-choice-border: var(--border);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
+}
+
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+  }
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
   overflow: hidden;
   background-color: var(--bg-shell);
+  color: var(--color-text);
 }
 
-/* Custom Scrollbars */
+#root {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -236,15 +300,17 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 99px;
+  background: color-mix(in oklab, var(--foreground) 14%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in oklab, var(--foreground) 24%, transparent);
+  background-clip: padding-box;
 }
 
-/* Typography & Resets */
 button,
 input,
 select,
@@ -260,97 +326,294 @@ button {
   outline: none;
 }
 
-h1, h2, h3, h4, p {
+h1,
+h2,
+h3,
+h4,
+p {
   margin: 0;
 }
 
+.spin {
+  animation: spin 900ms linear infinite;
+}
 
-/* Global motion helpers */
-.spin { animation: spin 900ms linear infinite; }
-.fade-in { animation: fadeIn 0.18s ease-out; }
-.animate-bounce-subtle { animation: bounce-subtle 2s infinite ease-in-out; }
+.fade-in {
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-bounce-subtle {
+  animation: bounce-subtle 2s infinite ease-in-out;
+}
+
 .command-card-running {
-  border-color: var(--success-color) !important;
-  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.18), 0 8px 18px rgba(16, 185, 129, 0.05);
+  border-color: color-mix(in oklab, var(--success-color) 55%, transparent) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--success-color) 22%, transparent),
+    0 12px 28px color-mix(in oklab, var(--success-color) 10%, transparent);
   animation: runningPulse 2.5s infinite ease-in-out;
 }
+
 .command-card-failed {
-  border-color: var(--danger-color) !important;
-  box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.14), 0 8px 18px rgba(244, 63, 94, 0.05);
+  border-color: color-mix(in oklab, var(--danger-color) 55%, transparent) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--danger-color) 20%, transparent),
+    0 12px 28px color-mix(in oklab, var(--danger-color) 10%, transparent);
 }
+
 .terminal-tab-status {
-  width: 5px;
-  min-width: 5px;
-  height: 5px;
-  border-radius: 99px;
+  width: 6px;
+  min-width: 6px;
+  height: 6px;
+  border-radius: 999px;
   background: var(--success-color);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--success-color) 18%, transparent);
   animation: pulseDot 1.8s infinite ease-in-out;
 }
 
-/* React Terminal UI deep overrides (third-party classes) */
 .log-terminal .react-terminal-wrapper {
   display: flex;
   height: 100%;
   min-height: 0;
   flex-direction: column;
-  padding: 14px;
+  padding: 16px;
   border-radius: 0;
-  background: #03050a !important;
-  color: #e2e8f0;
+  background: var(--terminal-bg) !important;
+  color: var(--terminal-fg);
   font-family: var(--terminal-font-family, var(--font-mono)) !important;
   font-size: var(--terminal-font-size, 0.8rem) !important;
 }
-.log-terminal .react-terminal-wrapper::after { display: none; }
+
+.log-terminal .react-terminal-wrapper::after {
+  display: none;
+}
+
 .log-terminal .react-terminal {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
 }
+
 .log-terminal .react-terminal-line {
-  line-height: 1.45;
+  line-height: 1.5;
   margin-bottom: 2px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.theme-light .log-terminal .react-terminal-wrapper {
-  background: #f1f5f9 !important;
-  color: #0f172a;
-}
-.theme-light .terminal-stream.stdout { color: #059669; }
-.theme-light .terminal-stream.stderr { color: #dc2626; }
-.theme-light .terminal-muted { color: #64748b; }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+.theme-light .terminal-stream.stdout {
+  color: #059669;
+}
+
+.theme-light .terminal-stream.stderr {
+  color: #dc2626;
+}
+
+.theme-light .terminal-muted {
+  color: #71717a;
+}
+
+.theme-dark .terminal-stream.stdout {
+  color: #34d399;
+}
+
+.theme-dark .terminal-stream.stderr {
+  color: #fb7185;
+}
+
+.theme-dark .terminal-muted {
+  color: #a1a1aa;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes runningPulse {
-  0%, 100% {
-    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.16), 0 8px 18px rgba(16, 185, 129, 0.04);
-    border-color: rgba(16, 185, 129, 0.48);
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--success-color) 18%, transparent),
+      0 10px 24px color-mix(in oklab, var(--success-color) 8%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.24), 0 10px 20px rgba(16, 185, 129, 0.06);
-    border-color: rgba(16, 185, 129, 0.72);
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--success-color) 30%, transparent),
+      0 14px 30px color-mix(in oklab, var(--success-color) 14%, transparent);
   }
-}
-@keyframes pulseDot {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
-}
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes bounce-subtle {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
 }
 
-@media (max-width: 1024px) {
-  .app-shell {
-    grid-template-columns: 1fr !important;
-    grid-template-rows: 240px minmax(0, 1fr);
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 0.55;
   }
-  .app-sidebar {
-    border-right: 0 !important;
-    border-bottom: 1px solid var(--color-border);
+  50% {
+    opacity: 1;
   }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bounce-subtle {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+
+
+
+
+/* Project notes markdown */
+.markdown-note {
+  word-break: break-word;
+}
+
+.markdown-note > :first-child {
+  margin-top: 0;
+}
+
+.markdown-note > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-note h1,
+.markdown-note h2,
+.markdown-note h3,
+.markdown-note h4 {
+  margin: 0.9em 0 0.35em;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-title);
+}
+
+.markdown-note h1 {
+  font-size: 1.15em;
+}
+
+.markdown-note h2 {
+  font-size: 1.05em;
+}
+
+.markdown-note h3,
+.markdown-note h4 {
+  font-size: 1em;
+}
+
+.markdown-note p,
+.markdown-note ul,
+.markdown-note ol,
+.markdown-note pre,
+.markdown-note blockquote,
+.markdown-note table {
+  margin: 0.55em 0;
+}
+
+.markdown-note ul,
+.markdown-note ol {
+  padding-left: 1.25em;
+}
+
+.markdown-note ul {
+  list-style: disc;
+}
+
+.markdown-note ol {
+  list-style: decimal;
+}
+
+.markdown-note li + li {
+  margin-top: 0.2em;
+}
+
+.markdown-note li > ul,
+.markdown-note li > ol {
+  margin: 0.25em 0 0;
+}
+
+.markdown-note a {
+  color: var(--primary-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-note strong {
+  font-weight: 600;
+}
+
+.markdown-note code {
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--color-text) 7%, transparent);
+  padding: 0.1em 0.35em;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.markdown-note pre {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--color-text) 4%, transparent);
+  padding: 0.75em 0.9em;
+}
+
+.markdown-note pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.9em;
+}
+
+.markdown-note blockquote {
+  border-left: 3px solid color-mix(in oklab, var(--primary-color) 35%, transparent);
+  padding-left: 0.8em;
+  color: var(--color-text-muted);
+}
+
+.markdown-note hr {
+  margin: 0.9em 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.markdown-note table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+}
+
+.markdown-note th,
+.markdown-note td {
+  border: 1px solid var(--color-border);
+  padding: 0.4em 0.55em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-note th {
+  background: color-mix(in oklab, var(--color-text) 4%, transparent);
+  font-weight: 600;
+}
+
+.markdown-note input[type="checkbox"] {
+  margin-right: 0.4em;
+  accent-color: var(--primary-color);
 }

@@ -89,14 +89,14 @@ export function ProjectDetailCommands({
   onAddCommand: (section?: string) => void;
 }) {
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
-      <section className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+    <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-3 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] xl:grid-rows-[minmax(0,1fr)]">
+      <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto pr-0.5">
         {commandSections.map(({ section, commands: sectionCommands }) => (
-          <div className="rounded-[10px] border border-app-border bg-[var(--command-section-bg)] p-2.5" key={section}>
+          <div className="rounded-[18px] border border-border bg-[var(--command-section-bg)] p-2.5" key={section}>
             <div className="group mb-2 flex w-full items-center justify-between gap-2">
               {renamingSection === section ? (
                 <form
-                  className="flex items-center gap-1.5"
+                  className="flex min-w-0 items-center gap-1.5"
                   onSubmit={(event) => {
                     event.preventDefault();
                     void onRenameSection(section, renameSectionValue);
@@ -130,7 +130,7 @@ export function ProjectDetailCommands({
                 </form>
               ) : (
                 <div className="flex min-w-0 items-center gap-2">
-                  <h3>{section}</h3>
+                  <h3 className="truncate text-[13px] font-semibold text-app-title">{section}</h3>
                   <Button
                     size="icon"
                     variant="ghost"
@@ -163,7 +163,7 @@ export function ProjectDetailCommands({
                 />
               ))}
               {sectionCommands.length === 0 && (
-                <Card className="col-span-full flex flex-wrap items-center justify-between gap-2.5 rounded-[10px] border border-dashed border-app-border bg-transparent p-2.5 text-muted-foreground shadow-none">
+                <Card className="col-span-full flex flex-wrap items-center justify-between gap-2.5 rounded-[18px] border border-dashed border-border bg-transparent p-2.5 text-muted-foreground shadow-none">
                   <Terminal size={24} className="shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <h4 className="text-[12.5px] font-semibold text-app-title">No commands in this section</h4>
@@ -186,10 +186,12 @@ export function ProjectDetailCommands({
         ))}
 
         <div className="w-full py-0.5">
-          <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-[10px] border border-dashed border-primary/30 bg-primary/[0.03] p-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-[18px] border border-dashed border-primary/30 bg-primary/[0.03] p-2.5">
             <div className="flex min-w-0 flex-col gap-0.5">
               <strong className="text-[12.5px] text-app-title">Add another section</strong>
-              <span>Group related commands into compact desktop lanes.</span>
+              <span className="text-[11.5px] text-muted-foreground">
+                Group related commands into compact desktop lanes.
+              </span>
             </div>
             {isAddingSection ? (
               <form className="flex w-full max-w-[460px] flex-wrap items-center gap-2" onSubmit={onAddSectionSubmit}>
@@ -210,7 +212,11 @@ export function ProjectDetailCommands({
                 </div>
               </form>
             ) : (
-              <Button variant="outline" className="border-primary/30 text-primary hover:bg-primary/10" onClick={onStartAddSection}>
+              <Button
+                variant="outline"
+                className="border-primary/30 text-primary hover:bg-primary/10"
+                onClick={onStartAddSection}
+              >
                 <Plus size={16} />
                 Add Section
               </Button>
@@ -219,7 +225,7 @@ export function ProjectDetailCommands({
         </div>
 
         {showEmptyCommandsState && (
-          <Card className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-app-border bg-card/20 p-4 text-center">
+          <Card className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-[18px] border border-dashed border-border bg-card/20 p-4 text-center">
             <Terminal size={28} />
             <div className="space-y-1">
               <h3>No commands yet</h3>
@@ -248,5 +254,4 @@ export function ProjectDetailCommands({
     </div>
   );
 }
-
 

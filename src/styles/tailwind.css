@@ -9,19 +9,25 @@
   --color-background: var(--bg-workspace);
   --color-foreground: var(--color-text);
   --color-card: var(--bg-card);
-  --color-card-foreground: var(--color-text);
+  --color-card-foreground: var(--card-foreground, var(--color-text));
   --color-popover: var(--bg-dialog);
-  --color-popover-foreground: var(--color-text);
-  --color-muted: var(--bg-input);
+  --color-popover-foreground: var(--popover-foreground, var(--color-text));
+  --color-muted: var(--muted, var(--bg-input));
   --color-muted-foreground: var(--color-text-muted);
   --color-input: var(--bg-input);
   --color-primary: var(--primary-color);
-  --color-primary-foreground: #ffffff;
+  --color-primary-foreground: var(--primary-foreground-color, #ffffff);
+  --color-secondary: var(--card);
+  --color-secondary-foreground: var(--color-text);
   --color-destructive: var(--danger-color);
   --color-destructive-foreground: #ffffff;
   --color-success: var(--success-color);
   --color-warning: var(--warning-color);
-  --color-ring: var(--primary-color);
+  --color-ring: var(--ring, var(--primary-color));
+  --color-border: var(--color-border);
+  --color-border-strong: var(--border-strong, var(--color-border-hover));
+  --color-accent: var(--primary-color);
+  --color-accent-foreground: var(--primary-foreground-color, #ffffff);
 
   --color-shell: var(--bg-shell);
   --color-workspace: var(--bg-workspace);
@@ -44,22 +50,37 @@
   --shadow-app-card: var(--card-shadow);
   --shadow-app-card-hover: var(--card-hover-shadow);
   --shadow-app-dialog: var(--dialog-shadow);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-pill: var(--radius-pill);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @utility app-surface {
-  background: var(--bg-card);
+  background: color-mix(in oklab, var(--bg-card) 92%, transparent);
   border: 1px solid var(--color-border);
   box-shadow: var(--card-shadow);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px) saturate(1.2);
 }
 
 @utility app-focus-ring {
   &:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px var(--primary-glow);
+    box-shadow: 0 0 0 2px var(--bg-workspace), 0 0 0 4px color-mix(in oklab, var(--primary-color) 45%, transparent);
   }
 }
 
 @utility app-gradient-primary {
   background-image: var(--primary-gradient);
+}
+
+@utility app-glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(18px) saturate(1.25);
 }
