@@ -2,7 +2,7 @@ import type { FormEvent, RefObject } from "react";
 import { Check, Pencil, Plus, Terminal, Trash2, X } from "lucide-react";
 import type { ProjectCommand } from "../lib/api";
 import { DEFAULT_SECTION } from "../lib/command-utils";
-import { CommandCard, LogLine, LogPanel, RunState } from "./project-runtime";
+import { CommandCard, LogPanel, RunState } from "./project-runtime";
 import type { CommandSection } from "./project-detail-types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -13,15 +13,17 @@ export function ProjectDetailCommands({
   commands,
   commandSections,
   runs,
-  logs,
+  terminalContentByCommandId,
   openLogCommandIds,
   activeLogCommandId,
   onActiveLogCommandChange,
   onClearLogs,
   onCloseLogTab,
+  onTerminalInput,
+  onTerminalResize,
+  terminalFontFamily,
+  terminalFontSize,
   theme,
-  showLogsTimestamp,
-  showStreamName,
   renamingSection,
   renameSectionValue,
   onRenameSectionValueChange,
@@ -53,15 +55,17 @@ export function ProjectDetailCommands({
   commands: ProjectCommand[];
   commandSections: CommandSection[];
   runs: Record<number, RunState>;
-  logs: LogLine[];
+  terminalContentByCommandId: Record<number, string>;
   openLogCommandIds: number[];
   activeLogCommandId: number | null;
   onActiveLogCommandChange: (commandId: number) => void;
   onClearLogs: (commandId: number) => void;
   onCloseLogTab: (commandId: number) => void;
+  onTerminalInput: (commandId: number, data: string) => void;
+  onTerminalResize: (commandId: number, cols: number, rows: number) => void;
+  terminalFontFamily: string;
+  terminalFontSize: string;
   theme: "light" | "dark";
-  showLogsTimestamp: boolean;
-  showStreamName: boolean;
   renamingSection: string | null;
   renameSectionValue: string;
   onRenameSectionValueChange: (value: string) => void;
@@ -244,15 +248,17 @@ export function ProjectDetailCommands({
       <LogPanel
         activeCommandId={activeLogCommandId}
         commands={commands}
-        logs={logs}
         openCommandIds={openLogCommandIds}
         onActiveCommandChange={onActiveLogCommandChange}
         onClear={onClearLogs}
         onCloseTab={onCloseLogTab}
+        onTerminalInput={onTerminalInput}
+        onTerminalResize={onTerminalResize}
         runs={runs}
+        terminalContentByCommandId={terminalContentByCommandId}
+        terminalFontFamily={terminalFontFamily}
+        terminalFontSize={terminalFontSize}
         theme={theme}
-        showLogsTimestamp={showLogsTimestamp}
-        showStreamName={showStreamName}
       />
     </div>
   );

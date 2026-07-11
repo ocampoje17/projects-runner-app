@@ -36,10 +36,6 @@ export default defineConfig(async () => ({
             return;
           }
 
-          if (packageName === "react-terminal-ui") {
-            return "terminal-ui";
-          }
-
           if (packageName.startsWith("@tauri-apps/")) {
             return "tauri";
           }

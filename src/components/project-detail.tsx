@@ -1,6 +1,6 @@
 import type { FormEvent, RefObject } from "react";
 import type { Project, ProjectCommand } from "../lib/api";
-import type { LogLine, RunState } from "./project-runtime";
+import type { RunState } from "./project-runtime";
 import { ProjectDetailCommands } from "./project-detail-commands";
 import { ProjectDetailNotes } from "./project-detail-notes";
 import type { CommandSection, ProjectNote } from "./project-detail-types";
@@ -14,15 +14,17 @@ export interface ProjectDetailProps {
   commands: ProjectCommand[];
   commandSections: CommandSection[];
   runs: Record<number, RunState>;
-  logs: LogLine[];
+  terminalContentByCommandId: Record<number, string>;
   openLogCommandIds: number[];
   activeLogCommandId: number | null;
   onActiveLogCommandChange: (commandId: number) => void;
   onClearLogs: (commandId: number) => void;
   onCloseLogTab: (commandId: number) => void;
+  onTerminalInput: (commandId: number, data: string) => void;
+  onTerminalResize: (commandId: number, cols: number, rows: number) => void;
+  terminalFontFamily: string;
+  terminalFontSize: string;
   theme: "light" | "dark";
-  showLogsTimestamp: boolean;
-  showStreamName: boolean;
   renamingSection: string | null;
   renameSectionValue: string;
   onRenameSectionValueChange: (value: string) => void;
@@ -70,15 +72,17 @@ export function ProjectDetail({
   commands,
   commandSections,
   runs,
-  logs,
+  terminalContentByCommandId,
   openLogCommandIds,
   activeLogCommandId,
   onActiveLogCommandChange,
   onClearLogs,
   onCloseLogTab,
+  onTerminalInput,
+  onTerminalResize,
+  terminalFontFamily,
+  terminalFontSize,
   theme,
-  showLogsTimestamp,
-  showStreamName,
   renamingSection,
   renameSectionValue,
   onRenameSectionValueChange,
@@ -140,15 +144,17 @@ export function ProjectDetail({
           commands={commands}
           commandSections={commandSections}
           runs={runs}
-          logs={logs}
+          terminalContentByCommandId={terminalContentByCommandId}
           openLogCommandIds={openLogCommandIds}
           activeLogCommandId={activeLogCommandId}
           onActiveLogCommandChange={onActiveLogCommandChange}
           onClearLogs={onClearLogs}
           onCloseLogTab={onCloseLogTab}
+          onTerminalInput={onTerminalInput}
+          onTerminalResize={onTerminalResize}
+          terminalFontFamily={terminalFontFamily}
+          terminalFontSize={terminalFontSize}
           theme={theme}
-          showLogsTimestamp={showLogsTimestamp}
-          showStreamName={showStreamName}
           renamingSection={renamingSection}
           renameSectionValue={renameSectionValue}
           onRenameSectionValueChange={onRenameSectionValueChange}

@@ -393,58 +393,27 @@ p {
   background: color-mix(in oklab, var(--foreground) 6%, transparent);
 }
 
-.log-terminal .react-terminal-wrapper {
-  display: flex;
-  height: 100%;
-  min-height: 0;
-  flex-direction: column;
-  padding: 16px;
-  border-radius: 0;
-  background: var(--terminal-bg) !important;
+.log-terminal .xterm-host {
+  background: var(--terminal-bg);
   color: var(--terminal-fg);
-  font-family: var(--terminal-font-family, var(--font-mono)) !important;
-  font-size: var(--terminal-font-size, 0.8rem) !important;
 }
 
-.log-terminal .react-terminal-wrapper::after {
-  display: none;
+.log-terminal .xterm {
+  height: 100%;
 }
 
-.log-terminal .react-terminal {
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
+.log-terminal .xterm-viewport,
+.log-terminal .xterm-screen,
+.log-terminal .xterm-scroll-area {
+  background: var(--terminal-bg) !important;
 }
 
-.log-terminal .react-terminal-line {
-  line-height: 1.5;
-  margin-bottom: 2px;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+.log-terminal .xterm-viewport {
+  overflow-y: auto !important;
 }
 
-.theme-light .terminal-stream.stdout {
-  color: #059669;
-}
-
-.theme-light .terminal-stream.stderr {
-  color: #dc2626;
-}
-
-.theme-light .terminal-muted {
-  color: #71717a;
-}
-
-.theme-dark .terminal-stream.stdout {
-  color: #34d399;
-}
-
-.theme-dark .terminal-stream.stderr {
-  color: #fb7185;
-}
-
-.theme-dark .terminal-muted {
-  color: #a1a1aa;
+.log-terminal .xterm-screen canvas {
+  border-radius: 10px;
 }
 
 @keyframes spin {

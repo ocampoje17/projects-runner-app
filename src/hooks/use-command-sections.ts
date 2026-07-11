@@ -112,6 +112,7 @@ export function useCommandSections({
           ports: commandPorts(cmd),
           section: cleanNewName,
           order_index: cmd.order_index,
+          runtime_mode: cmd.runtime_mode,
           run_in_external_terminal: cmd.run_in_external_terminal,
         });
       }

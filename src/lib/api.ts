@@ -31,6 +31,8 @@ export type Project = {
   updated_at: string;
 };
 
+export type CommandRuntimeMode = "internal_headless" | "internal_interactive" | "external_terminal";
+
 export type ProjectCommand = {
   id: number;
   project_id: number;
@@ -42,6 +44,7 @@ export type ProjectCommand = {
   order_index: number;
   created_at: string;
   updated_at: string;
+  runtime_mode: CommandRuntimeMode;
   run_in_external_terminal: boolean;
 };
 
@@ -70,6 +73,7 @@ export type CommandInput = {
   ports?: number[] | null;
   section?: string | null;
   order_index?: number | null;
+  runtime_mode?: CommandRuntimeMode;
   run_in_external_terminal?: boolean;
 };
 
@@ -113,6 +117,7 @@ export type CommandPreview = {
   ports: number[];
   section: string;
   order_index: number;
+  runtime_mode: CommandRuntimeMode;
   run_in_external_terminal: boolean;
 };
 
@@ -179,6 +184,38 @@ export type StopCommandResult = {
   was_active: boolean;
 };
 
+export type InteractiveSession = {
+  session_id: string;
+  run_id: number;
+  command_id: number;
+  cols: number;
+  rows: number;
+  started_at: string;
+};
+
+export type InteractiveSessionExitedPayload = {
+  session_id: string;
+  run_id: number;
+  command_id: number;
+  exit_code: number | null;
+  ended_at: string;
+  status: string;
+};
+
+export type InteractiveSessionDataPayload = {
+  session_id: string;
+  run_id: number;
+  command_id: number;
+  data: string;
+};
+
+export type InteractiveSessionErrorPayload = {
+  session_id: string;
+  run_id: number;
+  command_id: number;
+  error: string;
+};
+
 export type RunStartedPayload = {
   run_id: number;
   command_id: number;
@@ -217,7 +254,19 @@ export const api = {
   deleteCommand: (id: number) => invokeDesktop<void>("delete_command", { id }),
   runCommand: (commandId: number) =>
     invokeDesktop<CommandRun>("run_command", { commandId }),
+  restartCommand: (commandId: number) =>
+    invokeDesktop<CommandRun>("restart_command", { commandId }),
   stopCommand: (runId: number) => invokeDesktop<StopCommandResult>("stop_command", { runId }),
+  startInteractiveCommand: (commandId: number, cols: number, rows: number) =>
+    invokeDesktop<InteractiveSession>("start_interactive_command", { commandId, cols, rows }),
+  writeInteractiveTerminal: (sessionId: string, data: string) =>
+    invokeDesktop<void>("write_interactive_terminal", { sessionId, data }),
+  resizeInteractiveTerminal: (sessionId: string, cols: number, rows: number) =>
+    invokeDesktop<void>("resize_interactive_terminal", { sessionId, cols, rows }),
+  stopInteractiveCommand: (sessionId: string) =>
+    invokeDesktop<void>("stop_interactive_command", { sessionId }),
+  restartInteractiveCommand: (commandId: number, cols: number, rows: number) =>
+    invokeDesktop<InteractiveSession>("restart_interactive_command", { commandId, cols, rows }),
   killPorts: (ports: number[]) => invokeDesktop<void>("kill_ports", { ports }),
   getPortsProcesses: (ports: number[]) => invokeDesktop<PortProcess[]>("get_ports_processes", { ports }),
   killProcesses: (pids: number[]) => invokeDesktop<void>("kill_processes", { pids }),

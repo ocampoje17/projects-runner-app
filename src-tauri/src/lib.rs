@@ -6,17 +6,24 @@ use diesel::sql_query;
 use diesel::sql_types::{BigInt, Integer, Nullable, Text};
 use diesel::sqlite::SqliteConnection;
 use mime_guess::MimeGuess;
+use portable_pty::{
+    native_pty_system, ChildKiller, CommandBuilder as PtyCommandBuilder, MasterPty, PtySize,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
+
+const RUNTIME_MODE_INTERNAL_HEADLESS: &str = "internal_headless";
+const RUNTIME_MODE_INTERNAL_INTERACTIVE: &str = "internal_interactive";
+const RUNTIME_MODE_EXTERNAL_TERMINAL: &str = "external_terminal";
 
 #[derive(Clone)]
 struct AppPaths {
@@ -28,6 +35,9 @@ struct AppPaths {
 struct AppState {
     paths: AppPaths,
     processes: Mutex<HashMap<i64, Arc<RunProcess>>>,
+    interactive_sessions: Mutex<HashMap<String, Arc<InteractiveSession>>>,
+    interactive_sessions_by_command: Mutex<HashMap<i64, String>>,
+    interactive_sessions_by_run: Mutex<HashMap<i64, String>>,
     stopped_runs: Mutex<HashSet<i64>>,
     pending_prd_open_requests: Mutex<Vec<String>>,
 }
@@ -35,6 +45,13 @@ struct AppState {
 struct RunProcess {
     pid: u32,
     child: Mutex<Child>,
+}
+
+struct InteractiveSession {
+    run_id: i64,
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    master: Mutex<Box<dyn MasterPty + Send>>,
+    writer: Mutex<Box<dyn Write + Send>>,
 }
 
 #[derive(Debug, Serialize, QueryableByName, Clone)]
@@ -79,6 +96,8 @@ struct ProjectCommand {
     created_at: String,
     #[diesel(sql_type = Text)]
     updated_at: String,
+    #[diesel(sql_type = Text)]
+    runtime_mode: String,
     #[diesel(sql_type = Integer)]
     run_in_external_terminal: i32,
 }
@@ -122,6 +141,42 @@ struct RunFinishedPayload {
     ended_at: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+struct InteractiveSessionInfo {
+    session_id: String,
+    run_id: i64,
+    command_id: i64,
+    cols: u16,
+    rows: u16,
+    started_at: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct InteractiveDataPayload {
+    session_id: String,
+    run_id: i64,
+    command_id: i64,
+    data: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct InteractiveExitPayload {
+    session_id: String,
+    run_id: i64,
+    command_id: i64,
+    exit_code: Option<i32>,
+    ended_at: String,
+    status: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct InteractiveErrorPayload {
+    session_id: String,
+    run_id: i64,
+    command_id: i64,
+    error: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct ProjectInput {
     name: String,
@@ -140,6 +195,7 @@ struct CommandInput {
     ports: Option<Vec<u16>>,
     section: Option<String>,
     order_index: Option<i32>,
+    runtime_mode: Option<String>,
     run_in_external_terminal: Option<bool>,
 }
 
@@ -182,6 +238,7 @@ struct LegacyPrdCommand {
     ports: Vec<u16>,
     section: String,
     order_index: i32,
+    runtime_mode: Option<String>,
     run_in_external_terminal: Option<bool>,
 }
 
@@ -227,6 +284,7 @@ struct PrdCommandV2 {
     ports: Vec<u16>,
     section: String,
     order_index: i32,
+    runtime_mode: String,
     run_in_external_terminal: bool,
 }
 
@@ -256,6 +314,7 @@ struct NormalizedPrdCommand {
     ports: Vec<u16>,
     section: String,
     order_index: i32,
+    runtime_mode: String,
     run_in_external_terminal: bool,
 }
 
@@ -322,6 +381,7 @@ struct CommandPreview {
     ports: Vec<u16>,
     section: String,
     order_index: i32,
+    runtime_mode: String,
     run_in_external_terminal: bool,
 }
 
@@ -456,6 +516,7 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
             ports TEXT NOT NULL DEFAULT '[]',
             section TEXT NOT NULL DEFAULT 'General',
             order_index INTEGER NOT NULL DEFAULT 0,
+            runtime_mode TEXT NOT NULL DEFAULT 'internal_headless',
             run_in_external_terminal INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -490,9 +551,29 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     ensure_column(
         &mut conn,
         "commands",
+        "runtime_mode",
+        "TEXT NOT NULL DEFAULT 'internal_headless'",
+    )?;
+    ensure_column(
+        &mut conn,
+        "commands",
         "run_in_external_terminal",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+
+    sql_query(format!(
+        "UPDATE commands SET runtime_mode = '{}' WHERE runtime_mode IS NULL OR TRIM(runtime_mode) = ''",
+        RUNTIME_MODE_INTERNAL_HEADLESS
+    ))
+    .execute(&mut conn)
+    .map_err(|error| error.to_string())?;
+
+    sql_query(format!(
+        "UPDATE commands SET runtime_mode = '{}' WHERE run_in_external_terminal = 1",
+        RUNTIME_MODE_EXTERNAL_TERMINAL
+    ))
+    .execute(&mut conn)
+    .map_err(|error| error.to_string())?;
 
     Ok(())
 }
@@ -509,7 +590,10 @@ fn ensure_column(
         name: String,
     }
 
-    let columns = sql_query(format!("PRAGMA table_info({})", table))
+    let columns = sql_query(format!(
+        "SELECT name FROM pragma_table_info('{}')",
+        quote_sql(table)
+    ))
         .load::<TableColumn>(conn)
         .map_err(|error| error.to_string())?;
     if columns.iter().any(|item| item.name == column) {
@@ -562,6 +646,28 @@ fn clean_section(value: Option<String>) -> String {
         .unwrap_or_else(|| "General".to_string())
 }
 
+fn normalize_runtime_mode(
+    runtime_mode: Option<&str>,
+    run_in_external_terminal: Option<bool>,
+) -> String {
+    match runtime_mode.map(str::trim) {
+        Some(RUNTIME_MODE_INTERNAL_HEADLESS) => RUNTIME_MODE_INTERNAL_HEADLESS.to_string(),
+        Some(RUNTIME_MODE_INTERNAL_INTERACTIVE) => RUNTIME_MODE_INTERNAL_INTERACTIVE.to_string(),
+        Some(RUNTIME_MODE_EXTERNAL_TERMINAL) => RUNTIME_MODE_EXTERNAL_TERMINAL.to_string(),
+        Some(_) | None => {
+            if run_in_external_terminal.unwrap_or(false) {
+                RUNTIME_MODE_EXTERNAL_TERMINAL.to_string()
+            } else {
+                RUNTIME_MODE_INTERNAL_HEADLESS.to_string()
+            }
+        }
+    }
+}
+
+fn runtime_mode_uses_external_terminal(runtime_mode: &str) -> bool {
+    runtime_mode == RUNTIME_MODE_EXTERNAL_TERMINAL
+}
+
 fn normalize_key(value: &str) -> String {
     value
         .split_whitespace()
@@ -574,6 +680,101 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
     value
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_test_paths(name: &str) -> AppPaths {
+        let root = std::env::temp_dir().join(format!("projects-runner-tests-{}-{}", name, Uuid::new_v4()));
+        AppPaths {
+            db_path: root.join("projects-runner.sqlite"),
+            avatars_dir: root.join("avatars"),
+            scripts_dir: root.join("scripts"),
+        }
+    }
+
+    #[test]
+    fn init_db_migrates_runtime_mode_for_legacy_commands_table() {
+        let paths = temp_test_paths("runtime-mode-migration");
+        fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
+        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+        conn.batch_execute(
+            "CREATE TABLE projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                name TEXT NOT NULL,
+                path TEXT NOT NULL,
+                avatar_path TEXT,
+                description TEXT,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                project_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                script TEXT NOT NULL,
+                avatar_path TEXT,
+                order_index INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                ports TEXT NOT NULL DEFAULT '[]',
+                section TEXT NOT NULL DEFAULT 'General',
+                run_in_external_terminal INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
+            INSERT INTO projects (id, name, path, created_at, updated_at)
+            VALUES (1, 'Demo', 'E:/demo', '2026-07-11T00:00:00Z', '2026-07-11T00:00:00Z');
+            INSERT INTO commands (id, project_id, name, script, avatar_path, order_index, created_at, updated_at, ports, section, run_in_external_terminal)
+            VALUES
+                (1, 1, 'Headless', 'echo ok', NULL, 0, '2026-07-11T00:00:00Z', '2026-07-11T00:00:00Z', '[]', 'General', 0),
+                (2, 1, 'External', 'echo ext', NULL, 1, '2026-07-11T00:00:00Z', '2026-07-11T00:00:00Z', '[]', 'General', 1);",
+        )
+        .expect("seed legacy schema");
+        drop(conn);
+
+        init_db(&paths).expect("migrate legacy schema");
+
+        let mut verify = SqliteConnection::establish(&db_path_string(&paths)).expect("open migrated db");
+        #[derive(QueryableByName)]
+        struct CommandRuntimeRow {
+            #[diesel(sql_type = Text)]
+            runtime_mode: String,
+        }
+
+        let runtime_modes = sql_query("SELECT runtime_mode FROM commands ORDER BY id ASC")
+            .load::<CommandRuntimeRow>(&mut verify)
+            .expect("read runtime modes")
+            .into_iter()
+            .map(|row| row.runtime_mode)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            runtime_modes,
+            vec![
+                RUNTIME_MODE_INTERNAL_HEADLESS.to_string(),
+                RUNTIME_MODE_EXTERNAL_TERMINAL.to_string(),
+            ]
+        );
+
+        #[derive(QueryableByName)]
+        struct TableColumn {
+            #[diesel(sql_type = Text)]
+            name: String,
+        }
+
+        let columns = sql_query("SELECT name FROM pragma_table_info('commands')")
+            .load::<TableColumn>(&mut verify)
+            .expect("read command columns")
+            .into_iter()
+            .map(|row| row.name)
+            .collect::<Vec<_>>();
+        assert!(columns.iter().any(|name| name == "runtime_mode"));
+
+        drop(verify);
+        fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
+    }
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -903,6 +1104,7 @@ fn build_command_preview_from_existing(snapshot: &ExistingCommandSnapshot) -> Co
         ports: snapshot.ports.clone(),
         section: snapshot.command.section.clone(),
         order_index: snapshot.command.order_index,
+        runtime_mode: snapshot.command.runtime_mode.clone(),
         run_in_external_terminal: snapshot.command.run_in_external_terminal != 0,
     }
 }
@@ -919,6 +1121,7 @@ fn build_command_preview_from_prd(
         ports: command.ports.clone(),
         section: command.section.clone(),
         order_index: command.order_index,
+        runtime_mode: command.runtime_mode.clone(),
         run_in_external_terminal: command.run_in_external_terminal,
     }
 }
@@ -968,6 +1171,9 @@ fn build_command_diffs(
                 }
                 if existing_command.command.order_index != command.order_index {
                     overwrite_fields.push("order_index".to_string());
+                }
+                if existing_command.command.runtime_mode != command.runtime_mode {
+                    overwrite_fields.push("runtime_mode".to_string());
                 }
                 if (existing_command.command.run_in_external_terminal != 0)
                     != command.run_in_external_terminal
@@ -1286,6 +1492,7 @@ fn build_export_prd(project: &Project, commands: &[ProjectCommand]) -> Result<Pr
                     ports: ports_from_json(&command.ports),
                     section: command.section.clone(),
                     order_index: command.order_index,
+                    runtime_mode: command.runtime_mode.clone(),
                     run_in_external_terminal: command.run_in_external_terminal != 0,
                 })
             })
@@ -1346,6 +1553,7 @@ fn import_prd_as_new_project(
                 ports: Some(command.ports.clone()),
                 section: Some(command.section.clone()),
                 order_index: Some(command.order_index),
+                runtime_mode: Some(command.runtime_mode.clone()),
                 run_in_external_terminal: Some(command.run_in_external_terminal),
             },
             state.clone(),
@@ -1568,6 +1776,7 @@ fn apply_prd_import(
                                 ports: Some(incoming.ports.clone()),
                                 section: Some(incoming.section.clone()),
                                 order_index: Some(incoming.order_index),
+                                runtime_mode: Some(incoming.runtime_mode.clone()),
                                 run_in_external_terminal: Some(incoming.run_in_external_terminal),
                             },
                             state.clone(),
@@ -1592,6 +1801,7 @@ fn apply_prd_import(
                                     ports: Some(incoming.ports.clone()),
                                     section: Some(incoming.section.clone()),
                                     order_index: Some(incoming.order_index),
+                                    runtime_mode: Some(incoming.runtime_mode.clone()),
                                     run_in_external_terminal: Some(incoming.run_in_external_terminal),
                                 },
                                 state.clone(),
@@ -1632,6 +1842,10 @@ fn normalize_legacy_prd_file(prd: LegacyPrdFile) -> NormalizedPrdFile {
                 ports: command.ports,
                 section: command.section,
                 order_index: command.order_index,
+                runtime_mode: normalize_runtime_mode(
+                    command.runtime_mode.as_deref(),
+                    command.run_in_external_terminal,
+                ),
                 run_in_external_terminal: command.run_in_external_terminal.unwrap_or(false),
             })
             .collect(),
@@ -1660,6 +1874,10 @@ fn normalize_prd_file_v2(prd: PrdFileV2) -> NormalizedPrdFile {
                 ports: command.ports,
                 section: command.section,
                 order_index: command.order_index,
+                runtime_mode: normalize_runtime_mode(
+                    Some(&command.runtime_mode),
+                    Some(command.run_in_external_terminal),
+                ),
                 run_in_external_terminal: command.run_in_external_terminal,
             })
             .collect(),
@@ -1860,14 +2078,18 @@ fn create_command(input: CommandInput, state: State<AppState>) -> Result<Project
     let order_index = input.order_index.unwrap_or(0);
     let ports = ports_to_json(&input.ports.unwrap_or_default())?;
     let section = clean_section(input.section);
-    let run_in_external_terminal = if input.run_in_external_terminal.unwrap_or(false) {
+    let runtime_mode = normalize_runtime_mode(
+        input.runtime_mode.as_deref(),
+        input.run_in_external_terminal,
+    );
+    let run_in_external_terminal = if runtime_mode_uses_external_terminal(&runtime_mode) {
         1
     } else {
         0
     };
     sql_query(format!(
-        "INSERT INTO commands (project_id, name, script, avatar_path, ports, section, order_index, run_in_external_terminal, created_at, updated_at)
-         VALUES ({}, '{}', '{}', {}, '{}', '{}', {}, {}, '{}', '{}')",
+        "INSERT INTO commands (project_id, name, script, avatar_path, ports, section, order_index, runtime_mode, run_in_external_terminal, created_at, updated_at)
+         VALUES ({}, '{}', '{}', {}, '{}', '{}', {}, '{}', {}, '{}', '{}')",
         input.project_id,
         quote_sql(&input.name),
         quote_sql(&input.script),
@@ -1875,6 +2097,7 @@ fn create_command(input: CommandInput, state: State<AppState>) -> Result<Project
         quote_sql(&ports),
         quote_sql(&section),
         order_index,
+        quote_sql(&runtime_mode),
         run_in_external_terminal,
         timestamp,
         timestamp
@@ -1897,13 +2120,17 @@ fn update_command(
     let order_index = input.order_index.unwrap_or(0);
     let ports = ports_to_json(&input.ports.unwrap_or_default())?;
     let section = clean_section(input.section);
-    let run_in_external_terminal = if input.run_in_external_terminal.unwrap_or(false) {
+    let runtime_mode = normalize_runtime_mode(
+        input.runtime_mode.as_deref(),
+        input.run_in_external_terminal,
+    );
+    let run_in_external_terminal = if runtime_mode_uses_external_terminal(&runtime_mode) {
         1
     } else {
         0
     };
     sql_query(format!(
-        "UPDATE commands SET project_id = {}, name = '{}', script = '{}', avatar_path = {}, ports = '{}', section = '{}', order_index = {}, run_in_external_terminal = {}, updated_at = '{}' WHERE id = {}",
+        "UPDATE commands SET project_id = {}, name = '{}', script = '{}', avatar_path = {}, ports = '{}', section = '{}', order_index = {}, runtime_mode = '{}', run_in_external_terminal = {}, updated_at = '{}' WHERE id = {}",
         input.project_id,
         quote_sql(&input.name),
         quote_sql(&input.script),
@@ -1911,6 +2138,7 @@ fn update_command(
         quote_sql(&ports),
         quote_sql(&section),
         order_index,
+        quote_sql(&runtime_mode),
         run_in_external_terminal,
         now(),
         id
@@ -2054,6 +2282,14 @@ fn run_command(
     app: AppHandle,
     state: State<AppState>,
 ) -> Result<CommandRun, String> {
+    start_non_interactive_command(command_id, &app, &state)
+}
+
+fn start_non_interactive_command(
+    command_id: i64,
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<CommandRun, String> {
     let mut conn = connect(&state.paths)?;
     mark_stale_running_runs(&mut conn, &state)?;
     let active_runs = sql_query(format!(
@@ -2072,6 +2308,13 @@ fn run_command(
         return Err("Project path does not exist".to_string());
     }
 
+    if command.runtime_mode == RUNTIME_MODE_INTERNAL_INTERACTIVE {
+        return Err(
+            "This command uses the interactive terminal. Start it with the interactive runtime API."
+                .to_string(),
+        );
+    }
+
     fs::create_dir_all(&state.paths.scripts_dir).map_err(|error| error.to_string())?;
     let script_path = write_script(&state.paths.scripts_dir, &command.script)?;
     let started_at = now();
@@ -2084,7 +2327,7 @@ fn run_command(
     let run = sql_query("SELECT * FROM command_runs WHERE id = last_insert_rowid()")
         .get_result::<CommandRun>(&mut conn)
         .map_err(|error| error.to_string())?;
-    let run_in_external_terminal = command.run_in_external_terminal != 0;
+    let run_in_external_terminal = runtime_mode_uses_external_terminal(&command.runtime_mode);
     let mut child = match build_process(&script_path, &project_path, run_in_external_terminal) {
         Ok(child) => child,
         Err(error) => {
@@ -2188,6 +2431,92 @@ fn run_command(
     Ok(run)
 }
 
+#[tauri::command]
+async fn restart_command(
+    command_id: i64,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<CommandRun, String> {
+    let mut conn = connect(&state.paths)?;
+    mark_stale_running_runs(&mut conn, &state)?;
+
+    let (command, _) = load_command(&mut conn, command_id)?;
+    if command.runtime_mode == RUNTIME_MODE_INTERNAL_INTERACTIVE {
+        return Err(
+            "This command uses the interactive terminal. Restart it with the interactive runtime API."
+                .to_string(),
+        );
+    }
+
+    let active_run = sql_query(format!(
+        "SELECT * FROM command_runs WHERE command_id = {} AND status = 'running' ORDER BY id DESC LIMIT 1",
+        command_id
+    ))
+    .get_result::<CommandRun>(&mut conn)
+    .optional()
+    .map_err(|error| error.to_string())?;
+
+    if let Some(run) = active_run {
+        let process = state
+            .processes
+            .lock()
+            .map_err(|_| "Process registry lock poisoned".to_string())?
+            .get(&run.id)
+            .cloned();
+
+        if let Some(process) = process {
+            state
+                .stopped_runs
+                .lock()
+                .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
+                .insert(run.id);
+            let stop_result = tauri::async_runtime::spawn_blocking(move || stop_run_process(process))
+                .await
+                .map_err(|err| err.to_string())?;
+            if let Err(error) = stop_result {
+                state
+                    .stopped_runs
+                    .lock()
+                    .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
+                    .remove(&run.id);
+                return Err(error);
+            }
+
+            for _ in 0..80 {
+                let still_running = state
+                    .processes
+                    .lock()
+                    .map_err(|_| "Process registry lock poisoned".to_string())?
+                    .contains_key(&run.id);
+                if !still_running {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        } else {
+            let ended_at = now();
+            sql_query(format!(
+                "UPDATE command_runs SET status = 'stopped', ended_at = '{}' WHERE id = {} AND status = 'running'",
+                ended_at, run.id
+            ))
+            .execute(&mut conn)
+            .map_err(|error| error.to_string())?;
+            let _ = app.emit(
+                "command://finished",
+                RunFinishedPayload {
+                    run_id: run.id,
+                    command_id: run.command_id,
+                    status: "stopped".to_string(),
+                    exit_code: None,
+                    ended_at,
+                },
+            );
+        }
+    }
+
+    start_non_interactive_command(command_id, &app, &state)
+}
+
 #[cfg(target_os = "windows")]
 fn configure_command(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
@@ -2262,6 +2591,328 @@ async fn stop_command(
 #[derive(serde::Serialize)]
 struct StopCommandResult {
     was_active: bool,
+}
+
+#[tauri::command]
+fn start_interactive_command(
+    command_id: i64,
+    cols: u16,
+    rows: u16,
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<InteractiveSessionInfo, String> {
+    let mut conn = connect(&state.paths)?;
+    mark_stale_running_runs(&mut conn, &state)?;
+
+    let active_runs = sql_query(format!(
+        "SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'",
+        command_id
+    ))
+    .load::<CommandRun>(&mut conn)
+    .map_err(|error| error.to_string())?;
+    if !active_runs.is_empty() {
+        return Err("This command is already running".to_string());
+    }
+
+    let (command, project) = load_command(&mut conn, command_id)?;
+    if command.runtime_mode != RUNTIME_MODE_INTERNAL_INTERACTIVE {
+        return Err("This command is not configured for the interactive terminal.".to_string());
+    }
+
+    let project_path = PathBuf::from(&project.path);
+    if !project_path.exists() {
+        return Err("Project path does not exist".to_string());
+    }
+
+    fs::create_dir_all(&state.paths.scripts_dir).map_err(|error| error.to_string())?;
+    let script_path = write_script(&state.paths.scripts_dir, &command.script)?;
+    let started_at = now();
+    sql_query(format!(
+        "INSERT INTO command_runs (command_id, status, started_at) VALUES ({}, 'running', '{}')",
+        command_id, started_at
+    ))
+    .execute(&mut conn)
+    .map_err(|error| error.to_string())?;
+    let run = sql_query("SELECT * FROM command_runs WHERE id = last_insert_rowid()")
+        .get_result::<CommandRun>(&mut conn)
+        .map_err(|error| error.to_string())?;
+
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(pty_size(cols, rows))
+        .map_err(|error| error.to_string())?;
+    let mut pty_command = build_pty_command(&script_path);
+    pty_command.cwd(project_path);
+
+    let mut child = match pair.slave.spawn_command(pty_command) {
+        Ok(child) => child,
+        Err(error) => {
+            let ended_at = now();
+            let _ = sql_query(format!(
+                "UPDATE command_runs SET status = 'failed', ended_at = '{}', exit_code = NULL WHERE id = {}",
+                ended_at, run.id
+            ))
+            .execute(&mut conn);
+            let _ = fs::remove_file(&script_path);
+            return Err(error.to_string());
+        }
+    };
+
+    let mut reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|error| error.to_string())?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|error| error.to_string())?;
+    let killer = child.clone_killer();
+    let session_id = Uuid::new_v4().to_string();
+    let session = Arc::new(InteractiveSession {
+        run_id: run.id,
+        killer: Mutex::new(killer),
+        master: Mutex::new(pair.master),
+        writer: Mutex::new(writer),
+    });
+
+    state
+        .interactive_sessions
+        .lock()
+        .map_err(|_| "Interactive session registry lock poisoned".to_string())?
+        .insert(session_id.clone(), session.clone());
+    state
+        .interactive_sessions_by_command
+        .lock()
+        .map_err(|_| "Interactive command registry lock poisoned".to_string())?
+        .insert(command_id, session_id.clone());
+    state
+        .interactive_sessions_by_run
+        .lock()
+        .map_err(|_| "Interactive run registry lock poisoned".to_string())?
+        .insert(run.id, session_id.clone());
+
+    let started_payload = InteractiveSessionInfo {
+        session_id: session_id.clone(),
+        run_id: run.id,
+        command_id,
+        cols: cols.max(20),
+        rows: rows.max(1),
+        started_at: run.started_at.clone(),
+    };
+    let _ = app.emit("pty://started", started_payload.clone());
+    let _ = app.emit(
+        "command://started",
+        RunStartedPayload {
+            run_id: run.id,
+            command_id,
+            started_at: run.started_at.clone(),
+        },
+    );
+
+    let app_for_reader = app.clone();
+    let session_id_for_reader = session_id.clone();
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(length) => {
+                    let chunk = String::from_utf8_lossy(&buffer[..length]).to_string();
+                    let _ = app_for_reader.emit(
+                        "pty://data",
+                        InteractiveDataPayload {
+                            session_id: session_id_for_reader.clone(),
+                            run_id: run.id,
+                            command_id,
+                            data: chunk,
+                        },
+                    );
+                }
+                Err(error) => {
+                    let _ = app_for_reader.emit(
+                        "pty://error",
+                        InteractiveErrorPayload {
+                            session_id: session_id_for_reader.clone(),
+                            run_id: run.id,
+                            command_id,
+                            error: error.to_string(),
+                        },
+                    );
+                    break;
+                }
+            }
+        }
+    });
+
+    let paths = state.paths.clone();
+    let app_for_wait = app.clone();
+    std::thread::spawn(move || {
+        let wait_result = child.wait();
+        let exit_code = wait_result.ok().and_then(interactive_exit_code);
+        let was_stopped = app_for_wait
+            .try_state::<AppState>()
+            .and_then(|state| {
+                state
+                    .stopped_runs
+                    .lock()
+                    .ok()
+                    .map(|mut stopped_runs| stopped_runs.remove(&run.id))
+            })
+            .unwrap_or(false);
+        let final_status = if was_stopped {
+            "stopped"
+        } else if exit_code == Some(0) {
+            "exited"
+        } else {
+            "failed"
+        };
+        let ended_at = now();
+
+        if let Ok(mut conn) = connect(&paths) {
+            let _ = sql_query(format!(
+                "UPDATE command_runs SET status = '{}', ended_at = '{}', exit_code = {} WHERE id = {}",
+                final_status,
+                ended_at,
+                exit_code.map(|code| code.to_string()).unwrap_or_else(|| "NULL".to_string()),
+                run.id
+            ))
+            .execute(&mut conn);
+        }
+
+        if let Some(state) = app_for_wait.try_state::<AppState>() {
+            remove_interactive_session(&state, &session_id, run.id, command_id);
+        }
+
+        let _ = fs::remove_file(&script_path);
+        let _ = app_for_wait.emit(
+            "pty://exit",
+            InteractiveExitPayload {
+                session_id: session_id.clone(),
+                run_id: run.id,
+                command_id,
+                exit_code,
+                ended_at: ended_at.clone(),
+                status: final_status.to_string(),
+            },
+        );
+        let _ = app_for_wait.emit(
+            "command://finished",
+            RunFinishedPayload {
+                run_id: run.id,
+                command_id,
+                status: final_status.to_string(),
+                exit_code,
+                ended_at,
+            },
+        );
+    });
+
+    Ok(started_payload)
+}
+
+#[tauri::command]
+fn write_interactive_terminal(
+    session_id: String,
+    data: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let session = state
+        .interactive_sessions
+        .lock()
+        .map_err(|_| "Interactive session registry lock poisoned".to_string())?
+        .get(&session_id)
+        .cloned()
+        .ok_or_else(|| "Interactive session not found".to_string())?;
+
+    let write_result = session
+        .writer
+        .lock()
+        .map_err(|_| "Interactive writer lock poisoned".to_string())?
+        .write_all(data.as_bytes())
+        .map_err(|error| error.to_string());
+    write_result
+}
+
+#[tauri::command]
+fn resize_interactive_terminal(
+    session_id: String,
+    cols: u16,
+    rows: u16,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let session = state
+        .interactive_sessions
+        .lock()
+        .map_err(|_| "Interactive session registry lock poisoned".to_string())?
+        .get(&session_id)
+        .cloned()
+        .ok_or_else(|| "Interactive session not found".to_string())?;
+
+    let resize_result = session
+        .master
+        .lock()
+        .map_err(|_| "Interactive pty lock poisoned".to_string())?
+        .resize(pty_size(cols, rows))
+        .map_err(|error| error.to_string());
+    resize_result
+}
+
+#[tauri::command]
+fn stop_interactive_command(session_id: String, state: State<AppState>) -> Result<(), String> {
+    let session = state
+        .interactive_sessions
+        .lock()
+        .map_err(|_| "Interactive session registry lock poisoned".to_string())?
+        .get(&session_id)
+        .cloned()
+        .ok_or_else(|| "Interactive session not found".to_string())?;
+
+    state
+        .stopped_runs
+        .lock()
+        .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
+        .insert(session.run_id);
+
+    let kill_result = session
+        .killer
+        .lock()
+        .map_err(|_| "Interactive killer lock poisoned".to_string())?
+        .kill()
+        .map_err(|error| error.to_string());
+    kill_result
+}
+
+#[tauri::command]
+fn restart_interactive_command(
+    command_id: i64,
+    cols: u16,
+    rows: u16,
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<InteractiveSessionInfo, String> {
+    let existing_session_id = state
+        .interactive_sessions_by_command
+        .lock()
+        .map_err(|_| "Interactive command registry lock poisoned".to_string())?
+        .get(&command_id)
+        .cloned();
+
+    if let Some(session_id) = existing_session_id {
+        stop_interactive_command(session_id.clone(), state.clone())?;
+        for _ in 0..100 {
+            let still_running = state
+                .interactive_sessions_by_command
+                .lock()
+                .map_err(|_| "Interactive command registry lock poisoned".to_string())?
+                .contains_key(&command_id);
+            if !still_running {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+    }
+
+    start_interactive_command(command_id, cols, rows, app, state)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -2529,7 +3180,7 @@ fn process_has_exited(process: &RunProcess) -> Result<bool, String> {
 
 fn mark_stale_running_runs(
     conn: &mut SqliteConnection,
-    state: &State<AppState>,
+    state: &AppState,
 ) -> Result<(), String> {
     let active_run_ids = state
         .processes
@@ -2585,6 +3236,64 @@ fn write_script(scripts_dir: &Path, script: &str) -> Result<PathBuf, String> {
     };
     fs::write(&script_path, content).map_err(|error| error.to_string())?;
     Ok(script_path)
+}
+
+fn build_pty_command(script_path: &Path) -> PtyCommandBuilder {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = PtyCommandBuilder::new("powershell.exe");
+        cmd.arg("-NoLogo");
+        cmd.arg("-NoProfile");
+        cmd.arg("-ExecutionPolicy");
+        cmd.arg("Bypass");
+        cmd.arg("-File");
+        cmd.arg(script_path);
+        cmd
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut cmd = PtyCommandBuilder::new("sh");
+        cmd.arg(script_path);
+        cmd
+    }
+}
+
+fn pty_size(cols: u16, rows: u16) -> PtySize {
+    PtySize {
+        rows: rows.max(1),
+        cols: cols.max(20),
+        pixel_width: 0,
+        pixel_height: 0,
+    }
+}
+
+fn interactive_exit_code(status: portable_pty::ExitStatus) -> Option<i32> {
+    Some(status.exit_code() as i32)
+}
+
+fn remove_interactive_session(state: &AppState, session_id: &str, run_id: i64, command_id: i64) {
+    if let Ok(mut sessions) = state.interactive_sessions.lock() {
+        sessions.remove(session_id);
+    }
+    if let Ok(mut sessions_by_command) = state.interactive_sessions_by_command.lock() {
+        let should_remove = sessions_by_command
+            .get(&command_id)
+            .map(|existing| existing == session_id)
+            .unwrap_or(false);
+        if should_remove {
+            sessions_by_command.remove(&command_id);
+        }
+    }
+    if let Ok(mut sessions_by_run) = state.interactive_sessions_by_run.lock() {
+        let should_remove = sessions_by_run
+            .get(&run_id)
+            .map(|existing| existing == session_id)
+            .unwrap_or(false);
+        if should_remove {
+            sessions_by_run.remove(&run_id);
+        }
+    }
 }
 
 fn build_process(
@@ -2715,6 +3424,9 @@ pub fn run() {
             app.manage(AppState {
                 paths,
                 processes: Mutex::new(HashMap::new()),
+                interactive_sessions: Mutex::new(HashMap::new()),
+                interactive_sessions_by_command: Mutex::new(HashMap::new()),
+                interactive_sessions_by_run: Mutex::new(HashMap::new()),
                 stopped_runs: Mutex::new(HashSet::new()),
                 pending_prd_open_requests: Mutex::new(Vec::new()),
             });
@@ -2736,7 +3448,13 @@ pub fn run() {
             update_command,
             delete_command,
             run_command,
+            restart_command,
             stop_command,
+            start_interactive_command,
+            write_interactive_terminal,
+            resize_interactive_terminal,
+            stop_interactive_command,
+            restart_interactive_command,
             kill_ports,
             get_ports_processes,
             kill_processes,

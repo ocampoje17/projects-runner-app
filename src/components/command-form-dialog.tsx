@@ -17,15 +17,12 @@ import {
   DialogField,
   DialogFooter,
   DialogForm,
-  DialogToggleCopy,
-  DialogToggleRow,
 } from "./ui/dialog-form";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
-import { api, CommandInput, ProjectCommand } from "../lib/api";
+import { api, type CommandInput, type CommandRuntimeMode, type ProjectCommand } from "../lib/api";
 import { DEFAULT_SECTION, parsePorts, portsToInput } from "../lib/command-utils";
 
 const commandSchema = z.object({
@@ -34,10 +31,32 @@ const commandSchema = z.object({
   avatar_path: z.string().nullable().optional(),
   ports: z.string().optional(),
   section: z.string().optional(),
-  run_in_external_terminal: z.boolean().optional(),
+  runtime_mode: z.enum(["internal_headless", "internal_interactive", "external_terminal"]),
 });
 
 type CommandFormValues = z.infer<typeof commandSchema>;
+
+const runtimeModeOptions: Array<{
+  description: string;
+  label: string;
+  value: CommandRuntimeMode;
+}> = [
+  {
+    value: "internal_headless",
+    label: "Internal headless",
+    description: "Run inside the app with streamed output for servers, builds, and test commands.",
+  },
+  {
+    value: "internal_interactive",
+    label: "Internal interactive",
+    description: "Run inside the app with a full interactive terminal for TUI or keyboard-driven CLI tools.",
+  },
+  {
+    value: "external_terminal",
+    label: "External terminal",
+    description: "Launch a new OS terminal window and hand execution off to the system terminal.",
+  },
+];
 
 export function CommandDialog({
   command,
@@ -71,7 +90,7 @@ export function CommandDialog({
         command?.section ??
         defaultSection ??
         (availableSections.includes(DEFAULT_SECTION) ? DEFAULT_SECTION : availableSections[0] ?? DEFAULT_SECTION),
-      run_in_external_terminal: Boolean(command?.run_in_external_terminal),
+      runtime_mode: command?.runtime_mode ?? (command?.run_in_external_terminal ? "external_terminal" : "internal_headless"),
     },
   });
   const avatar = form.watch("avatar_path");
@@ -109,7 +128,8 @@ export function CommandDialog({
               ports: parsePorts(values.ports),
               section: values.section?.trim() || DEFAULT_SECTION,
               order_index: command?.order_index ?? 0,
-              run_in_external_terminal: values.run_in_external_terminal ?? false,
+              runtime_mode: values.runtime_mode,
+              run_in_external_terminal: values.runtime_mode === "external_terminal",
             }),
           )}
         >
@@ -163,17 +183,38 @@ export function CommandDialog({
             <FieldError message={form.formState.errors.script?.message} />
           </DialogField>
 
-          <DialogToggleRow className="items-start">
-            <DialogToggleCopy >
-              <h4>Run via external terminal</h4>
-              <p>Launch a new OS terminal window to run this command (useful for interactive CLI tools)</p>
-            </DialogToggleCopy>
+          <DialogField>
+            <Label>Runtime mode</Label>
             <Controller
               control={form.control}
-              name="run_in_external_terminal"
-              render={({ field }) => <Switch checked={Boolean(field.value)} onCheckedChange={field.onChange} />}
+              name="runtime_mode"
+              render={({ field }) => (
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a runtime mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {runtimeModeOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             />
-          </DialogToggleRow>
+            <div className="grid gap-1 rounded-[14px] border border-border/70 bg-card/40 p-2.5 text-[11.5px] text-muted-foreground">
+              {runtimeModeOptions.map((option) => {
+                const isSelected = form.watch("runtime_mode") === option.value;
+                return (
+                  <div key={option.value} className={isSelected ? "text-foreground" : undefined}>
+                    <strong className="block text-[12px]">{option.label}</strong>
+                    <span>{option.description}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </DialogField>
 
           <DialogFooter>
             <StatefulButton
@@ -190,6 +231,4 @@ export function CommandDialog({
     </Dialog>
   );
 }
-
-
 

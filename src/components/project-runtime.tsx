@@ -5,12 +5,12 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { EntityAvatar } from "./entity-avatar";
+import { XtermTerminal } from "./xterm-terminal";
 import { commandPorts } from "../lib/command-utils";
 import type { ProjectCommand } from "../lib/api";
 import { BrushCleaning, Loader2, Maximize2, Minimize2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import TerminalUi, { ColorMode, TerminalOutput } from "react-terminal-ui";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 export type RunState = {
   runId: number;
@@ -29,6 +29,16 @@ export type LogLine = {
   line: string;
   timestamp: string;
 };
+
+function runtimeModeBadgeLabel(command: ProjectCommand) {
+  if (command.runtime_mode === "external_terminal") {
+    return "External";
+  }
+  if (command.runtime_mode === "internal_interactive") {
+    return "Interactive";
+  }
+  return null;
+}
 
 export function CommandCard({
   command,
@@ -79,11 +89,7 @@ export function CommandCard({
             <h3 className="truncate text-[13px] font-semibold text-app-title">{command.name}</h3>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <Badge variant={badgeVariant}>{run?.status ?? "ready"}</Badge>
-              {Boolean(command.run_in_external_terminal) && (
-                <Badge variant="muted" title="Runs in external terminal">
-                  External
-                </Badge>
-              )}
+              {runtimeModeBadgeLabel(command) && <Badge variant="muted">{runtimeModeBadgeLabel(command)}</Badge>}
             </div>
           </div>
         </div>
@@ -208,27 +214,31 @@ export function CommandCard({
 export function LogPanel({
   activeCommandId,
   commands,
-  logs,
   openCommandIds,
   onActiveCommandChange,
   onClear,
   onCloseTab,
+  onTerminalInput,
+  onTerminalResize,
   runs,
+  terminalContentByCommandId,
+  terminalFontFamily,
+  terminalFontSize,
   theme,
-  showLogsTimestamp = false,
-  showStreamName = true,
 }: {
   activeCommandId: number | null;
   commands: ProjectCommand[];
-  logs: LogLine[];
   openCommandIds: number[];
   onActiveCommandChange: (commandId: number) => void;
   onClear: (commandId: number) => void;
   onCloseTab: (commandId: number) => void;
+  onTerminalInput: (commandId: number, data: string) => void;
+  onTerminalResize: (commandId: number, cols: number, rows: number) => void;
   runs: Record<number, RunState>;
+  terminalContentByCommandId: Record<number, string>;
+  terminalFontFamily: string;
+  terminalFontSize: string;
   theme: "light" | "dark";
-  showLogsTimestamp?: boolean;
-  showStreamName?: boolean;
 }) {
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const previousVisibleCountRef = useRef(0);
@@ -289,24 +299,34 @@ export function LogPanel({
   };
 
   const visibleCommands = useMemo(() => {
-    const commandIdsWithLogs = new Set(logs.map((line) => line.commandId));
     const openCommandIdSet = new Set(openCommandIds);
     return commands.filter(
-      (command) => openCommandIdSet.has(command.id) || commandIdsWithLogs.has(command.id) || runs[command.id],
+      (command) => openCommandIdSet.has(command.id) || Boolean(terminalContentByCommandId[command.id]) || runs[command.id],
     );
-  }, [commands, logs, openCommandIds, runs]);
+  }, [commands, openCommandIds, runs, terminalContentByCommandId]);
 
   const selectedCommand = visibleCommands.find((command) => command.id === activeCommandId) ?? visibleCommands[0] ?? null;
   const selectedCommandId = selectedCommand?.id ?? null;
-  const selectedLogs = useMemo(
-    () => logs.filter((line) => line.commandId === selectedCommandId).slice(-500),
-    [logs, selectedCommandId],
+  const selectedTerminalContent = selectedCommandId ? terminalContentByCommandId[selectedCommandId] ?? "" : "";
+  const resolvedTerminalFontSize = Number.parseInt(terminalFontSize, 10) || 13;
+  const handleSelectedTerminalInput = useCallback(
+    (data: string) => {
+      if (!selectedCommand || selectedCommand.runtime_mode !== "internal_interactive") {
+        return;
+      }
+      onTerminalInput(selectedCommand.id, data);
+    },
+    [onTerminalInput, selectedCommand],
   );
-
-  useEffect(() => {
-    const terminalBody = terminalRef.current?.querySelector(".react-terminal");
-    terminalBody?.scrollTo({ top: terminalBody.scrollHeight, behavior: "smooth" });
-  }, [selectedLogs]);
+  const handleSelectedTerminalResize = useCallback(
+    (cols: number, rows: number) => {
+      if (!selectedCommand) {
+        return;
+      }
+      onTerminalResize(selectedCommand.id, cols, rows);
+    },
+    [onTerminalResize, selectedCommand],
+  );
 
   useEffect(() => {
     if (selectedCommandId && selectedCommandId !== activeCommandId) {
@@ -377,11 +397,12 @@ export function LogPanel({
           </div>
           {!isCollapsed ? (
             <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" ref={terminalRef}>
-              <TerminalUi colorMode={theme === "light" ? ColorMode.Light : ColorMode.Dark} height="100%" name="Output" prompt="" TopButtonsPanel={() => null}>
-                <TerminalOutput>
-                  <span className="terminal-muted text-muted-foreground">Run a command to open its terminal tab.</span>
-                </TerminalOutput>
-              </TerminalUi>
+              <XtermTerminal
+                content={"Run a command to open its terminal tab.\r\n"}
+                fontFamily={terminalFontFamily}
+                fontSize={resolvedTerminalFontSize}
+                theme={theme}
+              />
             </div>
           ) : null}
         </>
@@ -442,29 +463,15 @@ export function LogPanel({
           {!isCollapsed && selectedCommand ? (
             <TabsContent className="m-0 flex h-full min-h-0 flex-1 overflow-hidden" value={String(selectedCommand.id)}>
               <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" key={selectedCommand.id} ref={terminalRef}>
-                <TerminalUi
-                  colorMode={theme === "light" ? ColorMode.Light : ColorMode.Dark}
-                  height="100%"
-                  name={selectedCommand.name}
-                  prompt=""
-                  TopButtonsPanel={() => null}
-                >
-                  {selectedLogs.length === 0 ? (
-                    <TerminalOutput>
-                      <span className="terminal-muted text-muted-foreground">Waiting for output...</span>
-                    </TerminalOutput>
-                  ) : (
-                    selectedLogs.map((line) => (
-                      <TerminalOutput key={line.id}>
-                        <span className={`terminal-stream font-inherit whitespace-inherit ${line.stream === "stdout" ? "text-emerald-200" : "text-rose-200"} ${line.stream}`}>
-                          {showLogsTimestamp && <span className="mr-1 opacity-50">[{line.timestamp}]</span>}
-                          {showStreamName && <span className="mr-1 opacity-70">[{line.stream}] </span>}
-                          {line.line}
-                        </span>
-                      </TerminalOutput>
-                    ))
-                  )}
-                </TerminalUi>
+                <XtermTerminal
+                  content={selectedTerminalContent || "Waiting for output...\r\n"}
+                  fontFamily={terminalFontFamily}
+                  fontSize={resolvedTerminalFontSize}
+                  theme={theme}
+                  onData={selectedCommand.runtime_mode === "internal_interactive" ? handleSelectedTerminalInput : undefined}
+                  onSizeChange={handleSelectedTerminalResize}
+                  readOnly={selectedCommand.runtime_mode !== "internal_interactive"}
+                />
               </div>
             </TabsContent>
           ) : null}

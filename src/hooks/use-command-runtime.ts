@@ -1,9 +1,13 @@
 import { listen } from "@tauri-apps/api/event";
 import { useMutation } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   isDesktopRuntime,
+  type InteractiveSession,
+  type InteractiveSessionDataPayload,
+  type InteractiveSessionErrorPayload,
+  type InteractiveSessionExitedPayload,
   type PortProcess,
   type ProjectCommand,
   type RunFinishedPayload,
@@ -20,15 +24,30 @@ function cleanTerminalLine(line: string) {
   return line.replace(ANSI_ESCAPE_PATTERN, "");
 }
 
+const DEFAULT_INTERACTIVE_COLS = 120;
+const DEFAULT_INTERACTIVE_ROWS = 32;
+
 export function useCommandRuntime({
   autoClearLogs,
+  showLogsTimestamp,
+  showStreamName,
   onError,
 }: {
   autoClearLogs: boolean;
+  showLogsTimestamp: boolean;
+  showStreamName: boolean;
   onError: (error: unknown) => void;
 }) {
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
   const [runs, setRuns] = useState<Record<number, RunState>>({});
   const [logs, setLogs] = useState<LogLine[]>([]);
+  const [terminalContentByCommandId, setTerminalContentByCommandId] = useState<Record<number, string>>({});
+  const [interactiveSessionsByCommandId, setInteractiveSessionsByCommandId] = useState<Record<number, InteractiveSession>>({});
+  const [interactiveSizesByCommandId, setInteractiveSizesByCommandId] = useState<Record<number, { cols: number; rows: number }>>({});
   const [openLogCommandIds, setOpenLogCommandIds] = useState<number[]>([]);
   const [activeLogCommandId, setActiveLogCommandId] = useState<number | null>(null);
   const [stoppingRunIds, setStoppingRunIds] = useState<Set<number>>(new Set());
@@ -39,9 +58,19 @@ export function useCommandRuntime({
   const [killPortsDialogOpen, setKillPortsDialogOpen] = useState(false);
   const [killingPorts, setKillingPorts] = useState(false);
 
+  function formatHeadlessTerminalLine(stream: "stdout" | "stderr", line: string, timestamp: string) {
+    const prefix = [
+      showLogsTimestamp ? `[${timestamp}]` : "",
+      showStreamName ? `[${stream}]` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return prefix ? `${prefix} ${line}` : line;
+  }
+
   const runMutation = useMutation({
     mutationFn: api.runCommand,
-    onError,
+    onError: (error) => onErrorRef.current(error),
   });
 
   const stopMutation = useMutation({
@@ -76,7 +105,7 @@ export function useCommandRuntime({
         };
       });
     },
-    onError,
+    onError: (error) => onErrorRef.current(error),
   });
 
   useEffect(() => {
@@ -101,6 +130,8 @@ export function useCommandRuntime({
         setActiveLogCommandId(event.payload.command_id);
       }),
       listen<RunOutputPayload>("command://stdout", (event) => {
+        const cleanedLine = cleanTerminalLine(event.payload.line);
+        const timestamp = new Date().toLocaleTimeString();
         setLogs((current) => [
           ...current,
           {
@@ -108,12 +139,18 @@ export function useCommandRuntime({
             runId: event.payload.run_id,
             commandId: event.payload.command_id,
             stream: "stdout",
-            line: cleanTerminalLine(event.payload.line),
-            timestamp: new Date().toLocaleTimeString(),
+            line: cleanedLine,
+            timestamp,
           },
         ]);
+        setTerminalContentByCommandId((current) => ({
+          ...current,
+          [event.payload.command_id]: `${current[event.payload.command_id] ?? ""}${formatHeadlessTerminalLine("stdout", cleanedLine, timestamp)}\r\n`,
+        }));
       }),
       listen<RunOutputPayload>("command://stderr", (event) => {
+        const cleanedLine = cleanTerminalLine(event.payload.line);
+        const timestamp = new Date().toLocaleTimeString();
         setLogs((current) => [
           ...current,
           {
@@ -121,10 +158,14 @@ export function useCommandRuntime({
             runId: event.payload.run_id,
             commandId: event.payload.command_id,
             stream: "stderr",
-            line: cleanTerminalLine(event.payload.line),
-            timestamp: new Date().toLocaleTimeString(),
+            line: cleanedLine,
+            timestamp,
           },
         ]);
+        setTerminalContentByCommandId((current) => ({
+          ...current,
+          [event.payload.command_id]: `${current[event.payload.command_id] ?? ""}${formatHeadlessTerminalLine("stderr", cleanedLine, timestamp)}\r\n`,
+        }));
       }),
       listen<RunFinishedPayload>("command://finished", (event) => {
         setRuns((current) => ({
@@ -151,55 +192,122 @@ export function useCommandRuntime({
 
           if (autoClearLogs) {
             setLogs((lines) => lines.filter((line) => line.commandId !== event.payload.command_id));
+            setTerminalContentByCommandId((terminalContent) => ({
+              ...terminalContent,
+              [event.payload.command_id]: "",
+            }));
           }
-          void api.runCommand(event.payload.command_id).catch(onError);
+          void api.runCommand(event.payload.command_id).catch(onErrorRef.current);
           return current.filter((id) => id !== event.payload.command_id);
         });
+      }),
+      listen<InteractiveSession>("pty://started", (event) => {
+        setInteractiveSessionsByCommandId((current) => ({
+          ...current,
+          [event.payload.command_id]: event.payload,
+        }));
+        setInteractiveSizesByCommandId((current) => ({
+          ...current,
+          [event.payload.command_id]: {
+            cols: event.payload.cols,
+            rows: event.payload.rows,
+          },
+        }));
+        setOpenLogCommandIds((current) =>
+          current.includes(event.payload.command_id) ? current : [...current, event.payload.command_id],
+        );
+        setActiveLogCommandId(event.payload.command_id);
+      }),
+      listen<InteractiveSessionDataPayload>("pty://data", (event) => {
+        setTerminalContentByCommandId((current) => ({
+          ...current,
+          [event.payload.command_id]: `${current[event.payload.command_id] ?? ""}${event.payload.data}`,
+        }));
+      }),
+      listen<InteractiveSessionExitedPayload>("pty://exit", (event) => {
+        setInteractiveSessionsByCommandId((current) => {
+          const next = { ...current };
+          delete next[event.payload.command_id];
+          return next;
+        });
+      }),
+      listen<InteractiveSessionErrorPayload>("pty://error", (event) => {
+        onErrorRef.current(new Error(event.payload.error));
       }),
     ];
 
     return () => {
       void Promise.all(unlisteners).then((items) => items.forEach((unlisten) => unlisten()));
     };
-  }, [autoClearLogs, onError]);
+  }, [autoClearLogs, showLogsTimestamp, showStreamName]);
 
   function openLogCommandTab(commandId: number) {
     setOpenLogCommandIds((current) => (current.includes(commandId) ? current : [...current, commandId]));
     setActiveLogCommandId(commandId);
   }
 
-  function startCommandRun(commandId: number) {
-    const run = runs[commandId];
+  async function startCommandRun(command: ProjectCommand) {
+    const run = runs[command.id];
     if (run?.status === "running" || (run && stoppingRunIds.has(run.runId))) {
       return;
     }
+
     if (autoClearLogs) {
-      setLogs((current) => current.filter((line) => line.commandId !== commandId));
+      setLogs((current) => current.filter((line) => line.commandId !== command.id));
+      setTerminalContentByCommandId((current) => ({
+        ...current,
+        [command.id]: "",
+      }));
     }
-    openLogCommandTab(commandId);
-    runMutation.mutate(commandId);
+
+    openLogCommandTab(command.id);
+
+    try {
+      if (command.runtime_mode === "internal_interactive") {
+        const size = interactiveSizesByCommandId[command.id] ?? {
+          cols: DEFAULT_INTERACTIVE_COLS,
+          rows: DEFAULT_INTERACTIVE_ROWS,
+        };
+        await api.startInteractiveCommand(command.id, size.cols, size.rows);
+      } else {
+        runMutation.mutate(command.id);
+      }
+    } catch (error) {
+      onErrorRef.current(error);
+    }
   }
 
   async function handleRestartCommand(command: ProjectCommand) {
     openLogCommandTab(command.id);
+    setRestartPendingCommandIds((current) => (current.includes(command.id) ? current : [...current, command.id]));
 
-    const run = runs[command.id];
-    if (run?.status === "running") {
-      setRestartPendingCommandIds((current) => (current.includes(command.id) ? current : [...current, command.id]));
-      try {
-        const result = await stopMutation.mutateAsync(run.runId);
-        if (!result.was_active) {
-          setRestartPendingCommandIds((current) => current.filter((id) => id !== command.id));
-          startCommandRun(command.id);
+    try {
+      if (command.runtime_mode === "internal_interactive") {
+        const size = interactiveSizesByCommandId[command.id] ?? {
+          cols: DEFAULT_INTERACTIVE_COLS,
+          rows: DEFAULT_INTERACTIVE_ROWS,
+        };
+        if (autoClearLogs) {
+          setTerminalContentByCommandId((current) => ({ ...current, [command.id]: "" }));
         }
-      } catch (error) {
+        await api.restartInteractiveCommand(command.id, size.cols, size.rows);
         setRestartPendingCommandIds((current) => current.filter((id) => id !== command.id));
-        onError(error);
+        return;
       }
-      return;
-    }
 
-    startCommandRun(command.id);
+      if (autoClearLogs) {
+        setLogs((current) => current.filter((line) => line.commandId !== command.id));
+        setTerminalContentByCommandId((current) => ({
+          ...current,
+          [command.id]: "",
+        }));
+      }
+      await api.restartCommand(command.id);
+      setRestartPendingCommandIds((current) => current.filter((id) => id !== command.id));
+    } catch (error) {
+      setRestartPendingCommandIds((current) => current.filter((id) => id !== command.id));
+      onErrorRef.current(error);
+    }
   }
 
   async function handleKillPortsClick(command: ProjectCommand) {
@@ -213,7 +321,7 @@ export function useCommandRuntime({
       setKillPortsCommand(command);
       setKillPortsDialogOpen(true);
     } catch (error) {
-      onError(error);
+      onErrorRef.current(error);
     } finally {
       setScanningCommandId(null);
     }
@@ -230,7 +338,7 @@ export function useCommandRuntime({
         setPortProcesses(processes);
       }
     } catch (error) {
-      onError(error);
+      onErrorRef.current(error);
     } finally {
       setKillingPorts(false);
     }
@@ -243,18 +351,30 @@ export function useCommandRuntime({
       const processes = await api.getPortsProcesses(ports);
       setPortProcesses(processes);
     } catch (error) {
-      onError(error);
+      onErrorRef.current(error);
     }
   }
 
-  function stopCommandByCommandId(commandId: number) {
+  const stopCommandByCommandId = useCallback((commandId: number) => {
+    const interactiveSession = interactiveSessionsByCommandId[commandId];
+    if (interactiveSession) {
+      void api.stopInteractiveCommand(interactiveSession.session_id).catch(onErrorRef.current);
+      return;
+    }
+
     const run = runs[commandId];
     if (run && !stoppingRunIds.has(run.runId)) {
       stopMutation.mutate(run.runId);
     }
-  }
+  }, [interactiveSessionsByCommandId, runs, stopMutation, stoppingRunIds]);
 
-  function forceStopCommandByCommandId(commandId: number) {
+  const forceStopCommandByCommandId = useCallback((commandId: number) => {
+    const interactiveSession = interactiveSessionsByCommandId[commandId];
+    if (interactiveSession) {
+      void api.stopInteractiveCommand(interactiveSession.session_id).catch(onErrorRef.current);
+      return;
+    }
+
     const run = runs[commandId];
     if (!run) {
       return;
@@ -263,27 +383,39 @@ export function useCommandRuntime({
       return;
     }
     stopMutation.mutate(run.runId);
-  }
+  }, [interactiveSessionsByCommandId, runs, stopMutation, stoppingRunIds]);
 
   function clearCommandLogs(commandId: number) {
     setLogs((current) => current.filter((line) => line.commandId !== commandId));
+    setTerminalContentByCommandId((current) => ({
+      ...current,
+      [commandId]: "",
+    }));
   }
 
-  function closeLogTabNow(commandId: number) {
-    const run = runs[commandId];
-    if (run && run.status === "running" && !stoppingRunIds.has(run.runId)) {
-      stopMutation.mutate(run.runId);
+  const closeLogTabNow = useCallback((commandId: number) => {
+    const interactiveSession = interactiveSessionsByCommandId[commandId];
+    if (interactiveSession) {
+      void api.stopInteractiveCommand(interactiveSession.session_id).catch(onErrorRef.current);
+    } else {
+      const run = runs[commandId];
+      if (run && run.status === "running" && !stoppingRunIds.has(run.runId)) {
+        stopMutation.mutate(run.runId);
+      }
     }
 
     setOpenLogCommandIds((current) => current.filter((id) => id !== commandId));
     clearCommandLogs(commandId);
-    if (!run || run.status !== "running") {
-      setRuns((current) => {
-        const next = { ...current };
-        delete next[commandId];
-        return next;
-      });
-    }
+    setRuns((current) => {
+      const next = { ...current };
+      delete next[commandId];
+      return next;
+    });
+    setInteractiveSessionsByCommandId((current) => {
+      const next = { ...current };
+      delete next[commandId];
+      return next;
+    });
     setActiveLogCommandId((current) => {
       if (current !== commandId) {
         return current;
@@ -292,12 +424,43 @@ export function useCommandRuntime({
       const remaining = openLogCommandIds.filter((id) => id !== commandId);
       return remaining.length > 0 ? remaining[remaining.length - 1] : null;
     });
-  }
+  }, [interactiveSessionsByCommandId, openLogCommandIds, runs, stopMutation, stoppingRunIds]);
+
+  const handleTerminalInput = useCallback((commandId: number, data: string) => {
+    const interactiveSession = interactiveSessionsByCommandId[commandId];
+    if (!interactiveSession) {
+      return;
+    }
+    void api.writeInteractiveTerminal(interactiveSession.session_id, data).catch(onErrorRef.current);
+  }, [interactiveSessionsByCommandId]);
+
+  const handleTerminalResize = useCallback((commandId: number, cols: number, rows: number) => {
+    let sizeChanged = false;
+    setInteractiveSizesByCommandId((current) => {
+      const previousSize = current[commandId];
+      if (previousSize?.cols === cols && previousSize?.rows === rows) {
+        return current;
+      }
+
+      sizeChanged = true;
+      return {
+        ...current,
+        [commandId]: { cols, rows },
+      };
+    });
+
+    const interactiveSession = interactiveSessionsByCommandId[commandId];
+    if (!interactiveSession || !sizeChanged) {
+      return;
+    }
+    void api.resizeInteractiveTerminal(interactiveSession.session_id, cols, rows).catch(onErrorRef.current);
+  }, [interactiveSessionsByCommandId]);
 
   return {
     runs,
     logs,
-    setLogs,
+    terminalContentByCommandId,
+    interactiveSessionsByCommandId,
     openLogCommandIds,
     activeLogCommandId,
     setActiveLogCommandId,
@@ -319,5 +482,7 @@ export function useCommandRuntime({
     forceStopCommandByCommandId,
     clearCommandLogs,
     closeLogTabNow,
+    handleTerminalInput,
+    handleTerminalResize,
   };
 }

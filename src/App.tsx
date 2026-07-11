@@ -245,6 +245,7 @@ function App() {
   const {
     runs,
     logs,
+    terminalContentByCommandId,
     openLogCommandIds,
     activeLogCommandId,
     setActiveLogCommandId,
@@ -266,8 +267,12 @@ function App() {
     forceStopCommandByCommandId,
     clearCommandLogs,
     closeLogTabNow,
+    handleTerminalInput,
+    handleTerminalResize,
   } = useCommandRuntime({
     autoClearLogs,
+    showLogsTimestamp,
+    showStreamName,
     onError: showError,
   });
 
@@ -330,12 +335,13 @@ function App() {
     const cmdName = command ? ` "${command.name}"` : "";
     const run = runs[commandId];
     const isRunning = run && run.status === "running";
+    const closesInteractiveSession = command?.runtime_mode === "internal_interactive";
 
     setConfirmDialog({
       isOpen: true,
       title: "Close Terminal Tab",
       description: isRunning
-        ? `Are you sure you want to close the terminal tab${cmdName}? This will stop the running process.`
+        ? `Are you sure you want to close the terminal tab${cmdName}? This will stop the running ${closesInteractiveSession ? "interactive session" : "process"}.`
         : `Are you sure you want to close the terminal tab${cmdName}?`,
       confirmLabel: "Close Tab",
       cancelLabel: "Cancel",
@@ -389,15 +395,18 @@ function App() {
         commandSections,
         runs,
         logs,
+        terminalContentByCommandId,
         openLogCommandIds,
         activeLogCommandId,
         onActiveLogCommandChange: setActiveLogCommandId,
         onClearLogs: (commandId: number) =>
           clearCommandLogs(commandId),
         onCloseLogTab: handleCloseTab,
+        onTerminalInput: handleTerminalInput,
+        onTerminalResize: handleTerminalResize,
+        terminalFontFamily: getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-family").trim() || 'var(--font-mono)',
+        terminalFontSize,
         theme,
-        showLogsTimestamp,
-        showStreamName,
         renamingSection,
         renameSectionValue,
         onRenameSectionValueChange: setRenameSectionValue,
@@ -422,7 +431,9 @@ function App() {
         onRestartCommand: (command: ProjectCommand) => {
           void handleRestartCommand(command);
         },
-        onRunCommand: (command: ProjectCommand) => startCommandRun(command.id),
+        onRunCommand: (command: ProjectCommand) => {
+          void startCommandRun(command);
+        },
         onStopCommand: (command: ProjectCommand) => {
           stopCommandByCommandId(command.id);
         },

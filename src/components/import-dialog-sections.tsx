@@ -1,5 +1,6 @@
 import {
   CommandImportDiff,
+  CommandRuntimeMode,
   NoteImportDiff,
   ProjectFieldChange,
   PrdImportAnalysis,
@@ -26,6 +27,12 @@ function formatImportValue(value: string | null | undefined) {
 
 function formatPorts(ports: number[]) {
   return ports.length > 0 ? ports.map((port) => `:${port}`).join(", ") : "None";
+}
+
+function runtimeModeLabel(runtimeMode: CommandRuntimeMode) {
+  if (runtimeMode === "external_terminal") return "External terminal";
+  if (runtimeMode === "internal_interactive") return "Interactive terminal";
+  return "Headless terminal";
 }
 
 function SectionHeader({ title, description }: { title: string; description: string }) {
@@ -70,7 +77,7 @@ function CommandPanel({
       {command ? (
         <div className="flex flex-col gap-1 text-[12px] text-muted-foreground">
           <span>{formatPorts(command.ports)}</span>
-          <span>{command.run_in_external_terminal ? "External terminal" : "Inline terminal"}</span>
+          <span>{runtimeModeLabel(command.runtime_mode)}</span>
           {command.avatar_label && <span>{command.avatar_label}</span>}
           {overwriteFields && overwriteFields.length > 0 && <span>Changes: {overwriteFields.join(", ")}</span>}
           <pre className="mt-1 overflow-x-auto rounded-[14px] bg-input p-2 text-[11px] text-foreground">{command.script}</pre>
