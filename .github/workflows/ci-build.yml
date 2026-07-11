@@ -1,12 +1,7 @@
-name: CI Build
+name: Manual CI Build
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
+  workflow_dispatch:
 
 concurrency:
   group: ci-build-${{ github.workflow }}-${{ github.ref }}

@@ -29,7 +29,7 @@ The pushed tag must match the version inside `package.json` and `src-tauri/tauri
 
 ## Supporting workflows
 
-- `CI Build`: builds all supported desktop bundles for `master` pushes and pull requests.
+- `Manual CI Build`: optional manual workflow if you want to validate bundles without creating a release.
 - `Publish Release`: runs only for `app-v*` tags, builds all supported bundles, and publishes a public GitHub Release.
 
 ## Example commands
@@ -40,6 +40,8 @@ git push origin master
 git tag app-v0.4.6
 git push origin app-v0.4.6
 ```
+
+With this setup, pushing to `master` alone does not build artifacts. The release build starts only after the matching `app-v*` tag is pushed.
 
 ## Notes
 
