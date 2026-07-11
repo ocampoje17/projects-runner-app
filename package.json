@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "beui:sync": "node ./scripts/check-beui-sync.mjs",
     "release:check": "node ./scripts/check-version-sync.mjs",
+    "release:publish": "node ./scripts/publish-release.mjs",
     "release:build": "tauri build --config src-tauri/tauri.release.conf.json --ci",
     "release:artifacts": "node ./scripts/prepare-release-artifacts.mjs"
   },

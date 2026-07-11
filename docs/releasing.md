@@ -43,6 +43,23 @@ git push origin app-v0.4.6
 
 With this setup, pushing to `master` alone does not build artifacts. The release build starts only after the matching `app-v*` tag is pushed.
 
+## One-command helper
+
+You can automate the local release flow with:
+
+```bash
+npm run release:publish -- 0.4.7
+```
+
+The helper script:
+
+- requires a clean `master` branch
+- updates `package.json`, `package-lock.json`, and `src-tauri/tauri.conf.json`
+- runs `npm run release:check`
+- creates a `Release v0.4.7` commit
+- pushes `master`
+- creates and pushes the `app-v0.4.7` tag
+
 ## Notes
 
 - Windows release builds use the standard WebView2 bootstrapper instead of the local `skip` mode from the legacy PowerShell script.

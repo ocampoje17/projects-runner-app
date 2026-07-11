@@ -131,6 +131,7 @@ npm run build
 npm run preview
 npm run tauri
 npm run release:check
+npm run release:publish -- 0.4.7
 npm run release:build
 npm run release:artifacts
 ```
@@ -148,6 +149,14 @@ git push origin app-v0.4.6
 ```
 
 If you ever want a pre-release validation build without publishing, run the `Manual CI Build` workflow from GitHub Actions.
+
+For a one-command local flow, run:
+
+```bash
+npm run release:publish -- 0.4.7
+```
+
+That command updates the app version files, verifies release metadata, creates a `Release v0.4.7` commit, then pushes both `master` and the `app-v0.4.7` tag.
 
 ## Tech Stack
 
