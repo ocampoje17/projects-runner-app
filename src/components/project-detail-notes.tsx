@@ -1,11 +1,10 @@
-import { useState, type FormEvent } from "react";
-import { Eye, EyeOff, Pencil, Pin, PinOff, Plus, Save, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { ChevronDown, ChevronRight, Eye, EyeOff, Pencil, Pin, PinOff, Plus, Save, Trash2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import type { Project } from "../lib/api";
 import type { ProjectNote } from "./project-detail-types";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -27,6 +26,120 @@ function MarkdownNote({ content }: { content: string }) {
   );
 }
 
+type NoteDialogMode = "create" | "edit";
+
+function ProjectNoteDialog({
+  mode,
+  open,
+  onOpenChange,
+  projectName,
+  value,
+  onValueChange,
+  onSubmit,
+  isSaving,
+}: {
+  mode: NoteDialogMode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projectName: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  isSaving: boolean;
+}) {
+  const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setIsPreviewExpanded(false);
+    }
+  }, [open]);
+
+  const title = mode === "create" ? "Thêm note mới" : "Sửa note";
+  const description =
+    mode === "create"
+      ? (
+        <>
+          Viết ghi chú cho <span className="font-medium text-foreground">{projectName}</span>. Hỗ trợ Markdown để dễ
+          đọc hơn khi xem lại.
+        </>
+      )
+      : (
+        <>
+          Cập nhật nội dung note của <span className="font-medium text-foreground">{projectName}</span>. Markdown sẽ
+          được giữ nguyên để bạn chỉnh sửa tiếp thuận tiện.
+        </>
+      );
+  const submitLabel = mode === "create" ? "Thêm note" : "Lưu thay đổi";
+  const submitIcon = mode === "create" ? <Plus size={16} /> : <Save size={16} />;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(640px,calc(100vw-20px))]">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+
+        <DialogForm onSubmit={onSubmit}>
+          <DialogField>
+            <Label htmlFor={`${mode}-project-note`}>Nội dung note</Label>
+            <Textarea
+              id={`${mode}-project-note`}
+              value={value}
+              onChange={(event) => onValueChange(event.target.value)}
+              rows={10}
+              className="min-h-[220px] font-mono text-[12.5px]"
+              placeholder={
+                "## Local setup\n- `pnpm install`\n- `pnpm dev`\n\n### Tài khoản test\n- user: demo@example.com\n- pass: demo123"
+              }
+              autoFocus
+            />
+            <p className="text-[11.5px] text-muted-foreground">
+              Gợi ý: dùng heading, list, code block và checklist Markdown để note dễ quét hơn.
+            </p>
+          </DialogField>
+
+          {value.trim() ? (
+            <DialogField>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between rounded-[14px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_72%,var(--bg-workspace))] px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-card"
+                onClick={() => setIsPreviewExpanded((current) => !current)}
+                aria-expanded={isPreviewExpanded}
+              >
+                <span>
+                  <span className="block text-[12.5px] font-medium text-foreground">Xem trước</span>
+                  <span className="block text-[11.5px] text-muted-foreground">
+                    Mặc định thu gọn. Nhấn để {isPreviewExpanded ? "thu gọn lại" : "mở rộng"} bản xem trước Markdown.
+                  </span>
+                </span>
+                {isPreviewExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </button>
+              {isPreviewExpanded ? <MarkdownNote content={value} /> : null}
+            </DialogField>
+          ) : null}
+
+          <DialogFooter>
+            <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
+              Hủy
+            </Button>
+            <StatefulButton
+              type="submit"
+              disabled={!value.trim()}
+              state={isSaving ? "loading" : "idle"}
+              icon={submitIcon}
+              loadingText="Saving"
+            >
+              {submitLabel}
+            </StatefulButton>
+          </DialogFooter>
+        </DialogForm>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ProjectDetailNotes({
   selectedProject,
   sortedProjectNotes,
@@ -34,7 +147,6 @@ export function ProjectDetailNotes({
   newProjectNote,
   onNewProjectNoteChange,
   onAddProjectNote,
-  onUpdateProjectNote,
   onSaveProjectNote,
   onTogglePinnedProjectNote,
   onToggleProjectNoteVisibility,
@@ -47,16 +159,20 @@ export function ProjectDetailNotes({
   newProjectNote: string;
   onNewProjectNoteChange: (value: string) => void;
   onAddProjectNote: () => void;
-  onUpdateProjectNote: (noteId: string, content: string) => void;
-  onSaveProjectNote: (noteId: string) => void;
+  onSaveProjectNote: (noteId: string, content: string) => void;
   onTogglePinnedProjectNote: (noteId: string) => void;
   onToggleProjectNoteVisibility: (noteId: string) => void;
   onDeleteProjectNote: (noteId: string) => void;
   isSavingNotes: boolean;
 }) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [editingNoteIds, setEditingNoteIds] = useState<Record<string, boolean>>({});
-  const [editSnapshots, setEditSnapshots] = useState<Record<string, string>>({});
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
+
+  const editingNote = useMemo(
+    () => sortedProjectNotes.find((note) => note.id === editingNoteId) ?? null,
+    [editingNoteId, sortedProjectNotes],
+  );
 
   function openAddDialog() {
     setIsAddDialogOpen(true);
@@ -66,6 +182,13 @@ export function ProjectDetailNotes({
     setIsAddDialogOpen(open);
     if (!open) {
       onNewProjectNoteChange("");
+    }
+  }
+
+  function closeEditDialog(open: boolean) {
+    if (!open) {
+      setEditingNoteId(null);
+      setEditingDraft("");
     }
   }
 
@@ -79,31 +202,19 @@ export function ProjectDetailNotes({
     setIsAddDialogOpen(false);
   }
 
-  function startEditingNote(noteId: string, content: string) {
-    setEditSnapshots((current) => ({ ...current, [noteId]: content }));
-    setEditingNoteIds((current) => ({ ...current, [noteId]: true }));
+  function startEditingNote(note: ProjectNote) {
+    setEditingNoteId(note.id);
+    setEditingDraft(note.content);
   }
 
-  function stopEditingNote(noteId: string, restore = false) {
-    if (restore && editSnapshots[noteId] !== undefined) {
-      onUpdateProjectNote(noteId, editSnapshots[noteId]);
+  function handleSubmitEditedNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingNoteId || !editingDraft.trim()) {
+      return;
     }
 
-    setEditingNoteIds((current) => {
-      const next = { ...current };
-      delete next[noteId];
-      return next;
-    });
-    setEditSnapshots((current) => {
-      const next = { ...current };
-      delete next[noteId];
-      return next;
-    });
-  }
-
-  function handleSaveNote(noteId: string) {
-    onSaveProjectNote(noteId);
-    stopEditingNote(noteId);
+    onSaveProjectNote(editingNoteId, editingDraft);
+    closeEditDialog(false);
   }
 
   return (
@@ -117,23 +228,25 @@ export function ProjectDetailNotes({
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5">
         {sortedProjectNotes.length > 0 ? (
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="notes-masonry">
             {sortedProjectNotes.map((note) => {
               const isVisible = noteVisibility[note.id] ?? true;
-              const isEditing = editingNoteIds[note.id] ?? false;
 
               return (
                 <article
                   key={note.id}
-                  className={`flex flex-col gap-2 rounded-[18px] border border-border bg-card p-3 shadow-app-card ${
+                  className={`notes-masonry-item flex flex-col gap-2 rounded-[18px] border border-border bg-card p-3 shadow-app-card ${
                     note.pinned ? "border-primary/40" : ""
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <Badge variant={note.pinned ? "success" : "muted"}>
-                        {note.pinned ? "Pinned" : "Note"}
-                      </Badge>
+                      {note.pinned ? (
+                        <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-primary">
+                          <Pin size={11} />
+                          Pinned
+                        </span>
+                      ) : null}
                       <span>{new Date(note.updatedAt).toLocaleString()}</span>
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
@@ -153,45 +266,17 @@ export function ProjectDetailNotes({
                   </div>
 
                   {isVisible ? (
-                    isEditing ? (
-                      <>
-                        <Textarea
-                          value={note.content}
-                          onChange={(event) => onUpdateProjectNote(note.id, event.target.value)}
-                          rows={8}
-                          className="min-h-[160px] font-mono text-[12.5px]"
-                          placeholder={"Hỗ trợ Markdown, ví dụ:\n## Checklist\n- [ ] Deploy staging\n- [ ] Kiểm tra log"}
-                        />
-                        <div className="flex items-center justify-end gap-2">
-                          <Button size="sm" variant="ghost" onClick={() => stopEditingNote(note.id, true)}>
-                            <X size={14} />
-                            Hủy
-                          </Button>
-                          <StatefulButton
-                            size="sm"
-                            onClick={() => handleSaveNote(note.id)}
-                            disabled={!note.content.trim()}
-                            state={isSavingNotes ? "loading" : "idle"}
-                            icon={<Save size={14} />}
-                            loadingText="Saving"
-                          >
-                            Lưu
-                          </StatefulButton>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <MarkdownNote content={note.content} />
-                        <div className="flex items-center justify-end">
-                          <Button size="sm" variant="ghost" onClick={() => startEditingNote(note.id, note.content)}>
-                            <Pencil size={14} />
-                            Sửa
-                          </Button>
-                        </div>
-                      </>
-                    )
+                    <>
+                      <MarkdownNote content={note.content} />
+                      <div className="flex items-center justify-end">
+                        <Button size="sm" variant="ghost" onClick={() => startEditingNote(note)}>
+                          <Pencil size={14} />
+                          Sửa
+                        </Button>
+                      </div>
+                    </>
                   ) : (
-                    <div className="rounded-[14px] bg-input px-2.5 py-2 text-[12.5px] text-muted-foreground">
+                    <div className="rounded-[14px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_84%,var(--bg-workspace))] px-2.5 py-2 text-[12.5px] text-muted-foreground">
                       <p>Nội dung note đang được ẩn.</p>
                     </div>
                   )}
@@ -214,59 +299,27 @@ export function ProjectDetailNotes({
         )}
       </div>
 
-      <Dialog open={isAddDialogOpen} onOpenChange={closeAddDialog}>
-        <DialogContent className="w-[min(640px,calc(100vw-20px))]">
-          <DialogHeader>
-            <DialogTitle>Thêm note mới</DialogTitle>
-            <DialogDescription>
-              Viết ghi chú cho <span className="font-medium text-foreground">{selectedProject.name}</span>. Hỗ trợ
-              Markdown để dễ đọc hơn khi xem lại.
-            </DialogDescription>
-          </DialogHeader>
+      <ProjectNoteDialog
+        mode="create"
+        open={isAddDialogOpen}
+        onOpenChange={closeAddDialog}
+        projectName={selectedProject.name}
+        value={newProjectNote}
+        onValueChange={onNewProjectNoteChange}
+        onSubmit={handleSubmitNewNote}
+        isSaving={isSavingNotes}
+      />
 
-          <DialogForm onSubmit={handleSubmitNewNote}>
-            <DialogField>
-              <Label htmlFor="new-project-note">Nội dung note</Label>
-              <Textarea
-                id="new-project-note"
-                value={newProjectNote}
-                onChange={(event) => onNewProjectNoteChange(event.target.value)}
-                rows={10}
-                className="min-h-[220px] font-mono text-[12.5px]"
-                placeholder={
-                  "## Local setup\n- `pnpm install`\n- `pnpm dev`\n\n### Tài khoản test\n- user: demo@example.com\n- pass: demo123"
-                }
-                autoFocus
-              />
-              <p className="text-[11.5px] text-muted-foreground">
-                Gợi ý: dùng heading, list, code block và checklist Markdown để note dễ quét hơn.
-              </p>
-            </DialogField>
-
-            {newProjectNote.trim() ? (
-              <DialogField>
-                <Label>Xem trước</Label>
-                <MarkdownNote content={newProjectNote} />
-              </DialogField>
-            ) : null}
-
-            <DialogFooter>
-              <Button type="button" variant="secondary" onClick={() => closeAddDialog(false)}>
-                Hủy
-              </Button>
-              <StatefulButton
-                type="submit"
-                disabled={!newProjectNote.trim()}
-                state={isSavingNotes ? "loading" : "idle"}
-                icon={<Plus size={16} />}
-                loadingText="Saving"
-              >
-                Thêm note
-              </StatefulButton>
-            </DialogFooter>
-          </DialogForm>
-        </DialogContent>
-      </Dialog>
+      <ProjectNoteDialog
+        mode="edit"
+        open={Boolean(editingNote)}
+        onOpenChange={closeEditDialog}
+        projectName={selectedProject.name}
+        value={editingDraft}
+        onValueChange={setEditingDraft}
+        onSubmit={handleSubmitEditedNote}
+        isSaving={isSavingNotes}
+      />
     </div>
   );
 }

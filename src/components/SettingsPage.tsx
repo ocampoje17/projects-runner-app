@@ -55,7 +55,7 @@ export function SettingsPage({
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4">
       <header className="flex shrink-0 items-start gap-2.5">
-        <Settings className="h-9 w-9 rounded-[14px] border border-border/70 bg-primary/5 p-2 text-primary" size={20} />
+        <Settings className="h-9 w-9 rounded-[14px] border border-border bg-primary/6 p-2 text-primary shadow-sm" size={20} />
         <div className="min-w-0">
           <h2 className="text-[18px] font-semibold tracking-[-0.02em] text-app-title">Settings</h2>
           <p className="text-[12.5px] text-muted-foreground">

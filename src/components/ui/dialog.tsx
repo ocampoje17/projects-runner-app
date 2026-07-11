@@ -25,11 +25,11 @@ export function DialogContent({ className, children, ...props }: DialogPrimitive
   return (
     <DialogPortal>
       <DialogOverlay />
-      <DialogPrimitive.Content
-        className={cn(
-          "fixed left-1/2 top-1/2 z-[1001] max-h-[calc(100vh-28px)] w-[min(520px,calc(100vw-20px))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[22px] border border-border bg-popover/95 p-5 text-popover-foreground shadow-app-dialog outline-none backdrop-blur-xl",
-          className,
-        )}
+        <DialogPrimitive.Content
+          className={cn(
+            "fixed left-1/2 top-1/2 z-[1001] max-h-[calc(100vh-28px)] w-[min(520px,calc(100vw-20px))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[22px] border border-border bg-popover/96 p-5 text-popover-foreground shadow-app-dialog outline-none backdrop-blur-xl",
+            className,
+          )}
         {...props}
       >
         {children}

@@ -98,7 +98,7 @@ export function ProjectDetailCommands({
     <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-3 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] xl:grid-rows-[minmax(0,1fr)]">
       <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto pr-0.5">
         {commandSections.map(({ section, commands: sectionCommands }) => (
-          <div className="rounded-[18px] border border-border bg-[var(--command-section-bg)] p-2.5" key={section}>
+          <div className="rounded-[18px] border border-border bg-[var(--command-section-bg)] p-2.5 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--background)_75%,transparent)]" key={section}>
             <div className="group mb-2 flex w-full items-center justify-between gap-2">
               {renamingSection === section ? (
                 <form
@@ -150,7 +150,7 @@ export function ProjectDetailCommands({
               )}
               <Badge variant="muted">{sectionCommands.length}</Badge>
             </div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(248px,1fr))] items-start gap-2">
               {sectionCommands.map((command) => (
                 <CommandCard
                   command={command}
@@ -193,7 +193,7 @@ export function ProjectDetailCommands({
         ))}
 
         <div className="w-full py-0.5">
-          <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-[18px] border border-dashed border-primary/30 bg-primary/[0.03] p-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-[18px] border border-dashed border-primary/35 bg-primary/[0.04] p-2.5">
             <div className="flex min-w-0 flex-col gap-0.5">
               <strong className="text-[12.5px] text-app-title">Add another section</strong>
               <span className="text-[11.5px] text-muted-foreground">
@@ -221,7 +221,7 @@ export function ProjectDetailCommands({
             ) : (
               <Button
                 variant="outline"
-                className="border-primary/30 text-primary hover:bg-primary/10"
+                className="border-primary/35 text-primary hover:bg-primary/10"
                 onClick={onStartAddSection}
               >
                 <Plus size={16} />

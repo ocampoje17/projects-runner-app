@@ -29,7 +29,7 @@ export function ProjectsSidebar({
     <aside className="app-sidebar flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar/95 backdrop-blur-xl">
       <div className="flex items-center gap-2.5 border-b border-border px-3.5 py-4">
         <div className="flex min-w-0 items-center gap-2.5">
-          <img className="h-9 w-9 rounded-[14px] border border-border object-cover shadow-sm" src={appIcon} alt="" />
+            <img className="h-9 w-9 rounded-[14px] border border-border bg-card object-cover shadow-sm" src={appIcon} alt="" />
           <div className="min-w-0">
             <h1 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-app-title">Projects Runner</h1>
             <p className="text-[11px] text-muted-foreground">{projects.length} projects</p>
@@ -54,8 +54,8 @@ export function ProjectsSidebar({
             type="button"
             variant="ghost"
             className={cn(
-              "grid h-auto min-h-11 w-full grid-cols-[36px_minmax(0,1fr)] items-center justify-start gap-2.5 rounded-[14px] border border-transparent px-2 py-2 text-left text-muted-foreground hover:bg-primary/5 hover:text-app-title",
-              selectedProjectId === project.id && "border-primary/25 bg-primary/10 text-app-title shadow-sm",
+              "grid h-auto min-h-11 w-full grid-cols-[36px_minmax(0,1fr)] items-center justify-start gap-2.5 rounded-[14px] border border-transparent px-2 py-2 text-left text-muted-foreground shadow-none hover:border-border hover:bg-primary/5 hover:text-app-title",
+              selectedProjectId === project.id && "border-primary/35 bg-primary/10 text-app-title shadow-sm",
             )}
             key={project.id}
             onClick={() => onSelectProject(project.id)}
@@ -112,17 +112,17 @@ export function ProjectWorkspaceHeader({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <Tooltip content="Show in Explorer">
+            <Tooltip content="Show in Explorer" side="bottom">
               <Button variant="outline" size="icon" onClick={onOpenExplorer} aria-label="Show in Explorer">
                 <FolderOpen size={16} />
               </Button>
             </Tooltip>
-            <Tooltip content="Open in External Terminal">
+            <Tooltip content="Open in External Terminal" side="bottom">
               <Button variant="outline" size="icon" onClick={onOpenTerminal} aria-label="Open in External Terminal">
                 <Terminal size={16} />
               </Button>
             </Tooltip>
-            <Tooltip content="Share Project">
+            <Tooltip content="Share Project" side="bottom">
               <Button variant="outline" size="icon" onClick={onShareProject} aria-label="Share Project">
                 <Share2 size={16} />
               </Button>
@@ -155,7 +155,7 @@ export interface WelcomeWorkspaceProps {
 export function WelcomeWorkspace({ onAddProject, onImportProject }: WelcomeWorkspaceProps) {
   return (
     <div className="mx-auto flex h-full max-w-[520px] flex-col items-center justify-center gap-4 px-4 py-16 text-center">
-      <img className="h-16 w-16 rounded-[18px] border border-border object-cover shadow-md" src={appIcon} alt="" />
+      <img className="h-16 w-16 rounded-[18px] border border-border bg-card object-cover shadow-md" src={appIcon} alt="" />
       <div className="space-y-2">
         <h2 className="text-[22px] font-semibold tracking-[-0.03em] text-app-title">Manage repeat project commands</h2>
         <p className="text-[13px] text-muted-foreground">

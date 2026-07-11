@@ -57,8 +57,7 @@ export interface ProjectDetailProps {
   newProjectNote: string;
   onNewProjectNoteChange: (value: string) => void;
   onAddProjectNote: () => void;
-  onUpdateProjectNote: (noteId: string, content: string) => void;
-  onSaveProjectNote: (noteId: string) => void;
+  onSaveProjectNote: (noteId: string, content: string) => void;
   onTogglePinnedProjectNote: (noteId: string) => void;
   onToggleProjectNoteVisibility: (noteId: string) => void;
   onDeleteProjectNote: (noteId: string) => void;
@@ -115,7 +114,6 @@ export function ProjectDetail({
   newProjectNote,
   onNewProjectNoteChange,
   onAddProjectNote,
-  onUpdateProjectNote,
   onSaveProjectNote,
   onTogglePinnedProjectNote,
   onToggleProjectNoteVisibility,
@@ -130,8 +128,20 @@ export function ProjectDetail({
     >
       <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
         <TabsList>
-          <TabsTrigger value="commands">Commands</TabsTrigger>
-          <TabsTrigger value="notes">Notes</TabsTrigger>
+          <TabsTrigger
+            value="commands"
+            indicatorClassName="bg-primary shadow-sm"
+            className="text-muted-foreground data-[state=active]:text-primary-foreground"
+          >
+            Commands
+          </TabsTrigger>
+          <TabsTrigger
+            value="notes"
+            indicatorClassName="bg-primary shadow-sm"
+            className="text-muted-foreground data-[state=active]:text-primary-foreground"
+          >
+            Notes
+          </TabsTrigger>
         </TabsList>
         <div className="flex items-center gap-1.5">
           <Badge variant="muted">{commands.length} commands</Badge>
@@ -193,7 +203,6 @@ export function ProjectDetail({
           newProjectNote={newProjectNote}
           onNewProjectNoteChange={onNewProjectNoteChange}
           onAddProjectNote={onAddProjectNote}
-          onUpdateProjectNote={onUpdateProjectNote}
           onSaveProjectNote={onSaveProjectNote}
           onTogglePinnedProjectNote={onTogglePinnedProjectNote}
           onToggleProjectNoteVisibility={onToggleProjectNoteVisibility}

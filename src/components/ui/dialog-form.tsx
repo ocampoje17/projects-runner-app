@@ -32,10 +32,10 @@ export function DialogErrorText({ className, ...props }: React.HTMLAttributes<HT
 export function DialogToggleRow({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn(
-        "flex items-start justify-between gap-3 rounded-[16px] border border-border bg-muted/40 px-3.5 py-3",
-        className,
-      )}
+        className={cn(
+          "flex items-start justify-between gap-3 rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_80%,var(--bg-workspace))] px-3.5 py-3",
+          className,
+        )}
       {...props}
     />
   );
@@ -48,10 +48,10 @@ export function DialogToggleCopy({ className, ...props }: React.HTMLAttributes<H
 export function DialogSurface({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn(
-        "rounded-[16px] border border-border bg-muted/30 p-3",
-        className,
-      )}
+        className={cn(
+          "rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-3",
+          className,
+        )}
       {...props}
     />
   );
@@ -64,10 +64,10 @@ export function DialogMetaGrid({ className, ...props }: React.HTMLAttributes<HTM
 export function DialogMetaItem({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn(
-        "flex min-w-0 flex-col gap-0.5 rounded-[16px] border border-border bg-muted/30 p-3",
-        className,
-      )}
+        className={cn(
+          "flex min-w-0 flex-col gap-0.5 rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-3",
+          className,
+        )}
       {...props}
     />
   );

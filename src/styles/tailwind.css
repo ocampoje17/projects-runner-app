@@ -71,7 +71,9 @@
 @utility app-focus-ring {
   &:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px var(--bg-workspace), 0 0 0 4px color-mix(in oklab, var(--primary-color) 45%, transparent);
+    box-shadow:
+      0 0 0 2px var(--bg-workspace),
+      0 0 0 4px color-mix(in oklab, var(--primary-color) 32%, var(--ring));
   }
 }
 

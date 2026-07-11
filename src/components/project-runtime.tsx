@@ -8,7 +8,7 @@ import { EntityAvatar } from "./entity-avatar";
 import { XtermTerminal } from "./xterm-terminal";
 import { commandPorts } from "../lib/command-utils";
 import type { ProjectCommand } from "../lib/api";
-import { BrushCleaning, Loader2, Maximize2, Minimize2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
+import { BrushCleaning, Keyboard, Loader2, Maximize2, Minimize2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
@@ -33,9 +33,6 @@ export type LogLine = {
 function runtimeModeBadgeLabel(command: ProjectCommand) {
   if (command.runtime_mode === "external_terminal") {
     return "External";
-  }
-  if (command.runtime_mode === "internal_interactive") {
-    return "Interactive";
   }
   return null;
 }
@@ -80,7 +77,7 @@ export function CommandCard({
 
   return (
     <Card
-      className={cn("overflow-hidden transition-all", isRunning && "command-card-running", run?.status === "failed" ? "command-card-failed" : "hover:-translate-y-px hover:border-primary/30 hover:shadow-app-card-hover")}
+      className={cn("self-start overflow-hidden transition-all", isRunning && "command-card-running", run?.status === "failed" ? "command-card-failed" : "hover:-translate-y-px hover:border-primary/30 hover:shadow-app-card-hover")}
     >
       <CardHeader className="flex-row items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -90,6 +87,17 @@ export function CommandCard({
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <Badge variant={badgeVariant}>{run?.status ?? "ready"}</Badge>
               {runtimeModeBadgeLabel(command) && <Badge variant="muted">{runtimeModeBadgeLabel(command)}</Badge>}
+              {command.runtime_mode === "internal_interactive" ? (
+                <Tooltip content="Interactive terminal">
+                  <Badge
+                    variant="muted"
+                    className="min-w-[22px] cursor-default justify-center px-1.5"
+                    aria-label="Interactive terminal"
+                  >
+                    <Keyboard size={12} />
+                  </Badge>
+                </Tooltip>
+              ) : null}
             </div>
           </div>
         </div>
@@ -116,7 +124,7 @@ export function CommandCard({
             ))}
           </div>
         )}
-        <pre className="max-h-[calc(1.625em*5+1rem)] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-[14px] border border-border/70 bg-[var(--script-preview-bg)] p-2 font-mono text-[11px] leading-relaxed text-[var(--script-preview-color)]">{command.script}</pre>
+        <pre className="max-h-[calc(1.625em*5+1rem)] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-[14px] border border-border bg-[var(--script-preview-bg)] p-2 font-mono text-[11px] leading-relaxed text-[var(--script-preview-color)]">{command.script}</pre>
         <div className="mt-2 flex flex-nowrap items-center gap-1">
           <Tooltip content={isStopping ? "Stopping" : isRunning ? "Stop - double-click to force stop" : "Run"}>
             <ActionSwapButton
@@ -418,13 +426,13 @@ export function LogPanel({
               {visibleCommands.map((command) => (
                 <div
                   className={cn(
-                    "terminal-tab-item inline-flex items-center gap-0.5 rounded-t-[12px] border border-transparent border-b-0 transition-colors",
+                    "terminal-tab-item inline-flex items-center gap-1 rounded-t-[12px] border border-transparent border-b-0 pr-1 transition-colors",
                     selectedCommandId === command.id && "terminal-tab-item-active border-border/80 bg-[var(--terminal-tabs-bg)] shadow-sm",
                   )}
                   key={command.id}
                 >
                   <TabsTrigger
-                    className="terminal-tab-trigger max-w-[180px] gap-2 rounded-t-[12px] px-3 text-[12px] data-[state=active]:font-semibold data-[state=active]:text-foreground"
+                    className="terminal-tab-trigger max-w-[180px] gap-2 rounded-t-[12px] pl-3 pr-2 text-[12px] data-[state=active]:font-semibold data-[state=active]:text-foreground"
                     value={String(command.id)}
                   >
                     <span className="truncate">{command.name}</span>
@@ -435,7 +443,7 @@ export function LogPanel({
                     size="icon"
                     variant="ghost"
                     className={cn(
-                      "terminal-tab-close ml-0.5 h-6 w-6 rounded-full p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
+                      "terminal-tab-close mr-0.5 h-6 w-6 rounded-full p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
                       selectedCommandId === command.id && "text-foreground/70 hover:text-destructive",
                     )}
                     onClick={() => onCloseTab(command.id)}

@@ -7,10 +7,10 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-border bg-card text-muted-foreground",
-        muted: "border-border bg-muted text-muted-foreground",
-        success: "border-success/20 bg-success/10 text-success",
-        danger: "border-destructive/20 bg-destructive/10 text-destructive",
+        default: "border-border bg-card/96 text-muted-foreground",
+        muted: "border-border bg-muted/90 text-muted-foreground",
+        success: "border-success/30 bg-success/10 text-success",
+        danger: "border-destructive/30 bg-destructive/10 text-destructive",
       },
     },
     defaultVariants: {

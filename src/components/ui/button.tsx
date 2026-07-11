@@ -9,16 +9,20 @@ import { useHoverCapable } from "@/lib/hooks/use-hover-capable";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap font-medium transition-colors duration-150 app-focus-ring disabled:pointer-events-none disabled:opacity-50 select-none",
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap border shadow-sm font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 app-focus-ring disabled:pointer-events-none disabled:opacity-50 select-none",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        primary: "bg-primary text-primary-foreground hover:bg-primary/90",
-        secondary: "border border-border bg-card text-foreground hover:border-border-strong hover:bg-muted/70",
-        ghost: "border border-transparent bg-transparent text-muted-foreground hover:bg-primary/5 hover:text-foreground",
-        danger: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "border border-border bg-transparent text-foreground hover:bg-primary/5",
+        default: "border-primary bg-primary text-primary-foreground shadow-[0_1px_2px_var(--primary-glow)] hover:bg-primary/92 hover:shadow-[0_4px_14px_var(--primary-glow)]",
+        primary: "border-primary bg-primary text-primary-foreground shadow-[0_1px_2px_var(--primary-glow)] hover:bg-primary/92 hover:shadow-[0_4px_14px_var(--primary-glow)]",
+        secondary:
+          "border-border bg-card/96 text-foreground hover:border-border-strong hover:bg-[var(--btn-secondary-hover)] hover:shadow-[0_1px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)]",
+        ghost:
+          "border-transparent bg-transparent text-muted-foreground shadow-none hover:border-border hover:bg-[var(--btn-ghost-hover-bg)] hover:text-foreground",
+        danger:
+          "border-destructive/35 bg-destructive text-destructive-foreground shadow-[0_1px_2px_color-mix(in_oklab,var(--danger-color)_18%,transparent)] hover:bg-destructive/92 hover:shadow-[0_4px_14px_color-mix(in_oklab,var(--danger-color)_18%,transparent)]",
+        outline:
+          "border-border bg-[color-mix(in_oklab,var(--bg-input)_82%,var(--bg-workspace))] text-foreground hover:border-border-strong hover:bg-[var(--btn-ghost-hover-bg)]",
       },
       size: {
         default: "h-9 rounded-full px-4 text-[13px]",

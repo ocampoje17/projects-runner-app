@@ -75,16 +75,18 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(function 
           initial={false}
           data-state={current ? "checked" : "unchecked"}
           className={cn(
-            "group peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full px-0.5 outline-none transition-colors duration-200 app-focus-ring",
+            "group peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border px-0.5 shadow-sm outline-none transition-[background-color,border-color,box-shadow] duration-200 app-focus-ring",
             "disabled:cursor-not-allowed disabled:opacity-60",
-            current ? "justify-end bg-primary" : "justify-start bg-border-strong/70",
+            current
+              ? "justify-end border-primary bg-primary shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary-color)_18%,transparent)]"
+              : "justify-start border-border bg-[color-mix(in_oklab,var(--bg-input)_90%,var(--bg-workspace))] hover:border-border-strong",
           )}
         >
           <motion.div
             ref={thumbRef}
             layout
             animate={{ scale: squish ? 0.9 : 1 }}
-            className="pointer-events-none block h-[18px] w-[18px] rounded-full bg-white shadow-sm"
+            className="pointer-events-none block h-[18px] w-[18px] rounded-full border border-black/5 bg-white shadow-sm dark:border-white/10"
           />
         </motion.button>
         {label ? (

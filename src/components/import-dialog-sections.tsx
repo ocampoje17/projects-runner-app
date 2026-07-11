@@ -62,7 +62,7 @@ function CommandPanel({
   overwriteFields?: string[];
 }) {
   return (
-    <div className={title === "Incoming" ? "rounded-[18px] border border-primary/30 bg-primary/5 p-2.5" : "rounded-[18px] border border-border bg-input/30 p-2.5"}>
+    <div className={title === "Incoming" ? "rounded-[18px] border border-primary/35 bg-primary/6 p-2.5" : "rounded-[18px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-2.5"}>
       <div className="mb-1.5 flex flex-wrap items-center gap-2">
         <span>{title}</span>
         {command ? (
@@ -101,7 +101,7 @@ function NotePanel({
   overwriteFields?: string[];
 }) {
   return (
-    <div className={title === "Incoming" ? "rounded-[18px] border border-primary/30 bg-primary/5 p-2.5" : "rounded-[18px] border border-border bg-input/30 p-2.5"}>
+    <div className={title === "Incoming" ? "rounded-[18px] border border-primary/35 bg-primary/6 p-2.5" : "rounded-[18px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-2.5"}>
       <div className="mb-1.5 flex flex-wrap items-center gap-2">
         <span>{title}</span>
         <strong>{note ? note.id : "No matching note"}</strong>
@@ -137,7 +137,7 @@ function OverwriteCard({
   incomingLabel?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-[12px] border border-border bg-card/40 p-2.5">
+    <div className="flex flex-col gap-1 rounded-[12px] border border-border bg-card/92 p-2.5">
       <strong className="text-[12.5px] text-app-title">{title}</strong>
       {fields && fields.length > 0 ? <span>Fields: {fields.join(", ")}</span> : null}
       <span>{currentLabel}:</span>
@@ -151,12 +151,12 @@ function OverwriteCard({
 export function ImportWizardSummary({ analysis }: { analysis: PrdImportAnalysis }) {
   return (
     <div className="mt-2.5 grid grid-cols-2 gap-2">
-      <div className="rounded-[12px] border border-border bg-card/40 p-2.5">
+      <div className="rounded-[12px] border border-border bg-card/92 p-2.5">
         <span className="text-[12px] text-muted-foreground">Current project</span>
         <strong className="block text-[13px] text-app-title">{analysis.existing_project?.name}</strong>
         <small className="block text-[11.5px] text-muted-foreground">{analysis.existing_project?.path}</small>
       </div>
-      <div className="rounded-[12px] border border-border bg-card/40 p-2.5">
+      <div className="rounded-[12px] border border-border bg-card/92 p-2.5">
         <span className="text-[12px] text-muted-foreground">.prd file</span>
         <strong className="block text-[13px] text-app-title">{analysis.project_name}</strong>
         <small className="block text-[11.5px] text-muted-foreground">{analysis.project_path}</small>
@@ -176,10 +176,10 @@ export function ImportWizardStepper({
 }) {
   return (
     <div className="mt-2.5 flex flex-wrap gap-2">
-      <Button type="button" variant="ghost" className={step === "commands" ? "min-h-8 rounded-full border border-primary bg-primary/10 px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-full border border-border px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onBack}>
+      <Button type="button" variant="ghost" className={step === "commands" ? "min-h-8 rounded-full border border-primary bg-primary/10 px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-full border border-border bg-card/90 px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onBack}>
         1. Commands
       </Button>
-      <Button type="button" variant="ghost" className={step === "notes" ? "min-h-8 rounded-full border border-primary bg-primary/10 px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-full border border-border px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onNext}>
+      <Button type="button" variant="ghost" className={step === "notes" ? "min-h-8 rounded-full border border-primary bg-primary/10 px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-full border border-border bg-card/90 px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onNext}>
         2. Notes
       </Button>
     </div>
@@ -205,7 +205,7 @@ export function ProjectFieldsSection({
         {changes.map((change) => {
           const checked = selectedFields.includes(change.field);
           return (
-            <label key={change.field} className="flex items-start gap-2 rounded-[12px] border border-border bg-card/40 p-2.5">
+            <label key={change.field} className="flex items-start gap-2 rounded-[12px] border border-border bg-card/92 p-2.5">
               <Checkbox checked={checked} onCheckedChange={() => onToggleField(change.field)} />
               <div className="flex min-w-0 flex-col gap-0.5">
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -252,7 +252,7 @@ export function CommandDiffSection({
         {diffs.map((diff) => {
           const checked = selectedIndexes.includes(diff.index);
           return (
-            <label key={`command-${diff.index}`} className="flex flex-col gap-2 rounded-[12px] border border-border bg-card/40 p-2.5">
+            <label key={`command-${diff.index}`} className="flex flex-col gap-2 rounded-[12px] border border-border bg-card/92 p-2.5">
               <Checkbox checked={checked} onCheckedChange={() => onToggleCommand(diff.index)} />
               <div className="grid gap-2 md:grid-cols-2">
                 <CommandPanel title="Current" command={diff.existing} />
@@ -290,7 +290,7 @@ export function NoteDiffSection({
         {diffs.map((diff) => {
           const checked = selectedIndexes.includes(diff.index);
           return (
-            <label key={`note-${diff.index}`} className="flex flex-col gap-2 rounded-[12px] border border-border bg-card/40 p-2.5">
+            <label key={`note-${diff.index}`} className="flex flex-col gap-2 rounded-[12px] border border-border bg-card/92 p-2.5">
               <Checkbox checked={checked} onCheckedChange={() => onToggleNote(diff.index)} />
               <div className="grid gap-2 md:grid-cols-2">
                 <NotePanel title="Current" note={diff.existing} />
@@ -315,7 +315,7 @@ export function OverwriteProjectFieldsSection({ fields }: { fields: ProjectField
       <h3>Project details</h3>
       <div className="grid gap-2">
         {fields.map((field) => (
-          <div key={field.field} className="flex flex-col gap-1 rounded-[12px] border border-border bg-card/40 p-2.5">
+          <div key={field.field} className="flex flex-col gap-1 rounded-[12px] border border-border bg-card/92 p-2.5">
             <strong>{field.label}</strong>
             <span>Current: {formatImportValue(field.existing_value)}</span>
             <span>Incoming: {formatImportValue(field.incoming_value)}</span>

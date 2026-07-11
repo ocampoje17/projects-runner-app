@@ -79,7 +79,7 @@ function SettingsRow({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-3 rounded-[16px] border border-border/70 bg-input/30 px-3.5 py-3",
+        "flex items-center justify-between gap-3 rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] px-3.5 py-3",
         className,
       )}
     >
@@ -125,14 +125,14 @@ export function AppearanceSettingsPanel({
                 type="button"
                 variant="ghost"
                 className={cn(
-                  "h-auto flex-col items-stretch gap-2 rounded-[16px] border border-border/70 bg-input/20 p-3 text-left hover:bg-card",
-                  active && "border-primary/50 bg-primary/5 shadow-[0_0_0_3px_var(--primary-glow)]",
+                  "h-auto flex-col items-stretch gap-2 rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-3 text-left hover:border-border-strong hover:bg-card",
+                  active && "border-primary/50 bg-primary/6 shadow-[0_0_0_3px_var(--primary-glow)]",
                 )}
                 onClick={() => setTheme(option.id)}
               >
                 <div
                   className={cn(
-                    "flex h-[78px] w-full flex-col gap-2 overflow-hidden rounded-[12px] border border-border p-2.5",
+                    "flex h-[78px] w-full flex-col gap-2 overflow-hidden rounded-[12px] border border-border bg-card/96 p-2.5",
                     option.id === "light" ? "bg-[#fafafa]" : "bg-[#151515]",
                   )}
                 >
@@ -173,7 +173,7 @@ export function AppearanceSettingsPanel({
                 type="button"
                 variant="ghost"
                 className={cn(
-                  "h-auto rounded-full border border-border/70 bg-input/30 px-3 py-2 text-[12.5px] font-medium text-muted-foreground hover:bg-card hover:text-app-title",
+                  "h-auto rounded-full border border-border bg-[color-mix(in_oklab,var(--bg-input)_80%,var(--bg-workspace))] px-3 py-2 text-[12.5px] font-medium text-muted-foreground hover:border-border-strong hover:bg-card hover:text-app-title",
                   active && "border-primary bg-card text-app-title shadow-[0_0_0_3px_var(--primary-glow)]",
                 )}
                 style={{ ["--accent-color-color" as string]: ACCENT_THEMES[col].primary } as CSSProperties}
@@ -306,7 +306,7 @@ export function TerminalSettingsPanel({
         description="Live preview of the selected terminal styles"
       >
         <div
-          className="overflow-hidden rounded-[16px] border border-border/70 bg-[var(--terminal-bg)] p-3 font-mono text-[var(--terminal-fg)]"
+          className="overflow-hidden rounded-[16px] border border-border bg-[var(--terminal-bg)] p-3 font-mono text-[var(--terminal-fg)]"
           style={{ fontSize: terminalFontSize, fontFamily: previewFontFamily }}
         >
           <div className="text-slate-400">$ npm run dev</div>
@@ -344,8 +344,8 @@ export function SystemSettingsPanel({
         title="About"
         description="App identity and workspace inventory"
       >
-        <div className="flex items-start gap-3 rounded-[16px] border border-border/70 bg-input/20 p-3.5">
-          <img className="h-12 w-12 rounded-[14px] border border-border object-cover" src={appIcon} alt="" />
+        <div className="flex items-start gap-3 rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-3.5">
+          <img className="h-12 w-12 rounded-[14px] border border-border bg-card object-cover" src={appIcon} alt="" />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h4 className="text-[14px] font-semibold text-app-title">{appInfo?.name ?? "Projects Runner"}</h4>
@@ -358,13 +358,13 @@ export function SystemSettingsPanel({
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-[16px] border border-border/70 bg-input/20 p-3">
+          <div className="rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-3">
             <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
               Projects
             </span>
             <strong className="mt-1 block text-[20px] text-app-title">{projectCount}</strong>
           </div>
-          <div className="rounded-[16px] border border-border/70 bg-input/20 p-3">
+          <div className="rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-3">
             <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
               Commands
             </span>

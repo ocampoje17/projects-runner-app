@@ -64,11 +64,11 @@ export const Checkbox = React.forwardRef<HTMLButtonElement, CheckboxProps>(funct
         transition={SPRING_PRESS}
         data-state={isChecked ? "checked" : isIndeterminate ? "indeterminate" : "unchecked"}
         className={cn(
-          "inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[6px] border outline-none transition-colors duration-200 app-focus-ring",
+          "inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[6px] border shadow-sm outline-none transition-[background-color,border-color,color,box-shadow] duration-200 app-focus-ring",
           "disabled:cursor-not-allowed disabled:opacity-60",
           showMark
-            ? "border-primary bg-primary text-primary-foreground"
-            : "border-border bg-input text-transparent",
+            ? "border-primary bg-primary text-primary-foreground shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary-color)_18%,transparent)]"
+            : "border-border bg-[color-mix(in_oklab,var(--bg-input)_90%,var(--bg-workspace))] text-transparent hover:border-border-strong",
           className,
         )}
         onClick={(event) => {

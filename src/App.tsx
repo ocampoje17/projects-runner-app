@@ -140,10 +140,10 @@ function App() {
   });
 
   const projectNotesMutation = useMutation({
-    mutationFn: ({ id, input }: { id: number; input: ProjectInput }) => api.updateProject(id, input),
-    onSuccess: () => {
+    mutationFn: ({ id, input }: { id: number; input: ProjectInput; successTitle: string }) => api.updateProject(id, input),
+    onSuccess: (_project, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
-      showSuccess("Notes saved");
+      showSuccess(variables.successTitle);
     },
     onError: showError,
   });
@@ -206,15 +206,14 @@ function App() {
     setNewProjectNote,
     noteVisibility,
     handleAddProjectNote,
-    handleUpdateProjectNote,
     handleSaveEditedProjectNote,
     handleDeleteProjectNote,
     handleTogglePinnedProjectNote,
     handleToggleProjectNoteVisibility,
   } = useProjectNotes({
     selectedProject,
-    onPersist: (projectId, input) => {
-      projectNotesMutation.mutate({ id: projectId, input });
+    onPersist: (projectId, input, successTitle) => {
+      projectNotesMutation.mutate({ id: projectId, input, successTitle });
     },
   });
 
@@ -480,7 +479,6 @@ function App() {
         newProjectNote,
         onNewProjectNoteChange: setNewProjectNote,
         onAddProjectNote: handleAddProjectNote,
-        onUpdateProjectNote: handleUpdateProjectNote,
         onSaveProjectNote: handleSaveEditedProjectNote,
         onTogglePinnedProjectNote: handleTogglePinnedProjectNote,
         onToggleProjectNoteVisibility: handleToggleProjectNoteVisibility,

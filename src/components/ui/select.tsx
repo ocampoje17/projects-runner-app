@@ -14,7 +14,7 @@ export const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-10 w-full items-center justify-between rounded-full border border-border bg-input px-3.5 py-2 text-left text-[13px] text-foreground outline-none transition-colors app-focus-ring",
+      "flex h-10 w-full items-center justify-between rounded-full border border-border bg-[color-mix(in_oklab,var(--bg-input)_92%,var(--bg-workspace))] px-3.5 py-2 text-left text-[13px] text-foreground shadow-[inset_0_1px_0_color-mix(in_oklab,var(--background)_70%,transparent)] outline-none transition-[background-color,border-color,box-shadow,color] hover:border-border-strong data-[placeholder]:text-muted-foreground app-focus-ring",
       className,
     )}
     {...props}
@@ -35,7 +35,7 @@ export const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        "z-[1100] min-w-[8rem] overflow-hidden rounded-[16px] border border-border bg-popover/95 text-popover-foreground shadow-app-dialog backdrop-blur-xl",
+        "z-[1100] min-w-[8rem] overflow-hidden rounded-[18px] border border-border bg-popover/96 text-popover-foreground shadow-app-dialog backdrop-blur-xl",
         position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
         className,
       )}
@@ -68,7 +68,7 @@ export const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex min-h-9 w-full cursor-default items-center rounded-full py-1.5 pl-8 pr-3 text-[13px] text-muted-foreground outline-none transition-colors data-[disabled]:pointer-events-none data-[highlighted]:bg-primary/5 data-[highlighted]:text-foreground",
+      "relative flex min-h-9 w-full cursor-default items-center rounded-full border border-transparent py-1.5 pl-8 pr-3 text-[13px] text-muted-foreground outline-none transition-[background-color,border-color,color] data-[disabled]:pointer-events-none data-[highlighted]:border-primary/15 data-[highlighted]:bg-primary/6 data-[highlighted]:text-foreground data-[state=checked]:text-foreground",
       className,
     )}
     {...props}

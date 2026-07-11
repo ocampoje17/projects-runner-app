@@ -7,7 +7,7 @@ export function useProjectNotes({
   onPersist,
 }: {
   selectedProject: Project | null;
-  onPersist: (projectId: number, input: ProjectInput) => void;
+  onPersist: (projectId: number, input: ProjectInput, successTitle: string) => void;
 }) {
   const [projectNotes, setProjectNotes] = useState<ProjectNote[]>([]);
   const [newProjectNote, setNewProjectNote] = useState("");
@@ -31,18 +31,22 @@ export function useProjectNotes({
 
   const sortedProjectNotes = useMemo(() => sortProjectNotes(projectNotes), [projectNotes]);
 
-  function persistProjectNotes(nextNotes: ProjectNote[]) {
+  function persistProjectNotes(nextNotes: ProjectNote[], successTitle: string) {
     if (!selectedProject) {
       return;
     }
 
-    onPersist(selectedProject.id, {
-      name: selectedProject.name,
-      path: selectedProject.path,
-      avatar_path: selectedProject.avatar_path,
-      description: selectedProject.description,
-      notes: serializeProjectNotes(nextNotes),
-    });
+    onPersist(
+      selectedProject.id,
+      {
+        name: selectedProject.name,
+        path: selectedProject.path,
+        avatar_path: selectedProject.avatar_path,
+        description: selectedProject.description,
+        notes: serializeProjectNotes(nextNotes),
+      },
+      successTitle,
+    );
   }
 
   function handleAddProjectNote() {
@@ -65,29 +69,16 @@ export function useProjectNotes({
 
     setProjectNotes(nextNotes);
     setNewProjectNote("");
-    persistProjectNotes(nextNotes);
+    persistProjectNotes(nextNotes, "Note added");
   }
 
-  function handleUpdateProjectNote(noteId: string, content: string) {
-    setProjectNotes((current) =>
-      current.map((note) =>
-        note.id === noteId
-          ? {
-              ...note,
-              content,
-            }
-          : note,
-      ),
-    );
-  }
-
-  function handleSaveEditedProjectNote(noteId: string) {
+  function handleSaveEditedProjectNote(noteId: string, content: string) {
     const nextNotes = projectNotes
       .map((note) =>
         note.id === noteId
           ? {
               ...note,
-              content: note.content.trim(),
+              content: content.trim(),
               updatedAt: new Date().toISOString(),
             }
           : note,
@@ -95,7 +86,7 @@ export function useProjectNotes({
       .filter((note) => note.content);
 
     setProjectNotes(nextNotes);
-    persistProjectNotes(nextNotes);
+    persistProjectNotes(nextNotes, "Note updated");
   }
 
   function handleDeleteProjectNote(noteId: string) {
@@ -106,7 +97,7 @@ export function useProjectNotes({
       delete next[noteId];
       return next;
     });
-    persistProjectNotes(nextNotes);
+    persistProjectNotes(nextNotes, "Note deleted");
   }
 
   function handleTogglePinnedProjectNote(noteId: string) {
@@ -121,7 +112,7 @@ export function useProjectNotes({
     );
 
     setProjectNotes(nextNotes);
-    persistProjectNotes(nextNotes);
+    persistProjectNotes(nextNotes, nextNotes.find((note) => note.id === noteId)?.pinned ? "Note pinned" : "Note unpinned");
   }
 
   function handleToggleProjectNoteVisibility(noteId: string) {
@@ -139,7 +130,6 @@ export function useProjectNotes({
     setNewProjectNote,
     noteVisibility,
     handleAddProjectNote,
-    handleUpdateProjectNote,
     handleSaveEditedProjectNote,
     handleDeleteProjectNote,
     handleTogglePinnedProjectNote,

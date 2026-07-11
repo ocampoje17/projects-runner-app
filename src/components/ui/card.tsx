@@ -3,12 +3,12 @@ import { cn } from "@/lib/utils";
 
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div
-      className={cn(
-        "rounded-[18px] border border-border bg-card/90 text-card-foreground shadow-app-card backdrop-blur-sm transition-all duration-200",
-        className,
-      )}
-      {...props}
+      <div
+        className={cn(
+          "rounded-[18px] border border-border bg-card/96 text-card-foreground shadow-app-card backdrop-blur-sm transition-all duration-200",
+          className,
+        )}
+        {...props}
     />
   );
 }

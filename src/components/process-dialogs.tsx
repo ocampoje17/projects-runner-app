@@ -121,7 +121,7 @@ export function KillPortsDialog({
 
         <div className="my-3 flex min-h-[110px] flex-col">
           {processes.length === 0 ? (
-            <div className="no-processes-state flex flex-col items-center justify-center gap-3 rounded-[14px] border border-dashed border-border bg-input px-4 py-8 text-center text-muted-foreground">
+            <div className="no-processes-state flex flex-col items-center justify-center gap-3 rounded-[14px] border border-dashed border-border bg-[color-mix(in_oklab,var(--bg-input)_82%,var(--bg-workspace))] px-4 py-8 text-center text-muted-foreground">
               <Check className="text-app-success animate-bounce-subtle" size={24} />
               <p>No active processes found using these ports.</p>
             </div>
@@ -147,7 +147,7 @@ export function KillPortsDialog({
                   return (
                     <div
                       key={`${process.pid}-${process.port}`}
-                      className={`group flex items-center gap-2.5 rounded-[14px] border border-border bg-card px-2.5 py-2 transition-colors ${isChecked ? "border-primary bg-primary/5" : "hover:border-primary hover:bg-muted"}`}
+                      className={`group flex items-center gap-2.5 rounded-[14px] border border-border bg-card/96 px-2.5 py-2 transition-colors ${isChecked ? "border-primary/45 bg-primary/6 shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary-color)_10%,transparent)]" : "hover:border-border-strong hover:bg-muted"}`}
                       onClick={() => !isKilling && toggleSelectPid(process.pid)}
                     >
                       <Checkbox

@@ -72,10 +72,10 @@ export function Tabs({
 }
 
 const listClasses: Record<Variant, string> = {
-  pill: "tabs-list inline-flex items-center gap-1 rounded-full border border-border bg-card/80 p-1 text-muted-foreground shadow-sm backdrop-blur",
+  pill: "tabs-list inline-flex items-center gap-1 rounded-full border border-border bg-card/92 p-1 text-muted-foreground shadow-sm backdrop-blur",
   underline: "tabs-list inline-flex items-center gap-1 border-b border-border text-muted-foreground",
   segment:
-    "tabs-list inline-flex h-10 items-center gap-1 rounded-full border border-border bg-card/80 p-1 text-muted-foreground shadow-sm backdrop-blur",
+    "tabs-list inline-flex h-10 items-center gap-1 rounded-full border border-border bg-card/92 p-1 text-muted-foreground shadow-sm backdrop-blur",
 };
 
 export function TabsList({
@@ -140,7 +140,7 @@ export function TabsTrigger({
         <motion.span
           layoutId={layoutId}
           style={{ borderRadius: 9999 }}
-          className={cn("absolute inset-0 bg-primary shadow-sm", radius, indicatorClassName)}
+          className={cn("absolute inset-0 border border-primary bg-primary shadow-sm", radius, indicatorClassName)}
         />
       ) : null}
       <button
@@ -151,11 +151,11 @@ export function TabsTrigger({
         onClick={() => setValue(value)}
         className={cn(
           "tabs-trigger relative z-10 inline-flex h-8 items-center justify-center whitespace-nowrap bg-transparent px-3.5 text-[13px] font-medium outline-none app-focus-ring",
-          usesDefaultIndicator ? "text-primary-foreground mix-blend-exclusion transition-opacity" : "transition-colors",
+          usesDefaultIndicator ? "transition-colors" : "transition-colors",
           usesDefaultIndicator
             ? active
-              ? "opacity-100"
-              : "opacity-70 hover:opacity-100"
+              ? "text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground"
             : active
               ? "text-primary-foreground"
               : "text-muted-foreground hover:text-foreground",

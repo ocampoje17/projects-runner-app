@@ -6,21 +6,21 @@
   /* beUI-inspired base palette (light) */
   --background: oklch(99% 0 0);
   --foreground: oklch(15% 0 0);
-  --card: oklch(97% 0 0);
+  --card: oklch(98.2% 0 0);
   --card-foreground: oklch(15% 0 0);
-  --popover: oklch(98% 0 0);
+  --popover: oklch(98.8% 0 0);
   --popover-foreground: oklch(15% 0 0);
-  --muted: oklch(96.5% 0 0);
+  --muted: oklch(96.9% 0 0);
   --muted-foreground: oklch(50% 0 0);
-  --border: oklch(15% 0 0 / 0.08);
-  --border-strong: oklch(15% 0 0 / 0.14);
-  --input-border: oklch(15% 0 0 / 0.1);
-  --ring: oklch(15% 0 0 / 0.14);
+  --border: oklch(15% 0 0 / 0.13);
+  --border-strong: oklch(15% 0 0 / 0.22);
+  --input-border: oklch(15% 0 0 / 0.18);
+  --ring: oklch(15% 0 0 / 0.22);
   --danger: oklch(62% 0.22 25);
   --success: oklch(70% 0.18 155);
   --warning: oklch(78% 0.18 75);
   --glass-bg: oklch(99% 0 0 / 0.7);
-  --glass-border: oklch(15% 0 0 / 0.08);
+  --glass-border: oklch(15% 0 0 / 0.12);
 
   /* App bridge tokens */
   --primary-color: oklch(15% 0 0);
@@ -30,11 +30,11 @@
 
   --bg-shell: oklch(97.5% 0 0);
   --bg-workspace: var(--background);
-  --bg-sidebar: oklch(96.5% 0 0);
+  --bg-sidebar: oklch(97.2% 0 0);
   --bg-card: var(--card);
-  --bg-card-hover: oklch(98.5% 0 0);
+  --bg-card-hover: oklch(99.1% 0 0);
   --bg-dialog: var(--popover);
-  --bg-input: oklch(100% 0 0);
+  --bg-input: oklch(99.55% 0 0);
 
   --color-text: var(--foreground);
   --color-text-secondary: oklch(35% 0 0);
@@ -57,39 +57,39 @@
 
   --btn-secondary-bg: var(--card);
   --btn-secondary-text: var(--foreground);
-  --btn-secondary-hover: oklch(94% 0 0);
-  --btn-ghost-hover-bg: oklch(15% 0 0 / 0.04);
+  --btn-secondary-hover: oklch(95.7% 0 0);
+  --btn-ghost-hover-bg: oklch(15% 0 0 / 0.055);
   --btn-ghost-hover-text: var(--foreground);
 
-  --sidebar-footer-bg: oklch(15% 0 0 / 0.02);
+  --sidebar-footer-bg: oklch(15% 0 0 / 0.03);
   --sidebar-header-h1-color: var(--foreground);
-  --project-row-hover-bg: oklch(15% 0 0 / 0.035);
+  --project-row-hover-bg: oklch(15% 0 0 / 0.05);
   --project-row-hover-text: var(--foreground);
-  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 10%, transparent);
-  --project-row-active-border: color-mix(in oklab, var(--primary-color) 22%, transparent);
+  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 11%, transparent);
+  --project-row-active-border: color-mix(in oklab, var(--primary-color) 32%, transparent);
   --project-row-active-text: var(--foreground);
 
-  --card-shadow: 0 1px 2px oklch(15% 0 0 / 0.04), 0 10px 30px oklch(15% 0 0 / 0.04);
-  --card-hover-shadow: 0 2px 8px oklch(15% 0 0 / 0.06), 0 16px 40px oklch(15% 0 0 / 0.06);
+  --card-shadow: 0 1px 2px oklch(15% 0 0 / 0.05), 0 10px 30px oklch(15% 0 0 / 0.05);
+  --card-hover-shadow: 0 2px 8px oklch(15% 0 0 / 0.08), 0 16px 40px oklch(15% 0 0 / 0.08);
   --dialog-shadow: 0 24px 80px oklch(15% 0 0 / 0.18);
   --split-menu-bg: var(--popover);
   --split-menu-shadow: 0 16px 40px oklch(15% 0 0 / 0.12);
   --split-menu-hover-bg: oklch(15% 0 0 / 0.04);
   --split-menu-hover-text: var(--foreground);
-  --workspace-header-bg: color-mix(in oklab, var(--background) 86%, transparent);
-  --command-section-bg: oklch(15% 0 0 / 0.02);
+  --workspace-header-bg: color-mix(in oklab, var(--background) 90%, transparent);
+  --command-section-bg: oklch(15% 0 0 / 0.03);
 
   --script-preview-bg: oklch(96% 0 0);
   --script-preview-border: var(--border);
   --script-preview-color: oklch(32% 0 0);
 
-  --log-panel-bg: oklch(98% 0 0);
-  --log-header-bg: oklch(15% 0 0 / 0.025);
-  --terminal-tabs-bg: oklch(15% 0 0 / 0.03);
+  --log-panel-bg: oklch(98.8% 0 0);
+  --log-header-bg: oklch(15% 0 0 / 0.04);
+  --terminal-tabs-bg: oklch(15% 0 0 / 0.045);
   --terminal-bg: #f4f4f5;
   --terminal-fg: #18181b;
 
-  --icon-choice-bg: oklch(15% 0 0 / 0.02);
+  --icon-choice-bg: oklch(15% 0 0 / 0.03);
   --icon-choice-border: var(--border);
 
   --radius-sm: 10px;
@@ -111,26 +111,26 @@
 .theme-light {
   --background: oklch(99% 0 0);
   --foreground: oklch(15% 0 0);
-  --card: oklch(97% 0 0);
+  --card: oklch(98.2% 0 0);
   --card-foreground: oklch(15% 0 0);
-  --popover: oklch(98.5% 0 0);
+  --popover: oklch(98.8% 0 0);
   --popover-foreground: oklch(15% 0 0);
-  --muted: oklch(96.5% 0 0);
+  --muted: oklch(96.9% 0 0);
   --muted-foreground: oklch(50% 0 0);
-  --border: oklch(15% 0 0 / 0.08);
-  --border-strong: oklch(15% 0 0 / 0.14);
-  --input-border: oklch(15% 0 0 / 0.1);
-  --ring: oklch(15% 0 0 / 0.14);
+  --border: oklch(15% 0 0 / 0.13);
+  --border-strong: oklch(15% 0 0 / 0.22);
+  --input-border: oklch(15% 0 0 / 0.18);
+  --ring: oklch(15% 0 0 / 0.22);
   --glass-bg: oklch(99% 0 0 / 0.72);
-  --glass-border: oklch(15% 0 0 / 0.08);
+  --glass-border: oklch(15% 0 0 / 0.12);
 
   --bg-shell: oklch(97.5% 0 0);
   --bg-workspace: var(--background);
-  --bg-sidebar: oklch(96.5% 0 0);
+  --bg-sidebar: oklch(97.2% 0 0);
   --bg-card: var(--card);
-  --bg-card-hover: oklch(98.5% 0 0);
+  --bg-card-hover: oklch(99.1% 0 0);
   --bg-dialog: var(--popover);
-  --bg-input: oklch(100% 0 0);
+  --bg-input: oklch(99.55% 0 0);
 
   --color-text: var(--foreground);
   --color-text-secondary: oklch(35% 0 0);
@@ -141,39 +141,39 @@
 
   --btn-secondary-bg: var(--card);
   --btn-secondary-text: var(--foreground);
-  --btn-secondary-hover: oklch(94% 0 0);
-  --btn-ghost-hover-bg: oklch(15% 0 0 / 0.04);
+  --btn-secondary-hover: oklch(95.7% 0 0);
+  --btn-ghost-hover-bg: oklch(15% 0 0 / 0.055);
   --btn-ghost-hover-text: var(--foreground);
 
-  --sidebar-footer-bg: oklch(15% 0 0 / 0.02);
+  --sidebar-footer-bg: oklch(15% 0 0 / 0.03);
   --sidebar-header-h1-color: var(--foreground);
-  --project-row-hover-bg: oklch(15% 0 0 / 0.035);
+  --project-row-hover-bg: oklch(15% 0 0 / 0.05);
   --project-row-hover-text: var(--foreground);
-  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 10%, transparent);
-  --project-row-active-border: color-mix(in oklab, var(--primary-color) 22%, transparent);
+  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 11%, transparent);
+  --project-row-active-border: color-mix(in oklab, var(--primary-color) 32%, transparent);
   --project-row-active-text: var(--foreground);
 
-  --card-shadow: 0 1px 2px oklch(15% 0 0 / 0.04), 0 10px 30px oklch(15% 0 0 / 0.04);
-  --card-hover-shadow: 0 2px 8px oklch(15% 0 0 / 0.06), 0 16px 40px oklch(15% 0 0 / 0.06);
+  --card-shadow: 0 1px 2px oklch(15% 0 0 / 0.05), 0 10px 30px oklch(15% 0 0 / 0.05);
+  --card-hover-shadow: 0 2px 8px oklch(15% 0 0 / 0.08), 0 16px 40px oklch(15% 0 0 / 0.08);
   --dialog-shadow: 0 24px 80px oklch(15% 0 0 / 0.18);
   --split-menu-bg: var(--popover);
   --split-menu-shadow: 0 16px 40px oklch(15% 0 0 / 0.12);
   --split-menu-hover-bg: oklch(15% 0 0 / 0.04);
   --split-menu-hover-text: var(--foreground);
-  --workspace-header-bg: color-mix(in oklab, var(--background) 86%, transparent);
-  --command-section-bg: oklch(15% 0 0 / 0.02);
+  --workspace-header-bg: color-mix(in oklab, var(--background) 90%, transparent);
+  --command-section-bg: oklch(15% 0 0 / 0.03);
 
   --script-preview-bg: oklch(96% 0 0);
   --script-preview-border: var(--border);
   --script-preview-color: oklch(32% 0 0);
 
-  --log-panel-bg: oklch(98% 0 0);
-  --log-header-bg: oklch(15% 0 0 / 0.025);
-  --terminal-tabs-bg: oklch(15% 0 0 / 0.03);
+  --log-panel-bg: oklch(98.8% 0 0);
+  --log-header-bg: oklch(15% 0 0 / 0.04);
+  --terminal-tabs-bg: oklch(15% 0 0 / 0.045);
   --terminal-bg: #f4f4f5;
   --terminal-fg: #18181b;
 
-  --icon-choice-bg: oklch(15% 0 0 / 0.02);
+  --icon-choice-bg: oklch(15% 0 0 / 0.03);
   --icon-choice-border: var(--border);
 }
 
@@ -186,20 +186,20 @@
   --popover-foreground: oklch(96% 0 0);
   --muted: #222222;
   --muted-foreground: oklch(62% 0 0);
-  --border: rgb(255 255 255 / 0.06);
-  --border-strong: rgb(255 255 255 / 0.12);
-  --input-border: rgb(255 255 255 / 0.08);
-  --ring: rgb(255 255 255 / 0.14);
+  --border: rgb(255 255 255 / 0.11);
+  --border-strong: rgb(255 255 255 / 0.2);
+  --input-border: rgb(255 255 255 / 0.15);
+  --ring: rgb(255 255 255 / 0.22);
   --glass-bg: rgb(28 28 28 / 0.72);
-  --glass-border: rgb(255 255 255 / 0.08);
+  --glass-border: rgb(255 255 255 / 0.12);
 
   --bg-shell: #111111;
   --bg-workspace: var(--background);
   --bg-sidebar: #121212;
   --bg-card: var(--card);
-  --bg-card-hover: #222222;
+  --bg-card-hover: #242424;
   --bg-dialog: var(--popover);
-  --bg-input: #181818;
+  --bg-input: #191919;
 
   --color-text: var(--foreground);
   --color-text-secondary: oklch(78% 0 0);
@@ -210,16 +210,16 @@
 
   --btn-secondary-bg: var(--card);
   --btn-secondary-text: var(--foreground);
-  --btn-secondary-hover: #262626;
-  --btn-ghost-hover-bg: rgb(255 255 255 / 0.05);
+  --btn-secondary-hover: #282828;
+  --btn-ghost-hover-bg: rgb(255 255 255 / 0.07);
   --btn-ghost-hover-text: var(--foreground);
 
   --sidebar-footer-bg: rgb(0 0 0 / 0.25);
   --sidebar-header-h1-color: var(--foreground);
-  --project-row-hover-bg: rgb(255 255 255 / 0.04);
+  --project-row-hover-bg: rgb(255 255 255 / 0.06);
   --project-row-hover-text: var(--foreground);
-  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 14%, transparent);
-  --project-row-active-border: color-mix(in oklab, var(--primary-color) 28%, transparent);
+  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 16%, transparent);
+  --project-row-active-border: color-mix(in oklab, var(--primary-color) 34%, transparent);
   --project-row-active-text: var(--foreground);
 
   --card-shadow: 0 1px 0 rgb(255 255 255 / 0.03), 0 12px 36px rgb(0 0 0 / 0.28);
@@ -229,20 +229,20 @@
   --split-menu-shadow: 0 18px 50px rgb(0 0 0 / 0.45);
   --split-menu-hover-bg: rgb(255 255 255 / 0.05);
   --split-menu-hover-text: var(--foreground);
-  --workspace-header-bg: color-mix(in oklab, var(--background) 88%, transparent);
-  --command-section-bg: rgb(255 255 255 / 0.02);
+  --workspace-header-bg: color-mix(in oklab, var(--background) 92%, transparent);
+  --command-section-bg: rgb(255 255 255 / 0.03);
 
   --script-preview-bg: #111111;
   --script-preview-border: var(--border);
   --script-preview-color: oklch(82% 0 0);
 
   --log-panel-bg: #101010;
-  --log-header-bg: rgb(0 0 0 / 0.28);
-  --terminal-tabs-bg: rgb(0 0 0 / 0.22);
+  --log-header-bg: rgb(0 0 0 / 0.34);
+  --terminal-tabs-bg: rgb(255 255 255 / 0.045);
   --terminal-bg: #0d0d0d;
   --terminal-fg: #e8e8e8;
 
-  --icon-choice-bg: rgb(255 255 255 / 0.02);
+  --icon-choice-bg: rgb(255 255 255 / 0.03);
   --icon-choice-border: var(--border);
 }
 
@@ -373,6 +373,7 @@ p {
 
 .terminal-tab-item {
   position: relative;
+  min-height: 32px;
 }
 
 .terminal-tab-item-active::after {
@@ -391,6 +392,23 @@ p {
 
 .terminal-tab-trigger[data-state="active"] + .terminal-tab-close {
   background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+.notes-masonry {
+  column-count: 1;
+  column-gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .notes-masonry {
+    column-count: 2;
+  }
+}
+
+.notes-masonry-item {
+  break-inside: avoid;
+  margin-bottom: 0.75rem;
+  width: 100%;
 }
 
 .log-terminal .xterm-host {

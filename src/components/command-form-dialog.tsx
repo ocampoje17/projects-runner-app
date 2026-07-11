@@ -203,7 +203,7 @@ export function CommandDialog({
                 </Select>
               )}
             />
-            <div className="grid gap-1 rounded-[14px] border border-border/70 bg-card/40 p-2.5 text-[11.5px] text-muted-foreground">
+            <div className="grid gap-1 rounded-[14px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_76%,var(--bg-workspace))] p-2.5 text-[11.5px] text-muted-foreground">
               {runtimeModeOptions.map((option) => {
                 const isSelected = form.watch("runtime_mode") === option.value;
                 return (
@@ -231,4 +231,3 @@ export function CommandDialog({
     </Dialog>
   );
 }
-
