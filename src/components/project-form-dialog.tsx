@@ -102,7 +102,7 @@ export function ProjectDialog({
           <DialogField>
             <Label>Folder</Label>
             <DialogInlineField>
-              <Input {...form.register("path")} placeholder="E:\\UserData\\Documents\\DEV\\my-app" />
+              <Input {...form.register("path")} placeholder="/Users/you/projects/my-app or C:\\Projects\\my-app" />
               <Button type="button" variant="secondary" onClick={pickFolder}>
                 <FolderOpen size={16} />
               </Button>

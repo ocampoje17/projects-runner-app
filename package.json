@@ -8,7 +8,10 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "beui:sync": "node ./scripts/check-beui-sync.mjs"
+    "beui:sync": "node ./scripts/check-beui-sync.mjs",
+    "release:check": "node ./scripts/check-version-sync.mjs",
+    "release:build": "tauri build --config src-tauri/tauri.release.conf.json --ci",
+    "release:artifacts": "node ./scripts/prepare-release-artifacts.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

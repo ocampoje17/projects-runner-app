@@ -42,6 +42,7 @@ npm run dev
 npm run build
 npm run tauri
 npm run beui:sync
+npm run release:check
 ```
 
 ## Recommended IDE Setup

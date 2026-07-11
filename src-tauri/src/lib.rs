@@ -12,6 +12,8 @@ use portable_pty::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+#[cfg(not(target_os = "windows"))]
+use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -594,8 +596,8 @@ fn ensure_column(
         "SELECT name FROM pragma_table_info('{}')",
         quote_sql(table)
     ))
-        .load::<TableColumn>(conn)
-        .map_err(|error| error.to_string())?;
+    .load::<TableColumn>(conn)
+    .map_err(|error| error.to_string())?;
     if columns.iter().any(|item| item.name == column) {
         return Ok(());
     }
@@ -668,6 +670,276 @@ fn runtime_mode_uses_external_terminal(runtime_mode: &str) -> bool {
     runtime_mode == RUNTIME_MODE_EXTERNAL_TERMINAL
 }
 
+#[cfg(not(target_os = "windows"))]
+fn executable_exists(program: &str) -> bool {
+    which::which(program).is_ok()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn command_display_name(command: &Path) -> String {
+    command
+        .file_name()
+        .unwrap_or_else(|| OsStr::new(""))
+        .to_string_lossy()
+        .to_string()
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn resolve_linux_terminal_program() -> Result<PathBuf, String> {
+    if let Some(configured) = std::env::var_os("TERMINAL") {
+        let configured = configured.to_string_lossy().trim().to_string();
+        if !configured.is_empty() {
+            let direct_path = PathBuf::from(&configured);
+            if direct_path.is_file() {
+                return Ok(direct_path);
+            }
+            if let Some(executable) = configured.split_whitespace().next() {
+                if let Ok(path) = which::which(executable) {
+                    return Ok(path);
+                }
+            }
+        }
+    }
+
+    for candidate in [
+        "x-terminal-emulator",
+        "gnome-terminal",
+        "konsole",
+        "xfce4-terminal",
+        "kitty",
+        "wezterm",
+        "alacritty",
+        "xterm",
+    ] {
+        if let Ok(path) = which::which(candidate) {
+            return Ok(path);
+        }
+    }
+
+    Err(
+        "No supported Linux terminal executable was found. Install a desktop terminal or set TERMINAL."
+            .to_string(),
+    )
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn build_linux_open_terminal_command(project_path: &Path) -> Result<Command, String> {
+    let program = resolve_linux_terminal_program()?;
+    let program_name = command_display_name(&program);
+    let mut cmd = Command::new(&program);
+    match program_name.as_str() {
+        "gnome-terminal" => {
+            cmd.arg("--working-directory").arg(project_path);
+        }
+        "konsole" => {
+            cmd.arg("--workdir").arg(project_path);
+        }
+        "xfce4-terminal" => {
+            cmd.arg("--working-directory").arg(project_path);
+        }
+        "wezterm" => {
+            cmd.arg("start").arg("--cwd").arg(project_path);
+        }
+        "kitty" => {
+            cmd.arg("--directory").arg(project_path);
+        }
+        _ => {}
+    }
+    cmd.current_dir(project_path);
+    Ok(cmd)
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn build_linux_script_terminal_command(
+    script_path: &Path,
+    project_path: &Path,
+) -> Result<Command, String> {
+    let program = resolve_linux_terminal_program()?;
+    let program_name = command_display_name(&program);
+    let mut cmd = Command::new(&program);
+    match program_name.as_str() {
+        "gnome-terminal" => {
+            cmd.arg("--working-directory")
+                .arg(project_path)
+                .arg("--")
+                .arg("sh")
+                .arg(script_path);
+        }
+        "konsole" => {
+            cmd.arg("--workdir")
+                .arg(project_path)
+                .arg("-e")
+                .arg("sh")
+                .arg(script_path);
+        }
+        "xfce4-terminal" => {
+            cmd.arg("--working-directory")
+                .arg(project_path)
+                .arg("-x")
+                .arg("sh")
+                .arg(script_path);
+        }
+        "wezterm" => {
+            cmd.arg("start")
+                .arg("--cwd")
+                .arg(project_path)
+                .arg("sh")
+                .arg(script_path);
+        }
+        "kitty" | "alacritty" | "xterm" | "x-terminal-emulator" => {
+            cmd.arg("-e").arg("sh").arg(script_path);
+        }
+        _ => {
+            cmd.arg("-e").arg("sh").arg(script_path);
+        }
+    }
+    cmd.current_dir(project_path);
+    Ok(cmd)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn parse_pid_lines(stdout: &[u8]) -> Vec<u32> {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .collect()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_pid_list(pids: impl IntoIterator<Item = u32>) {
+    for pid in pids {
+        let _ = Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn pids_from_lsof(port: u16) -> Result<Vec<u32>, String> {
+    if !executable_exists("lsof") {
+        return Ok(Vec::new());
+    }
+
+    let output = Command::new("lsof")
+        .args(["-ti", &format!("tcp:{port}")])
+        .output()
+        .map_err(|error| error.to_string())?;
+
+    if !output.status.success() && output.stdout.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    Ok(parse_pid_lines(&output.stdout))
+}
+
+#[cfg(target_os = "linux")]
+fn pids_from_ss(port: u16) -> Result<Vec<u32>, String> {
+    if !executable_exists("ss") {
+        return Ok(Vec::new());
+    }
+
+    let output = Command::new("ss")
+        .args(["-ltnp"])
+        .output()
+        .map_err(|error| error.to_string())?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let mut pids = HashSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if !line.contains(&format!(":{port}")) {
+            continue;
+        }
+        let mut remaining = line;
+        while let Some(index) = remaining.find("pid=") {
+            let pid_portion = &remaining[index + 4..];
+            let digits = pid_portion
+                .chars()
+                .take_while(|ch| ch.is_ascii_digit())
+                .collect::<String>();
+            if let Ok(pid) = digits.parse::<u32>() {
+                pids.insert(pid);
+            }
+            remaining = &pid_portion[digits.len()..];
+        }
+    }
+
+    Ok(pids.into_iter().collect())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn try_kill_with_fuser(port: u16) -> Result<bool, String> {
+    if !executable_exists("fuser") {
+        return Ok(false);
+    }
+
+    let status = Command::new("fuser")
+        .args(["-k", "-n", "tcp", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| error.to_string())?;
+
+    Ok(status.success())
+}
+
+#[cfg(target_os = "linux")]
+fn port_processes_from_ss(target_ports: &HashSet<u16>) -> Result<Vec<PortProcess>, String> {
+    if !executable_exists("ss") {
+        return Ok(Vec::new());
+    }
+
+    let output = Command::new("ss")
+        .args(["-ltnp"])
+        .output()
+        .map_err(|error| error.to_string())?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let local_port = line.split_whitespace().find_map(|part| {
+            part.rsplit_once(':')
+                .and_then(|(_, port)| port.parse::<u16>().ok())
+        });
+
+        let Some(port) = local_port else {
+            continue;
+        };
+        if !target_ports.contains(&port) {
+            continue;
+        }
+
+        let mut remaining = line;
+        while let Some(index) = remaining.find("pid=") {
+            let pid_portion = &remaining[index + 4..];
+            let digits = pid_portion
+                .chars()
+                .take_while(|ch| ch.is_ascii_digit())
+                .collect::<String>();
+            if let Ok(pid) = digits.parse::<u32>() {
+                if seen.insert((port, pid)) {
+                    results.push(PortProcess {
+                        port,
+                        pid,
+                        name: "Unknown".to_string(),
+                    });
+                }
+            }
+            remaining = &pid_portion[digits.len()..];
+        }
+    }
+
+    Ok(results)
+}
+
 fn normalize_key(value: &str) -> String {
     value
         .split_whitespace()
@@ -687,7 +959,8 @@ mod tests {
     use super::*;
 
     fn temp_test_paths(name: &str) -> AppPaths {
-        let root = std::env::temp_dir().join(format!("projects-runner-tests-{}-{}", name, Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("projects-runner-tests-{}-{}", name, Uuid::new_v4()));
         AppPaths {
             db_path: root.join("projects-runner.sqlite"),
             avatars_dir: root.join("avatars"),
@@ -699,7 +972,8 @@ mod tests {
     fn init_db_migrates_runtime_mode_for_legacy_commands_table() {
         let paths = temp_test_paths("runtime-mode-migration");
         fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
-        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+        let mut conn =
+            SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
         conn.batch_execute(
             "CREATE TABLE projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -737,7 +1011,8 @@ mod tests {
 
         init_db(&paths).expect("migrate legacy schema");
 
-        let mut verify = SqliteConnection::establish(&db_path_string(&paths)).expect("open migrated db");
+        let mut verify =
+            SqliteConnection::establish(&db_path_string(&paths)).expect("open migrated db");
         #[derive(QueryableByName)]
         struct CommandRuntimeRow {
             #[diesel(sql_type = Text)]
@@ -2235,10 +2510,7 @@ async fn open_in_external_terminal(path: String) -> Result<(), String> {
         };
 
         #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-        let mut command = {
-            let mut cmd = Command::new("x-terminal-emulator");
-            cmd
-        };
+        let mut command = build_linux_open_terminal_command(&project_path)?;
 
         command
             .current_dir(project_path)
@@ -2470,9 +2742,10 @@ async fn restart_command(
                 .lock()
                 .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
                 .insert(run.id);
-            let stop_result = tauri::async_runtime::spawn_blocking(move || stop_run_process(process))
-                .await
-                .map_err(|err| err.to_string())?;
+            let stop_result =
+                tauri::async_runtime::spawn_blocking(move || stop_run_process(process))
+                    .await
+                    .map_err(|err| err.to_string())?;
             if let Err(error) = stop_result {
                 state
                     .stopped_runs
@@ -2990,41 +3263,48 @@ async fn get_ports_processes(ports: Vec<u16>) -> Result<Vec<PortProcess>, String
 
         #[cfg(not(target_os = "windows"))]
         {
-            let ports_str = target_ports
-                .iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<String>>()
-                .join(",");
-            let filter = format!("-iTCP:{}", ports_str);
-            if let Ok(output) = Command::new("lsof")
-                .args([&filter, "-sTCP:LISTEN", "-Fpcn"])
-                .output()
-            {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let mut current_pid: Option<u32> = None;
-                let mut current_name: Option<String> = None;
-                for line in stdout.lines() {
-                    if line.starts_with('p') {
-                        current_pid = line[1..].parse::<u32>().ok();
-                        current_name = None;
-                    } else if line.starts_with('c') {
-                        current_name = Some(line[1..].to_string());
-                    } else if line.starts_with('n') {
-                        let addr = &line[1..];
-                        if let Some(pos) = addr.rfind(':') {
-                            if let Ok(p) = addr[pos + 1..].parse::<u16>() {
-                                if target_ports.contains(&p) {
-                                    if let Some(pid) = current_pid {
-                                        let name = current_name
-                                            .clone()
-                                            .unwrap_or_else(|| "Unknown".to_string());
-                                        results.push(PortProcess { port: p, pid, name });
+            if executable_exists("lsof") {
+                let ports_str = target_ports
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<String>>()
+                    .join(",");
+                let filter = format!("-iTCP:{}", ports_str);
+                if let Ok(output) = Command::new("lsof")
+                    .args([&filter, "-sTCP:LISTEN", "-Fpcn"])
+                    .output()
+                {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let mut current_pid: Option<u32> = None;
+                    let mut current_name: Option<String> = None;
+                    for line in stdout.lines() {
+                        if line.starts_with('p') {
+                            current_pid = line[1..].parse::<u32>().ok();
+                            current_name = None;
+                        } else if line.starts_with('c') {
+                            current_name = Some(line[1..].to_string());
+                        } else if line.starts_with('n') {
+                            let addr = &line[1..];
+                            if let Some(pos) = addr.rfind(':') {
+                                if let Ok(p) = addr[pos + 1..].parse::<u16>() {
+                                    if target_ports.contains(&p) {
+                                        if let Some(pid) = current_pid {
+                                            let name = current_name
+                                                .clone()
+                                                .unwrap_or_else(|| "Unknown".to_string());
+                                            results.push(PortProcess { port: p, pid, name });
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
+            }
+
+            #[cfg(target_os = "linux")]
+            if results.is_empty() {
+                results = port_processes_from_ss(&target_ports)?;
             }
         }
 
@@ -3110,17 +3390,30 @@ fn kill_port(port: u16) -> Result<(), String> {
 
 #[cfg(not(target_os = "windows"))]
 fn kill_port(port: u16) -> Result<(), String> {
-    let status = Command::new("sh")
-        .arg("-c")
-        .arg(format!("lsof -ti tcp:{} | xargs -r kill -9", port))
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|error| error.to_string())?;
-    if status.success() {
+    let mut supported_tool_found = executable_exists("lsof");
+    let mut pids = pids_from_lsof(port)?;
+    #[cfg(target_os = "linux")]
+    {
+        supported_tool_found =
+            supported_tool_found || executable_exists("ss") || executable_exists("fuser");
+        if pids.is_empty() {
+            pids = pids_from_ss(port)?;
+        }
+    }
+    if !pids.is_empty() {
+        kill_pid_list(pids);
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    if try_kill_with_fuser(port)? {
+        return Ok(());
+    }
+
+    if supported_tool_found {
         Ok(())
     } else {
-        Err(format!("Failed to kill processes on port {}", port))
+        Err("No supported non-Windows port management utility was found. Install lsof, ss, or fuser.".to_string())
     }
 }
 
@@ -3178,10 +3471,7 @@ fn process_has_exited(process: &RunProcess) -> Result<bool, String> {
         .map_err(|error| error.to_string())
 }
 
-fn mark_stale_running_runs(
-    conn: &mut SqliteConnection,
-    state: &AppState,
-) -> Result<(), String> {
+fn mark_stale_running_runs(conn: &mut SqliteConnection, state: &AppState) -> Result<(), String> {
     let active_run_ids = state
         .processes
         .lock()
@@ -3345,16 +3635,12 @@ fn build_process(
     };
 
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-    let mut command = {
-        if run_in_external_terminal {
-            let mut cmd = Command::new("x-terminal-emulator");
-            cmd.arg("-e").arg("sh").arg(script_path);
-            cmd
-        } else {
-            let mut cmd = Command::new("sh");
-            cmd.arg(script_path);
-            cmd
-        }
+    let mut command = if run_in_external_terminal {
+        build_linux_script_terminal_command(script_path, project_path)?
+    } else {
+        let mut cmd = Command::new("sh");
+        cmd.arg(script_path);
+        cmd
     };
 
     command.current_dir(project_path);
@@ -3402,6 +3688,7 @@ fn spawn_output_reader<R>(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = fix_path_env::fix();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             if let Some(window) = app.get_webview_window("main") {

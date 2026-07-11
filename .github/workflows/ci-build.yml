@@ -1,0 +1,88 @@
+name: CI Build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+concurrency:
+  group: ci-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runs_on: windows-latest
+            tauri_args: --bundles nsis
+          - platform: linux
+            runs_on: ubuntu-22.04
+            tauri_args: --bundles appimage,deb
+          - platform: macos
+            runs_on: macos-26
+            tauri_args: --target aarch64-apple-darwin --bundles dmg
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        if: matrix.platform != 'macos'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Rust with macOS target
+        if: matrix.platform == 'macos'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+
+      - name: Install Linux bundle dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Validate release metadata
+        run: npm run release:check
+
+      - name: Build release bundles
+        shell: bash
+        run: npm run release:build -- ${{ matrix.tauri_args }}
+
+      - name: Collect release artifacts
+        run: npm run release:artifacts -- ${{ matrix.platform }} ci-artifacts/${{ matrix.platform }}
+
+      - name: Upload CI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-artifacts
+          path: ci-artifacts/${{ matrix.platform }}
+          if-no-files-found: error
