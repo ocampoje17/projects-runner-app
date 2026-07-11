@@ -135,6 +135,18 @@ npm run release:build
 npm run release:artifacts
 ```
 
+## Release Process
+
+Normal pushes to `master` run the `CI Build` workflow for validation only.
+
+To publish a GitHub Release, create and push a tag in the format `app-v<version>` that matches `package.json` and `src-tauri/tauri.conf.json`.
+
+```bash
+git push origin master
+git tag app-v0.4.6
+git push origin app-v0.4.6
+```
+
 ## Tech Stack
 
 - Tauri 2

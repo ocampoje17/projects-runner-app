@@ -14,11 +14,12 @@ The workflow enforces this with `npm run release:check`.
 ## Release workflow
 
 1. Update the version in `package.json` and `src-tauri/tauri.conf.json`.
-2. Push the commit to `master`.
-3. Run the `Publish Release` workflow from the GitHub Actions UI.
-4. The workflow will publish a public release named `Projects Runner v<version>` with tag `app-v<version>`.
+2. Commit and push the version change to `master`.
+3. Create a tag named `app-v<version>` on that release commit.
+4. Push the tag to GitHub.
+5. The `Publish Release` workflow will start automatically and publish a public release named `Projects Runner v<version>`.
 
-If the release tag already exists, the workflow fails instead of overwriting the release.
+The pushed tag must match the version inside `package.json` and `src-tauri/tauri.conf.json`. For example, version `0.4.6` must be released with tag `app-v0.4.6`.
 
 ## Produced artifacts
 
@@ -29,7 +30,16 @@ If the release tag already exists, the workflow fails instead of overwriting the
 ## Supporting workflows
 
 - `CI Build`: builds all supported desktop bundles for `master` pushes and pull requests.
-- `Publish Release`: builds all supported bundles and publishes a public GitHub Release.
+- `Publish Release`: runs only for `app-v*` tags, builds all supported bundles, and publishes a public GitHub Release.
+
+## Example commands
+
+```bash
+git commit -am "Release v0.4.6"
+git push origin master
+git tag app-v0.4.6
+git push origin app-v0.4.6
+```
 
 ## Notes
 

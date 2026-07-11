@@ -1,13 +1,15 @@
 name: Publish Release
 
 on:
-  workflow_dispatch:
+  push:
+    tags:
+      - app-v*
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.workflow }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -39,8 +41,16 @@ jobs:
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME}"
+          EXPECTED_TAG="app-v$VERSION"
+
+          if [ "$TAG" != "$EXPECTED_TAG" ]; then
+            echo "Tag/version mismatch: pushed tag '$TAG' but package version expects '$EXPECTED_TAG'."
+            exit 1
+          fi
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=app-v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "release_name=Projects Runner v$VERSION" >> "$GITHUB_OUTPUT"
 
   build:
@@ -125,21 +135,6 @@ jobs:
       - build
     runs-on: ubuntu-22.04
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Guard against duplicate tag
-        env:
-          TAG: ${{ needs.prepare.outputs.tag }}
-        run: |
-          git fetch --tags --force
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists. Refusing to publish a duplicate release."
-            exit 1
-          fi
-
       - name: Download built artifacts
         uses: actions/download-artifact@v4
         with:
