@@ -371,6 +371,28 @@ p {
   animation: pulseDot 1.8s infinite ease-in-out;
 }
 
+.terminal-tab-item {
+  position: relative;
+}
+
+.terminal-tab-item-active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 1px;
+  background: var(--log-header-bg);
+}
+
+.terminal-tab-trigger[data-state="active"] {
+  text-shadow: 0 0 0.01px currentColor;
+}
+
+.terminal-tab-trigger[data-state="active"] + .terminal-tab-close {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
 .log-terminal .react-terminal-wrapper {
   display: flex;
   height: 100%;

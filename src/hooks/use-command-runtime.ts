@@ -169,6 +169,10 @@ export function useCommandRuntime({
   }
 
   function startCommandRun(commandId: number) {
+    const run = runs[commandId];
+    if (run?.status === "running" || (run && stoppingRunIds.has(run.runId))) {
+      return;
+    }
     if (autoClearLogs) {
       setLogs((current) => current.filter((line) => line.commandId !== commandId));
     }
@@ -245,27 +249,20 @@ export function useCommandRuntime({
 
   function stopCommandByCommandId(commandId: number) {
     const run = runs[commandId];
-    if (run) {
+    if (run && !stoppingRunIds.has(run.runId)) {
       stopMutation.mutate(run.runId);
     }
   }
 
-  function forceResetCommand(commandId: number) {
-    setStoppingRunIds((current) => {
-      const next = new Set(current);
-      const runId = runs[commandId]?.runId;
-      if (runId !== undefined) next.delete(runId);
-      return next;
-    });
-    setRestartPendingCommandIds((current) => current.filter((id) => id !== commandId));
-    setOpenLogCommandIds((current) => current.filter((id) => id !== commandId));
-    setLogs((current) => current.filter((line) => line.commandId !== commandId));
-    setRuns((current) => {
-      const next = { ...current };
-      delete next[commandId];
-      return next;
-    });
-    setActiveLogCommandId((current) => (current === commandId ? null : current));
+  function forceStopCommandByCommandId(commandId: number) {
+    const run = runs[commandId];
+    if (!run) {
+      return;
+    }
+    if (stoppingRunIds.has(run.runId)) {
+      return;
+    }
+    stopMutation.mutate(run.runId);
   }
 
   function clearCommandLogs(commandId: number) {
@@ -274,17 +271,19 @@ export function useCommandRuntime({
 
   function closeLogTabNow(commandId: number) {
     const run = runs[commandId];
-    if (run && run.status === "running") {
+    if (run && run.status === "running" && !stoppingRunIds.has(run.runId)) {
       stopMutation.mutate(run.runId);
     }
 
     setOpenLogCommandIds((current) => current.filter((id) => id !== commandId));
     clearCommandLogs(commandId);
-    setRuns((current) => {
-      const next = { ...current };
-      delete next[commandId];
-      return next;
-    });
+    if (!run || run.status !== "running") {
+      setRuns((current) => {
+        const next = { ...current };
+        delete next[commandId];
+        return next;
+      });
+    }
     setActiveLogCommandId((current) => {
       if (current !== commandId) {
         return current;
@@ -317,7 +316,7 @@ export function useCommandRuntime({
     handleRefreshProcesses,
     openLogCommandTab,
     stopCommandByCommandId,
-    forceResetCommand,
+    forceStopCommandByCommandId,
     clearCommandLogs,
     closeLogTabNow,
   };

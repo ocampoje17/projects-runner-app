@@ -2197,7 +2197,11 @@ fn configure_command(cmd: &mut Command) {
 fn configure_command(_cmd: &mut Command) {}
 
 #[tauri::command]
-async fn stop_command(run_id: i64, state: State<'_, AppState>) -> Result<StopCommandResult, String> {
+async fn stop_command(
+    run_id: i64,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<StopCommandResult, String> {
     let process = state
         .processes
         .lock()
@@ -2211,12 +2215,28 @@ async fn stop_command(run_id: i64, state: State<'_, AppState>) -> Result<StopCom
     let Some(process) = process else {
         let mut conn = connect(&state.paths)?;
         let ended_at = now();
+        let run = sql_query(format!("SELECT * FROM command_runs WHERE id = {}", run_id))
+            .get_result::<CommandRun>(&mut conn)
+            .optional()
+            .map_err(|error| error.to_string())?;
         sql_query(format!(
             "UPDATE command_runs SET status = 'stopped', ended_at = '{}' WHERE id = {} AND status = 'running'",
             ended_at, run_id
         ))
         .execute(&mut conn)
         .map_err(|error| error.to_string())?;
+        if let Some(run) = run.filter(|run| run.status == "running") {
+            let _ = app.emit(
+                "command://finished",
+                RunFinishedPayload {
+                    run_id,
+                    command_id: run.command_id,
+                    status: "stopped".to_string(),
+                    exit_code: None,
+                    ended_at: ended_at.clone(),
+                },
+            );
+        }
         return Ok(StopCommandResult { was_active: false });
     };
 
@@ -2225,9 +2245,17 @@ async fn stop_command(run_id: i64, state: State<'_, AppState>) -> Result<StopCom
         .lock()
         .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
         .insert(run_id);
-    tauri::async_runtime::spawn_blocking(move || kill_process_tree(&process))
+    let stop_result = tauri::async_runtime::spawn_blocking(move || stop_run_process(process))
         .await
-        .map_err(|err| err.to_string())??;
+        .map_err(|err| err.to_string())?;
+    if let Err(error) = stop_result {
+        state
+            .stopped_runs
+            .lock()
+            .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
+            .remove(&run_id);
+        return Err(error);
+    }
     Ok(StopCommandResult { was_active: true })
 }
 
@@ -2473,6 +2501,29 @@ fn kill_process_tree(process: &RunProcess) -> Result<(), String> {
         .lock()
         .map_err(|_| "Process lock poisoned".to_string())?
         .kill()
+        .map_err(|error| error.to_string())
+}
+
+fn stop_run_process(process: Arc<RunProcess>) -> Result<(), String> {
+    match kill_process_tree(&process) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            if process_has_exited(&process)? {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
+fn process_has_exited(process: &RunProcess) -> Result<bool, String> {
+    process
+        .child
+        .lock()
+        .map_err(|_| "Process lock poisoned".to_string())?
+        .try_wait()
+        .map(|status| status.is_some())
         .map_err(|error| error.to_string())
 }
 

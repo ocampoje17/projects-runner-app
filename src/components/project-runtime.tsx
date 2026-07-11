@@ -112,7 +112,7 @@ export function CommandCard({
         )}
         <pre className="max-h-[calc(1.625em*5+1rem)] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-[14px] border border-border/70 bg-[var(--script-preview-bg)] p-2 font-mono text-[11px] leading-relaxed text-[var(--script-preview-color)]">{command.script}</pre>
         <div className="mt-2 flex flex-nowrap items-center gap-1">
-          <Tooltip content={isStopping ? "Stopping" : isRunning ? "Stop — double-click to force reset" : "Run"}>
+          <Tooltip content={isStopping ? "Stopping" : isRunning ? "Stop - double-click to force stop" : "Run"}>
             <ActionSwapButton
               size="icon"
               variant={isRunning || isStopping ? "outline" : "primary"}
@@ -395,8 +395,17 @@ export function LogPanel({
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border bg-[var(--log-header-bg)] px-2.5 py-1">
             <TabsList className="flex min-h-9 min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden border-0 bg-transparent p-0">
               {visibleCommands.map((command) => (
-                <div className="inline-flex items-center gap-0.5" key={command.id}>
-                  <TabsTrigger className="max-w-[180px] gap-2 px-3 text-[12px]" value={String(command.id)}>
+                <div
+                  className={cn(
+                    "terminal-tab-item inline-flex items-center gap-0.5 rounded-t-[12px] border border-transparent border-b-0 transition-colors",
+                    selectedCommandId === command.id && "terminal-tab-item-active border-border/80 bg-[var(--terminal-tabs-bg)] shadow-sm",
+                  )}
+                  key={command.id}
+                >
+                  <TabsTrigger
+                    className="terminal-tab-trigger max-w-[180px] gap-2 rounded-t-[12px] px-3 text-[12px] data-[state=active]:font-semibold data-[state=active]:text-foreground"
+                    value={String(command.id)}
+                  >
                     <span className="truncate">{command.name}</span>
                     {runs[command.id]?.status === "running" && <span className="terminal-tab-status" />}
                   </TabsTrigger>
@@ -404,7 +413,10 @@ export function LogPanel({
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="ml-0.5 h-6 w-6 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    className={cn(
+                      "terminal-tab-close ml-0.5 h-6 w-6 rounded-full p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
+                      selectedCommandId === command.id && "text-foreground/70 hover:text-destructive",
+                    )}
                     onClick={() => onCloseTab(command.id)}
                     aria-label={`Close ${command.name} log tab`}
                   >
