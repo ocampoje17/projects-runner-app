@@ -1,9 +1,9 @@
 "use client";
 
 import { Moon, Sun } from "lucide-react";
-import { useReducedMotion } from "motion/react";
 import { useEffect, type ComponentPropsWithoutRef } from "react";
 import { ActionSwapIcon } from "@/components/motion/action-swap";
+import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 export type ThemeVariant = "rectangle" | "circle" | "circle-blur";
@@ -98,7 +98,7 @@ export function ThemeToggle({
   iconClassName,
   ...rest
 }: ThemeToggleProps) {
-  const reduce = useReducedMotion() ?? false;
+  const { allowRichMotion } = useMotionPreferences();
   const isDark = theme === "dark";
 
   useEffect(() => {
@@ -108,7 +108,7 @@ export function ThemeToggle({
   const toggle = () => {
     const next = isDark ? "light" : "dark";
 
-    if (reduce || !("startViewTransition" in document)) {
+    if (!allowRichMotion || !("startViewTransition" in document)) {
       onThemeChange(next);
       return;
     }
@@ -144,9 +144,15 @@ export function ThemeToggle({
       )}
       {...rest}
     >
-      <ActionSwapIcon value={isDark ? "dark" : "light"} animation="blur" className={cn("h-4 w-4", iconClassName)}>
-        {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-      </ActionSwapIcon>
+      {allowRichMotion ? (
+        <ActionSwapIcon value={isDark ? "dark" : "light"} animation="blur" className={cn("h-4 w-4", iconClassName)}>
+          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </ActionSwapIcon>
+      ) : isDark ? (
+        <Sun className={cn("h-4 w-4", iconClassName)} />
+      ) : (
+        <Moon className={cn("h-4 w-4", iconClassName)} />
+      )}
     </button>
   );
 }

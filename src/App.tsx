@@ -22,6 +22,7 @@ import { useCommandSections } from "./hooks/use-command-sections";
 import { useCommandRuntime } from "./hooks/use-command-runtime";
 import { usePrdImportFlow } from "./hooks/use-prd-import-flow";
 import { useProjectNotes } from "./hooks/use-project-notes";
+import { MotionLevelProvider } from "./lib/motion";
 
 type PrdOpenRequestPayload = {
   file_path: string;
@@ -48,6 +49,8 @@ function App() {
     setShowLogsTimestamp,
     showStreamName,
     setShowStreamName,
+    motionLevel,
+    setMotionLevel,
   } = useAppPreferences();
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -367,6 +370,8 @@ function App() {
     setShowLogsTimestamp,
     showStreamName,
     setShowStreamName,
+    motionLevel,
+    setMotionLevel,
     projectCount: projects.length,
     commandCount: commands.length,
     onResetCache: () => {
@@ -498,116 +503,118 @@ function App() {
     : undefined;
 
   return (
-    <main className="app-shell grid h-full min-h-0 flex-1 grid-cols-[236px_minmax(0,1fr)] overflow-hidden bg-shell text-foreground">
-      <AppWorkspace
-        projects={projects}
-        selectedProject={selectedProject}
-        selectedProjectId={selectedProject?.id ?? null}
-        settingsOpen={settingsOpen}
-        onAddProject={() => openProjectDialog()}
-        onImportProject={pickImportProjectFile}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onSelectProject={(projectId) => {
-          setSettingsOpen(false);
-          setSelectedProjectId(projectId);
-        }}
-        settingsProps={settingsProps}
-        onOpenExplorer={() => {
-          if (!selectedProject) {
-            return;
-          }
-          void api.showProjectInExplorer(selectedProject.path).catch(showError);
-        }}
-        onOpenTerminal={() => {
-          if (!selectedProject) {
-            return;
-          }
-          void api.openInExternalTerminal(selectedProject.path).catch(showError);
-        }}
-        onShareProject={() => setExportDialogOpen(true)}
-        onEditProject={() => {
-          if (selectedProject) {
-            openProjectDialog(selectedProject);
-          }
-        }}
-        onAddCommand={() => openCommandDialog()}
-        projectDetailProps={projectDetailProps}
-      />
+    <MotionLevelProvider level={motionLevel}>
+      <main className="app-shell grid h-full min-h-0 flex-1 grid-cols-[236px_minmax(0,1fr)] overflow-hidden bg-shell text-foreground">
+        <AppWorkspace
+          projects={projects}
+          selectedProject={selectedProject}
+          selectedProjectId={selectedProject?.id ?? null}
+          settingsOpen={settingsOpen}
+          onAddProject={() => openProjectDialog()}
+          onImportProject={pickImportProjectFile}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onSelectProject={(projectId) => {
+            setSettingsOpen(false);
+            setSelectedProjectId(projectId);
+          }}
+          settingsProps={settingsProps}
+          onOpenExplorer={() => {
+            if (!selectedProject) {
+              return;
+            }
+            void api.showProjectInExplorer(selectedProject.path).catch(showError);
+          }}
+          onOpenTerminal={() => {
+            if (!selectedProject) {
+              return;
+            }
+            void api.openInExternalTerminal(selectedProject.path).catch(showError);
+          }}
+          onShareProject={() => setExportDialogOpen(true)}
+          onEditProject={() => {
+            if (selectedProject) {
+              openProjectDialog(selectedProject);
+            }
+          }}
+          onAddCommand={() => openCommandDialog()}
+          projectDetailProps={projectDetailProps}
+        />
 
-      <AppDialogs
-        editingProject={editingProject}
-        projectDialogOpen={projectDialogOpen}
-        onProjectDialogOpenChange={setProjectDialogOpen}
-        projectDialogPending={projectMutation.isPending}
-        onDeleteProject={(project) => {
-          setConfirmDialog({
-            isOpen: true,
-            title: "Delete Project",
-            description: `Are you sure you want to delete "${project.name}"? This action cannot be undone and all associated commands will be permanently removed.`,
-            confirmLabel: "Delete Project",
-            cancelLabel: "Cancel",
-            isDestructive: true,
-            onConfirm: () => {
-              deleteProjectMutation.mutate(project.id);
-              setProjectDialogOpen(false);
-            },
-          });
-        }}
-        onProjectError={showError}
-        onProjectSubmit={(input) =>
-          projectMutation.mutate({
-            id: editingProject?.id,
-            input: {
-              ...input,
-              notes: editingProject?.notes ?? null,
-            },
-          })
-        }
-        selectedProject={selectedProject}
-        editingCommand={editingCommand}
-        defaultSection={defaultSection}
-        availableSections={commandSections.map((s) => s.section)}
-        commandDialogOpen={commandDialogOpen}
-        onCommandDialogOpenChange={setCommandDialogOpen}
-        commandDialogPending={commandMutation.isPending}
-        onCommandError={showError}
-        onCommandSubmit={(input) => commandMutation.mutate({ id: editingCommand?.id, input })}
-        exportDialogOpen={exportDialogOpen}
-        onExportDialogOpenChange={setExportDialogOpen}
-        exportDialogPending={exportProjectMutation.isPending}
-        onExportSave={() => {
-          if (selectedProject) {
-            exportProjectMutation.mutate(selectedProject.id);
+        <AppDialogs
+          editingProject={editingProject}
+          projectDialogOpen={projectDialogOpen}
+          onProjectDialogOpenChange={setProjectDialogOpen}
+          projectDialogPending={projectMutation.isPending}
+          onDeleteProject={(project) => {
+            setConfirmDialog({
+              isOpen: true,
+              title: "Delete Project",
+              description: `Are you sure you want to delete "${project.name}"? This action cannot be undone and all associated commands will be permanently removed.`,
+              confirmLabel: "Delete Project",
+              cancelLabel: "Cancel",
+              isDestructive: true,
+              onConfirm: () => {
+                deleteProjectMutation.mutate(project.id);
+                setProjectDialogOpen(false);
+              },
+            });
+          }}
+          onProjectError={showError}
+          onProjectSubmit={(input) =>
+            projectMutation.mutate({
+              id: editingProject?.id,
+              input: {
+                ...input,
+                notes: editingProject?.notes ?? null,
+              },
+            })
           }
-        }}
-        newProjectImportAnalysis={newProjectImportAnalysis}
-        importPending={importProjectMutation.isPending}
-        onImportNewProject={importNewProject}
-        onImportPreviewOpenChange={closeImportPreview}
-        importWizard={importWizard}
-        onImportWizardOpenChange={closeImportWizard}
-        onImportWizardBack={goImportBack}
-        onImportWizardNext={goImportNext}
-        onImportWizardToggleProjectField={toggleImportProjectField}
-        onImportWizardToggleCommand={toggleImportCommand}
-        onImportWizardToggleNote={toggleImportNote}
-        onImportWizardSubmit={handleImportWizardSubmit}
-        overwritePreview={overwritePreview}
-        onOverwritePreviewOpenChange={closeOverwritePreview}
-        onOverwritePreviewConfirm={confirmOverwritePreview}
-        confirmDialog={confirmDialog}
-        onConfirmDialogOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, isOpen: open }))}
-        killPortsDialogOpen={killPortsDialogOpen}
-        onKillPortsDialogOpenChange={setKillPortsDialogOpen}
-        killPortsCommand={killPortsCommand}
-        portProcesses={portProcesses}
-        onKillProcesses={handleKillProcesses}
-        isKillingPorts={killingPorts}
-        onRefreshProcesses={handleRefreshProcesses}
-      />
+          selectedProject={selectedProject}
+          editingCommand={editingCommand}
+          defaultSection={defaultSection}
+          availableSections={commandSections.map((s) => s.section)}
+          commandDialogOpen={commandDialogOpen}
+          onCommandDialogOpenChange={setCommandDialogOpen}
+          commandDialogPending={commandMutation.isPending}
+          onCommandError={showError}
+          onCommandSubmit={(input) => commandMutation.mutate({ id: editingCommand?.id, input })}
+          exportDialogOpen={exportDialogOpen}
+          onExportDialogOpenChange={setExportDialogOpen}
+          exportDialogPending={exportProjectMutation.isPending}
+          onExportSave={() => {
+            if (selectedProject) {
+              exportProjectMutation.mutate(selectedProject.id);
+            }
+          }}
+          newProjectImportAnalysis={newProjectImportAnalysis}
+          importPending={importProjectMutation.isPending}
+          onImportNewProject={importNewProject}
+          onImportPreviewOpenChange={closeImportPreview}
+          importWizard={importWizard}
+          onImportWizardOpenChange={closeImportWizard}
+          onImportWizardBack={goImportBack}
+          onImportWizardNext={goImportNext}
+          onImportWizardToggleProjectField={toggleImportProjectField}
+          onImportWizardToggleCommand={toggleImportCommand}
+          onImportWizardToggleNote={toggleImportNote}
+          onImportWizardSubmit={handleImportWizardSubmit}
+          overwritePreview={overwritePreview}
+          onOverwritePreviewOpenChange={closeOverwritePreview}
+          onOverwritePreviewConfirm={confirmOverwritePreview}
+          confirmDialog={confirmDialog}
+          onConfirmDialogOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, isOpen: open }))}
+          killPortsDialogOpen={killPortsDialogOpen}
+          onKillPortsDialogOpenChange={setKillPortsDialogOpen}
+          killPortsCommand={killPortsCommand}
+          portProcesses={portProcesses}
+          onKillProcesses={handleKillProcesses}
+          isKillingPorts={killingPorts}
+          onRefreshProcesses={handleRefreshProcesses}
+        />
 
-      <AnimatedToastStack toasts={toasts} onDismiss={dismissToast} position="top-right" placement="fixed" />
-    </main>
+        <AnimatedToastStack toasts={toasts} onDismiss={dismissToast} position="top-right" placement="fixed" />
+      </main>
+    </MotionLevelProvider>
   );
 }
 

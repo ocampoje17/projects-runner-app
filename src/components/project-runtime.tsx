@@ -1,4 +1,3 @@
-import { ActionSwapButton } from "./motion/action-swap";
 import { Tooltip } from "./motion/tooltip";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -9,6 +8,7 @@ import { XtermTerminal } from "./xterm-terminal";
 import { commandPorts } from "../lib/command-utils";
 import type { ProjectCommand } from "../lib/api";
 import { BrushCleaning, Keyboard, Loader2, Maximize2, Minimize2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
+import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
@@ -68,6 +68,7 @@ export function CommandCard({
 }) {
   const isRunning = run?.status === "running";
   const stopClickTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { allowRichMotion } = useMotionPreferences();
 
   useEffect(() => () => {
     if (stopClickTimeout.current) clearTimeout(stopClickTimeout.current);
@@ -77,7 +78,13 @@ export function CommandCard({
 
   return (
     <Card
-      className={cn("self-start overflow-hidden transition-all", isRunning && "command-card-running", run?.status === "failed" ? "command-card-failed" : "hover:-translate-y-px hover:border-primary/30 hover:shadow-app-card-hover")}
+      className={cn(
+        "self-start overflow-hidden transition-[border-color,box-shadow,background-color]",
+        isRunning && "command-card-running",
+        run?.status === "failed"
+          ? "command-card-failed"
+          : allowRichMotion && "hover:border-primary/30 hover:shadow-app-card-hover",
+      )}
     >
       <CardHeader className="flex-row items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -127,17 +134,14 @@ export function CommandCard({
         <pre className="max-h-[calc(1.625em*5+1rem)] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-[14px] border border-border bg-[var(--script-preview-bg)] p-2 font-mono text-[11px] leading-relaxed text-[var(--script-preview-color)]">{command.script}</pre>
         <div className="mt-2 flex flex-nowrap items-center gap-1">
           <Tooltip content={isStopping ? "Stopping" : isRunning ? "Stop - double-click to force stop" : "Run"}>
-            <ActionSwapButton
+            <Button
               size="icon"
               variant={isRunning || isStopping ? "outline" : "primary"}
-              animation="blur"
-              cycle={false}
               disabled={isStopping}
               className={cn(
                 "h-8 w-8 shrink-0",
                 (isRunning || isStopping) && "border-destructive text-destructive hover:bg-destructive/10",
               )}
-              value={isStopping ? "stopping" : isRunning ? "stop" : "run"}
               onClick={() => {
                 if (isStopping) return;
                 if (isRunning) {
@@ -159,41 +163,25 @@ export function CommandCard({
                 }
                 onForceStop();
               }}
-              items={[
-                { id: "run", label: "Run", icon: <Play size={14} />, ariaLabel: `Run ${command.name}` },
-                { id: "stop", label: "Stop", icon: <Square size={14} />, ariaLabel: `Stop ${command.name}` },
-                {
-                  id: "stopping",
-                  label: "Stopping",
-                  icon: <Loader2 size={14} className="animate-spin" />,
-                  ariaLabel: `Stopping ${command.name}`,
-                },
-              ]}
-            />
+              aria-label={isStopping ? `Stopping ${command.name}` : isRunning ? `Stop ${command.name}` : `Run ${command.name}`}
+            >
+              {isStopping ? <Loader2 size={14} className="animate-spin" /> : isRunning ? <Square size={14} /> : <Play size={14} />}
+            </Button>
           </Tooltip>
           {isRunning && (
             <Tooltip content={isRestarting ? "Restarting" : "Rerun"}>
-              <ActionSwapButton
+              <Button
                 size="icon"
                 variant="secondary"
-                animation="blur"
-                cycle={false}
                 disabled={isRestarting}
                 className="h-8 w-8 shrink-0"
-                value={isRestarting ? "restarting" : "restart"}
                 onClick={() => {
                   if (!isRestarting) onRestart();
                 }}
-                items={[
-                  { id: "restart", label: "Rerun", icon: <RotateCcw size={14} />, ariaLabel: `Rerun ${command.name}` },
-                  {
-                    id: "restarting",
-                    label: "Restarting",
-                    icon: <Loader2 size={14} className="animate-spin" />,
-                    ariaLabel: `Restarting ${command.name}`,
-                  },
-                ]}
-              />
+                aria-label={isRestarting ? `Restarting ${command.name}` : `Rerun ${command.name}`}
+              >
+                {isRestarting ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+              </Button>
             </Tooltip>
           )}
           <Tooltip content={isScanningPorts ? "Scanning ports..." : "Kill ports"}>

@@ -351,7 +351,6 @@ p {
   box-shadow:
     0 0 0 1px color-mix(in oklab, var(--success-color) 22%, transparent),
     0 12px 28px color-mix(in oklab, var(--success-color) 10%, transparent);
-  animation: runningPulse 2.5s infinite ease-in-out;
 }
 
 .command-card-failed {
@@ -368,7 +367,6 @@ p {
   border-radius: 999px;
   background: var(--success-color);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--success-color) 18%, transparent);
-  animation: pulseDot 1.8s infinite ease-in-out;
 }
 
 .terminal-tab-item {
@@ -462,6 +460,12 @@ p {
   50% {
     opacity: 1;
   }
+}
+
+:root[data-motion="off"] .fade-in,
+:root[data-motion="off"] .animate-bounce-subtle,
+:root[data-motion="off"] .spin {
+  animation: none !important;
 }
 
 @keyframes fadeIn {

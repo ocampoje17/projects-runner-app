@@ -2,11 +2,12 @@
 
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
-import { motion, useReducedMotion, type HTMLMotionProps } from "motion/react";
 import * as React from "react";
 import { SPRING_PRESS } from "@/lib/ease";
 import { useHoverCapable } from "@/lib/hooks/use-hover-capable";
+import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { motion } from "motion/react";
 
 const buttonVariants = cva(
   "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap border shadow-sm font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 app-focus-ring disabled:pointer-events-none disabled:opacity-50 select-none",
@@ -39,9 +40,12 @@ const buttonVariants = cva(
   },
 );
 
-type ButtonProps = Omit<HTMLMotionProps<"button">, "ref"> &
+type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
+    animated?: boolean;
+    hoverScale?: number;
+    tapScale?: number;
   };
 
 const MotionButton = motion.button;
@@ -55,11 +59,14 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       asChild = false,
       disabled,
       type = "button",
+      animated = false,
+      hoverScale = 1.02,
+      tapScale = 0.93,
       ...props
     },
     ref,
   ) => {
-    const reduce = useReducedMotion();
+    const { allowRichMotion } = useMotionPreferences();
     const canHover = useHoverCapable();
     const classes = cn(buttonVariants({ variant, size }), className);
 
@@ -67,18 +74,22 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       return <Slot ref={ref} className={classes} {...(props as object)} />;
     }
 
-    return (
-      <MotionButton
-        ref={ref}
-        type={type}
-        disabled={disabled}
-        whileTap={reduce || disabled ? undefined : { scale: 0.93 }}
-        whileHover={reduce || disabled || !canHover ? undefined : { scale: 1.02 }}
-        transition={SPRING_PRESS}
-        className={classes}
-        {...props}
-      />
-    );
+    if (animated) {
+      return (
+        <MotionButton
+          ref={ref}
+          type={type}
+          disabled={disabled}
+          whileTap={allowRichMotion && !disabled ? { scale: tapScale } : undefined}
+          whileHover={allowRichMotion && !disabled && canHover ? { scale: hoverScale } : undefined}
+          transition={SPRING_PRESS}
+          className={classes}
+          {...(props as object)}
+        />
+      );
+    }
+
+    return <button ref={ref} type={type} disabled={disabled} className={classes} {...props} />;
   },
 );
 

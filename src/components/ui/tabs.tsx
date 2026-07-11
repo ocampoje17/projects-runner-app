@@ -3,7 +3,6 @@
 import {
   MotionConfig,
   motion,
-  useReducedMotion,
   type Transition,
 } from "motion/react";
 import {
@@ -14,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { EASE_OUT, SPRING_LAYOUT } from "@/lib/ease";
+import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 type Variant = "pill" | "underline" | "segment";
@@ -52,7 +52,7 @@ export function Tabs({
 }) {
   const [internal, setInternal] = useState(defaultValue ?? "");
   const layoutId = useId();
-  const reduce = useReducedMotion();
+  const { allowRichMotion } = useMotionPreferences();
   const controlled = value !== undefined;
   const current = controlled ? value : internal;
   const setValue = (next: string) => {
@@ -61,11 +61,17 @@ export function Tabs({
   };
 
   return (
-    <MotionConfig transition={reduce ? { duration: 0 } : transition}>
+    <MotionConfig transition={allowRichMotion ? transition : { duration: 0 }}>
       <TabsCtx.Provider value={{ value: current, setValue, layoutId, variant }}>
-        <motion.div layoutRoot className={className} data-slot="tabs">
-          {children}
-        </motion.div>
+        {allowRichMotion ? (
+          <motion.div layoutRoot className={className} data-slot="tabs">
+            {children}
+          </motion.div>
+        ) : (
+          <div className={className} data-slot="tabs">
+            {children}
+          </div>
+        )}
       </TabsCtx.Provider>
     </MotionConfig>
   );
@@ -105,6 +111,7 @@ export function TabsTrigger({
   indicatorClassName?: string;
 }) {
   const { value: current, setValue, layoutId, variant } = useTabs();
+  const { allowRichMotion } = useMotionPreferences();
   const active = current === value;
   const usesDefaultIndicator = indicatorClassName === undefined;
   const radius = variant === "underline" ? "rounded-none" : "rounded-full";
@@ -124,23 +131,28 @@ export function TabsTrigger({
         )}
       >
         {children}
-        {active ? (
+        {active && allowRichMotion ? (
           <motion.span
             layoutId={layoutId}
             className={cn("absolute -bottom-px left-0 right-0 h-px bg-primary", indicatorClassName)}
           />
-        ) : null}
+        ) : active ? <span className={cn("absolute -bottom-px left-0 right-0 h-px bg-primary", indicatorClassName)} /> : null}
       </button>
     );
   }
 
   return (
     <div className="relative">
-      {active ? (
+      {active && allowRichMotion ? (
         <motion.span
           layoutId={layoutId}
           style={{ borderRadius: 9999 }}
           className={cn("absolute inset-0 border border-primary bg-primary shadow-sm", radius, indicatorClassName)}
+        />
+      ) : active ? (
+        <span
+          className={cn("absolute inset-0 border border-primary bg-primary shadow-sm", radius, indicatorClassName)}
+          style={{ borderRadius: 9999 }}
         />
       ) : null}
       <button
@@ -179,7 +191,7 @@ export function TabsContent({
   className?: string;
 }) {
   const { value: current } = useTabs();
-  const reduce = useReducedMotion();
+  const { allowRichMotion } = useMotionPreferences();
   const active = current === value;
 
   if (!active) {
@@ -192,11 +204,19 @@ export function TabsContent({
     );
   }
 
+  if (!allowRichMotion) {
+    return (
+      <div data-state="active" className={cn("tabs-content flex min-h-0 min-w-0 flex-1 flex-col outline-none", className)}>
+        {children}
+      </div>
+    );
+  }
+
   return (
     <motion.div
       key={value}
       data-state="active"
-      initial={{ opacity: 0, y: reduce ? 0 : 6 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: EASE_OUT }}
       className={cn("tabs-content flex min-h-0 min-w-0 flex-1 flex-col outline-none", className)}

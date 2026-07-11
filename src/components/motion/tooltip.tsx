@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion, type Variants } from "motion/react";
+import { AnimatePresence, motion, type Variants } from "motion/react";
 import {
   cloneElement,
   isValidElement,
@@ -12,6 +12,7 @@ import {
 } from "react";
 import { EASE_OUT } from "@/lib/ease";
 import { useHoverCapable } from "@/lib/hooks/use-hover-capable";
+import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 type Side = "top" | "right" | "bottom" | "left";
@@ -101,8 +102,8 @@ export function Tooltip({ content, children, side = "top", delay = 120, classNam
   const [open, setOpen] = useState(false);
   const id = useId();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reduce = useReducedMotion();
   const canHover = useHoverCapable();
+  const { allowBasicMotion, allowRichMotion } = useMotionPreferences();
 
   const show = () => {
     if (!canHover) return;
@@ -129,7 +130,7 @@ export function Tooltip({ content, children, side = "top", delay = 120, classNam
     "aria-describedby": id,
   });
 
-  const variants = reduce ? REDUCED_VARIANTS : buildVariants(side);
+  const variants = allowRichMotion ? buildVariants(side) : REDUCED_VARIANTS;
 
   return (
     <span className={cn("relative inline-flex align-middle", wrapperClassName)}>
@@ -137,24 +138,37 @@ export function Tooltip({ content, children, side = "top", delay = 120, classNam
       <AnimatePresence mode="wait">
         {open ? (
           <span className={cn("pointer-events-none absolute z-50", wrapperClasses[side])}>
-            <motion.span
-              id={id}
-              role="tooltip"
-              variants={variants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              style={{
-                transformOrigin: transformOrigin[side],
-                willChange: "transform, opacity, filter",
-              }}
-              className={cn(
-                "block whitespace-nowrap rounded-lg border border-app-border bg-popover/85 px-2.5 py-1 text-xs font-medium text-popover-foreground shadow-2xl backdrop-blur-xl",
-                className,
-              )}
-            >
-              {content}
-            </motion.span>
+            {allowBasicMotion ? (
+              <motion.span
+                id={id}
+                role="tooltip"
+                variants={variants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                style={{
+                  transformOrigin: transformOrigin[side],
+                  willChange: allowRichMotion ? "transform, opacity, filter" : "opacity",
+                }}
+                className={cn(
+                  "block whitespace-nowrap rounded-lg border border-app-border bg-popover/85 px-2.5 py-1 text-xs font-medium text-popover-foreground shadow-2xl backdrop-blur-xl",
+                  className,
+                )}
+              >
+                {content}
+              </motion.span>
+            ) : (
+              <span
+                id={id}
+                role="tooltip"
+                className={cn(
+                  "block whitespace-nowrap rounded-lg border border-app-border bg-popover/95 px-2.5 py-1 text-xs font-medium text-popover-foreground shadow-2xl",
+                  className,
+                )}
+              >
+                {content}
+              </span>
+            )}
           </span>
         ) : null}
       </AnimatePresence>

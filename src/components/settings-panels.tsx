@@ -23,6 +23,7 @@ import { Switch } from "./ui/switch";
 import { Badge } from "./ui/badge";
 import type { AppInfo } from "../lib/api";
 import { ACCENT_THEMES, type AccentColor } from "../lib/theme";
+import type { MotionLevel } from "../lib/motion";
 import { ThemeToggle } from "./motion/theme-toggle";
 import { cn } from "@/lib/utils";
 
@@ -97,12 +98,38 @@ export function AppearanceSettingsPanel({
   setTheme,
   accent,
   setAccent,
+  motionLevel,
+  setMotionLevel,
 }: {
   theme: "light" | "dark";
   setTheme: (theme: "light" | "dark") => void;
   accent: AccentColor;
   setAccent: (accent: AccentColor) => void;
+  motionLevel: MotionLevel;
+  setMotionLevel: (level: MotionLevel) => void;
 }) {
+  const motionOptions: Array<{
+    id: MotionLevel;
+    label: string;
+    description: string;
+  }> = [
+    {
+      id: "full",
+      label: "Full",
+      description: "Keep richer transitions, hover feedback, and theme reveals.",
+    },
+    {
+      id: "reduced",
+      label: "Reduced",
+      description: "Use simpler transitions and remove heavy layout or blur effects.",
+    },
+    {
+      id: "off",
+      label: "Off",
+      description: "Disable non-essential motion and keep feedback mostly static.",
+    },
+  ];
+
   return (
     <div className="fade-in space-y-6">
       <SettingsSection
@@ -183,6 +210,36 @@ export function AppearanceSettingsPanel({
                 <span className="h-3 w-3 rounded-full shadow-sm" style={{ backgroundColor: ACCENT_THEMES[col].primary }} />
                 <span>{col.charAt(0).toUpperCase() + col.slice(1)}</span>
                 {active ? <Check size={14} className="text-primary" /> : null}
+              </Button>
+            );
+          })}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        icon={<Check size={16} />}
+        title="Motion"
+        description="Choose how much interface motion should run across the app"
+      >
+        <div className="grid gap-2">
+          {motionOptions.map((option) => {
+            const active = motionLevel === option.id;
+            return (
+              <Button
+                key={option.id}
+                type="button"
+                variant="ghost"
+                className={cn(
+                  "h-auto items-start justify-between rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] px-3.5 py-3 text-left hover:border-border-strong hover:bg-card",
+                  active && "border-primary/50 bg-primary/6 shadow-[0_0_0_3px_var(--primary-glow)]",
+                )}
+                onClick={() => setMotionLevel(option.id)}
+              >
+                <div className="min-w-0">
+                  <div className="text-[12.5px] font-semibold text-app-title">{option.label}</div>
+                  <div className="mt-1 text-[11.5px] text-muted-foreground">{option.description}</div>
+                </div>
+                {active ? <Check className="mt-0.5 shrink-0 text-primary" size={16} /> : null}
               </Button>
             );
           })}

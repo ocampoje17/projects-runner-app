@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Info, Palette, Settings, Terminal } from "lucide-react";
 import type { AppInfo } from "../lib/api";
 import type { AccentColor } from "../lib/theme";
+import type { MotionLevel } from "../lib/motion";
 import {
   AppearanceSettingsPanel,
   SystemSettingsPanel,
@@ -25,6 +26,8 @@ export interface SettingsPageProps {
   setShowLogsTimestamp: (show: boolean) => void;
   showStreamName: boolean;
   setShowStreamName: (show: boolean) => void;
+  motionLevel: MotionLevel;
+  setMotionLevel: (level: MotionLevel) => void;
   projectCount: number;
   commandCount: number;
   onResetCache: () => void;
@@ -46,6 +49,8 @@ export function SettingsPage({
   setShowLogsTimestamp,
   showStreamName,
   setShowStreamName,
+  motionLevel,
+  setMotionLevel,
   projectCount,
   commandCount,
   onResetCache,
@@ -87,7 +92,14 @@ export function SettingsPage({
 
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           <TabsContent value="appearance" className="block">
-            <AppearanceSettingsPanel theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} />
+            <AppearanceSettingsPanel
+              theme={theme}
+              setTheme={setTheme}
+              accent={accent}
+              setAccent={setAccent}
+              motionLevel={motionLevel}
+              setMotionLevel={setMotionLevel}
+            />
           </TabsContent>
           <TabsContent value="terminal" className="block">
             <TerminalSettingsPanel

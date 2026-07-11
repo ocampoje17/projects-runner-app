@@ -1,8 +1,9 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import * as React from "react";
 import { EASE_OUT, SPRING_PRESS } from "@/lib/ease";
+import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const CHECK_PATH = "M5 13l4 4L19 7";
@@ -40,7 +41,7 @@ export const Checkbox = React.forwardRef<HTMLButtonElement, CheckboxProps>(funct
 ) {
   const autoId = React.useId();
   const checkboxId = id ?? autoId;
-  const reduce = useReducedMotion();
+  const { allowRichMotion } = useMotionPreferences();
   const [uncontrolled, setUncontrolled] = React.useState(defaultChecked);
   const isControlled = checked !== undefined;
   const raw = isControlled ? checked : uncontrolled;
@@ -60,7 +61,7 @@ export const Checkbox = React.forwardRef<HTMLButtonElement, CheckboxProps>(funct
         aria-checked={isIndeterminate ? "mixed" : isChecked}
         aria-label={ariaLabel}
         disabled={disabled}
-        whileTap={reduce || disabled ? undefined : { scale: 0.92 }}
+        whileTap={allowRichMotion && !disabled ? { scale: 0.92 } : undefined}
         transition={SPRING_PRESS}
         data-state={isChecked ? "checked" : isIndeterminate ? "indeterminate" : "unchecked"}
         className={cn(
@@ -90,9 +91,9 @@ export const Checkbox = React.forwardRef<HTMLButtonElement, CheckboxProps>(funct
               strokeWidth="3"
               strokeLinecap="round"
               strokeLinejoin="round"
-              initial={reduce ? { opacity: 0 } : { pathLength: 0, opacity: 0 }}
-              animate={reduce ? { opacity: 1 } : { pathLength: 1, opacity: 1 }}
-              exit={reduce ? { opacity: 0 } : { pathLength: 0, opacity: 0 }}
+              initial={allowRichMotion ? { pathLength: 0, opacity: 0 } : { opacity: 0 }}
+              animate={allowRichMotion ? { pathLength: 1, opacity: 1 } : { opacity: 1 }}
+              exit={allowRichMotion ? { pathLength: 0, opacity: 0 } : { opacity: 0 }}
               transition={{ duration: 0.18, ease: EASE_OUT }}
             >
               <motion.path d={path} />

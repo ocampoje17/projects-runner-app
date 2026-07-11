@@ -3,7 +3,6 @@
 import {
   AnimatePresence,
   motion,
-  useReducedMotion,
   type Variants,
 } from "motion/react";
 import { Check, Loader2, X } from "lucide-react";
@@ -16,6 +15,7 @@ import {
 } from "react";
 import { EASE_OUT, SPRING_SWAP } from "@/lib/ease";
 import { Button, type ButtonProps } from "@/components/ui/button";
+import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 export type ButtonState = "idle" | "loading" | "success" | "error";
@@ -27,6 +27,7 @@ export interface StatefulButtonProps extends Omit<ButtonProps, "children"> {
   successText?: ReactNode;
   errorText?: ReactNode;
   icon?: ReactNode;
+  motionPreset?: "rich" | "simple";
 }
 
 const CASCADE_STAGGER = 0.025;
@@ -67,15 +68,15 @@ const ICON_VARIANTS: Variants = {
 };
 
 function IconSlot({ keyId, children }: { keyId: string; children: ReactNode }) {
-  const reduce = useReducedMotion();
+  const { allowRichMotion } = useMotionPreferences();
   return (
     <motion.span
       key={keyId}
       variants={ICON_VARIANTS}
-      initial={reduce ? { opacity: 0 } : "initial"}
-      animate={reduce ? { opacity: 1 } : "animate"}
-      exit={reduce ? { opacity: 0 } : "exit"}
-      transition={reduce ? { duration: 0.15 } : undefined}
+      initial={allowRichMotion ? "initial" : { opacity: 0 }}
+      animate={allowRichMotion ? "animate" : { opacity: 1 }}
+      exit={allowRichMotion ? "exit" : { opacity: 0 }}
+      transition={allowRichMotion ? undefined : { duration: 0.15 }}
       className="inline-grid shrink-0 place-items-center overflow-hidden"
     >
       {children}
@@ -84,11 +85,11 @@ function IconSlot({ keyId, children }: { keyId: string; children: ReactNode }) {
 }
 
 function TextSlot({ value, children }: { value: string; children: ReactNode }) {
-  const reduce = useReducedMotion();
+  const { allowRichMotion } = useMotionPreferences();
   const measureRef = useRef<HTMLSpanElement>(null);
   const [width, setWidth] = useState<number>();
   const label = typeof children === "string" ? children : null;
-  const cascade = label !== null && !reduce;
+  const cascade = label !== null && allowRichMotion;
 
   useLayoutEffect(() => {
     const nextWidth = measureRef.current?.offsetWidth;
@@ -100,7 +101,7 @@ function TextSlot({ value, children }: { value: string; children: ReactNode }) {
     <motion.span
       initial={false}
       animate={{ width }}
-      transition={reduce ? { duration: 0 } : SPRING_SWAP}
+      transition={allowRichMotion ? SPRING_SWAP : { duration: 0 }}
       className="relative inline-block overflow-hidden whitespace-nowrap align-bottom"
     >
       <span ref={measureRef} aria-hidden className="invisible inline-block whitespace-nowrap">
@@ -136,10 +137,10 @@ function TextSlot({ value, children }: { value: string; children: ReactNode }) {
         <AnimatePresence initial={false}>
           <motion.span
             key={`text-${value}`}
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 14, filter: ROLL_BLUR }}
-            animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={reduce ? { opacity: 0 } : { opacity: 0, y: -14, filter: ROLL_BLUR }}
-            transition={reduce ? { duration: 0.15 } : SPRING_SWAP}
+            initial={allowRichMotion ? { opacity: 0, y: 14, filter: ROLL_BLUR } : { opacity: 0 }}
+            animate={allowRichMotion ? { opacity: 1, y: 0, filter: "blur(0px)" } : { opacity: 1 }}
+            exit={allowRichMotion ? { opacity: 0, y: -14, filter: ROLL_BLUR } : { opacity: 0 }}
+            transition={allowRichMotion ? SPRING_SWAP : { duration: 0.15 }}
             className="absolute left-0 top-0 inline-block will-change-[opacity,filter,transform]"
           >
             {children}
@@ -159,12 +160,14 @@ export const StatefulButton = forwardRef<HTMLButtonElement, StatefulButtonProps>
       successText = "Done",
       errorText = "Error",
       icon,
+      motionPreset,
       disabled,
       className,
       ...rest
     },
     ref,
   ) {
+    const { allowRichMotion } = useMotionPreferences();
     const content =
       state === "loading"
         ? loadingText
@@ -184,6 +187,7 @@ export const StatefulButton = forwardRef<HTMLButtonElement, StatefulButtonProps>
       ) : (
         icon
       );
+    const richMotion = motionPreset ? motionPreset === "rich" : allowRichMotion;
 
     return (
       <Button
@@ -193,10 +197,19 @@ export const StatefulButton = forwardRef<HTMLButtonElement, StatefulButtonProps>
         {...rest}
       >
         <span className="inline-flex items-center gap-2">
-          <AnimatePresence mode="popLayout" initial={false}>
-            {statusIcon ? <IconSlot keyId={`${state}-icon`}>{statusIcon}</IconSlot> : null}
-          </AnimatePresence>
-          <TextSlot value={String(state)}>{content}</TextSlot>
+          {richMotion ? (
+            <>
+              <AnimatePresence mode="popLayout" initial={false}>
+                {statusIcon ? <IconSlot keyId={`${state}-icon`}>{statusIcon}</IconSlot> : null}
+              </AnimatePresence>
+              <TextSlot value={String(state)}>{content}</TextSlot>
+            </>
+          ) : (
+            <>
+              {statusIcon ? <span className="inline-grid shrink-0 place-items-center">{statusIcon}</span> : null}
+              <span>{content}</span>
+            </>
+          )}
         </span>
       </Button>
     );

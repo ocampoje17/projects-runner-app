@@ -2,6 +2,7 @@
 
 import { animate, motion, MotionConfig, useReducedMotion } from "motion/react";
 import * as React from "react";
+import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const THUMB_SPRING = { type: "spring", stiffness: 800, damping: 80, mass: 4 } as const;
@@ -34,6 +35,7 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(function 
   const switchId = id ?? reactId;
   const thumbRef = React.useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
+  const { allowRichMotion } = useMotionPreferences();
   const [uncontrolled, setUncontrolled] = React.useState(defaultChecked);
   const [isPressed, setIsPressed] = React.useState(false);
   const [isPointer, setIsPointer] = React.useState(false);
@@ -41,16 +43,16 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(function 
   const current = isControlled ? Boolean(checked) : uncontrolled;
 
   React.useEffect(() => {
-    if (!thumbRef.current || reduce) return;
+    if (!thumbRef.current || reduce || !allowRichMotion) return;
     if (disabled && isPressed) {
       animate(thumbRef.current, { x: [0, -2, 2, -1, 0] }, { delay: 0.2, duration: 0.6 });
     }
-  }, [disabled, isPressed, reduce]);
+  }, [allowRichMotion, disabled, isPressed, reduce]);
 
-  const squish = !disabled && isPointer && isPressed && !reduce;
+  const squish = allowRichMotion && !disabled && isPointer && isPressed && !reduce;
 
   return (
-    <MotionConfig transition={reduce ? { duration: 0 } : THUMB_SPRING}>
+    <MotionConfig transition={allowRichMotion && !reduce ? THUMB_SPRING : { duration: 0 }}>
       <span className={cn("inline-flex items-center gap-2", className)}>
         {name ? <input type="hidden" name={name} value={current ? "true" : "false"} readOnly /> : null}
         <motion.button
@@ -84,7 +86,7 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(function 
         >
           <motion.div
             ref={thumbRef}
-            layout
+            layout={allowRichMotion}
             animate={{ scale: squish ? 0.9 : 1 }}
             className="pointer-events-none block h-[18px] w-[18px] rounded-full border border-black/5 bg-white shadow-sm dark:border-white/10"
           />

@@ -12,7 +12,6 @@ import {
 import {
   AnimatePresence,
   motion,
-  useReducedMotion,
   type Transition,
 } from "motion/react";
 import {
@@ -26,6 +25,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { EASE_OUT } from "@/lib/ease";
+import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 export type ToastStatus = "neutral" | "info" | "loading" | "success" | "error";
@@ -334,7 +334,7 @@ const ToastItem = memo(function ToastItem({
   icons?: Partial<Record<ToastStatus, ReactNode>>;
   renderToast?: (toast: AnimatedToast) => ReactNode;
 }) {
-  const reduce = useReducedMotion();
+  const { allowBasicMotion, allowRichMotion } = useMotionPreferences();
   const status = toast.status ?? "neutral";
   const Icon = STATUS_ICON[status];
   const iconNode = icons?.[status] ?? toast.icon ?? <Icon className="h-3.5 w-3.5" />;
@@ -342,39 +342,45 @@ const ToastItem = memo(function ToastItem({
 
   return (
     <motion.li
-      layout
+      layout={allowRichMotion}
       initial={
-        reduce
-          ? { opacity: 0 }
-          : { opacity: 0, y: 22, scale: 0.96, filter: "blur(10px)" }
+        !allowBasicMotion
+          ? false
+          : allowRichMotion
+            ? { opacity: 0, y: 22, scale: 0.96, filter: "blur(10px)" }
+            : { opacity: 0, y: 6 }
       }
       animate={
-        reduce
-          ? { opacity: 1 }
-          : { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }
+        !allowBasicMotion
+          ? undefined
+          : allowRichMotion
+            ? { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }
+            : { opacity: 1, y: 0 }
       }
       exit={
-        reduce
-          ? { opacity: 0 }
-          : {
-              opacity: 0,
-              x: 32,
-              scale: 0.96,
-              filter: "blur(8px)",
-              transition: { duration: 0.18, ease: EASE_OUT },
-            }
+        !allowBasicMotion
+          ? undefined
+          : allowRichMotion
+            ? {
+                opacity: 0,
+                x: 32,
+                scale: 0.96,
+                filter: "blur(8px)",
+                transition: { duration: 0.18, ease: EASE_OUT },
+              }
+            : { opacity: 0, y: -4, transition: { duration: 0.12, ease: EASE_OUT } }
       }
-      transition={STACK_SPRING}
-      drag={canDismiss && !reduce ? "x" : false}
+      transition={allowRichMotion ? STACK_SPRING : { duration: 0.16, ease: EASE_OUT }}
+      drag={canDismiss && allowRichMotion ? "x" : false}
       dragConstraints={{ left: 0, right: 0 }}
       dragElastic={0.18}
       onDragEnd={(_, info) => {
-        if (!canDismiss || !onDismiss) return;
+        if (!allowRichMotion || !canDismiss || !onDismiss) return;
         if (Math.abs(info.offset.x) > 72 || Math.abs(info.velocity.x) > 520) {
           onDismiss(toast.id);
         }
       }}
-      className={cn("pointer-events-auto relative will-change-transform", classNames?.item)}
+      className={cn("pointer-events-auto relative", allowRichMotion && "will-change-transform", classNames?.item)}
       style={{ zIndex: 20 - index }}
     >
       <div
@@ -388,7 +394,7 @@ const ToastItem = memo(function ToastItem({
         ) : (
           <div className="flex items-start gap-3">
             <motion.span
-              layout
+              layout={allowRichMotion}
               className={cn(
                 "mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
                 STATUS_CLASS[status],
@@ -399,19 +405,19 @@ const ToastItem = memo(function ToastItem({
                 <motion.span
                   key={status}
                   initial={
-                    reduce
-                      ? { opacity: 0 }
-                      : { opacity: 0, y: 8, scale: 0.8, filter: "blur(6px)" }
+                    allowRichMotion
+                      ? { opacity: 0, y: 8, scale: 0.8, filter: "blur(6px)" }
+                      : { opacity: 0 }
                   }
                   animate={
-                    reduce
-                      ? { opacity: 1 }
-                      : { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }
+                    allowRichMotion
+                      ? { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }
+                      : { opacity: 1 }
                   }
                   exit={
-                    reduce
-                      ? { opacity: 0 }
-                      : { opacity: 0, y: -8, scale: 0.9, filter: "blur(6px)" }
+                    allowRichMotion
+                      ? { opacity: 0, y: -8, scale: 0.9, filter: "blur(6px)" }
+                      : { opacity: 0 }
                   }
                   transition={CONTENT_TRANSITION}
                   className="inline-flex"
@@ -430,19 +436,19 @@ const ToastItem = memo(function ToastItem({
                 <motion.div
                   key={`${toast.id}-${status}-${String(toast.title)}`}
                   initial={
-                    reduce
-                      ? { opacity: 0 }
-                      : { opacity: 0, y: 8, filter: "blur(6px)" }
+                    allowRichMotion
+                      ? { opacity: 0, y: 8, filter: "blur(6px)" }
+                      : { opacity: 0 }
                   }
                   animate={
-                    reduce
-                      ? { opacity: 1 }
-                      : { opacity: 1, y: 0, filter: "blur(0px)" }
+                    allowRichMotion
+                      ? { opacity: 1, y: 0, filter: "blur(0px)" }
+                      : { opacity: 1 }
                   }
                   exit={
-                    reduce
-                      ? { opacity: 0 }
-                      : { opacity: 0, y: -8, filter: "blur(6px)" }
+                    allowRichMotion
+                      ? { opacity: 0, y: -8, filter: "blur(6px)" }
+                      : { opacity: 0 }
                   }
                   transition={CONTENT_TRANSITION}
                 >

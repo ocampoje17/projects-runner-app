@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 import { resolveAccentTheme, type AccentColor } from "../lib/theme";
+import type { MotionLevel } from "../lib/motion";
 
 const SYSTEM_MONO_FAMILY = '"Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace';
 const ACCENT_VALUES: AccentColor[] = ["mono", "violet", "blue", "emerald", "rose", "amber", "sky"];
+const MOTION_LEVEL_VALUES: MotionLevel[] = ["full", "reduced", "off"];
 
 function isAccentColor(value: string | null): value is AccentColor {
   return ACCENT_VALUES.includes(value as AccentColor);
+}
+
+function isMotionLevel(value: string | null): value is MotionLevel {
+  return MOTION_LEVEL_VALUES.includes(value as MotionLevel);
 }
 
 export function useAppPreferences() {
@@ -43,6 +49,10 @@ export function useAppPreferences() {
   const [showStreamName, setShowStreamName] = useState(() => {
     const saved = localStorage.getItem("showStreamName");
     return saved === null ? true : saved === "true";
+  });
+  const [motionLevel, setMotionLevel] = useState<MotionLevel>(() => {
+    const saved = localStorage.getItem("motionLevel");
+    return isMotionLevel(saved) ? saved : "reduced";
   });
 
   useEffect(() => {
@@ -98,6 +108,11 @@ export function useAppPreferences() {
     localStorage.setItem("showStreamName", String(showStreamName));
   }, [showStreamName]);
 
+  useEffect(() => {
+    localStorage.setItem("motionLevel", motionLevel);
+    document.documentElement.dataset.motion = motionLevel;
+  }, [motionLevel]);
+
   return {
     theme,
     setTheme,
@@ -113,5 +128,7 @@ export function useAppPreferences() {
     setShowLogsTimestamp,
     showStreamName,
     setShowStreamName,
+    motionLevel,
+    setMotionLevel,
   };
 }
