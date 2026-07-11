@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Projects Runner",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "identifier": "com.projectsrunner.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -23,7 +23,9 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**"]
+        "scope": [
+          "$APPDATA/**"
+        ]
       }
     }
   },
@@ -32,7 +34,9 @@
     "targets": "all",
     "fileAssociations": [
       {
-        "ext": ["prd"],
+        "ext": [
+          "prd"
+        ],
         "name": "Projects Runner Data",
         "description": "Projects Runner shared project file",
         "mimeType": "application/x-projects-runner-prd",
@@ -40,7 +44,9 @@
         "rank": "Default",
         "exportedType": {
           "identifier": "com.projectsrunner.desktop.prd",
-          "conformsTo": ["public.data"]
+          "conformsTo": [
+            "public.data"
+          ]
         }
       }
     ],

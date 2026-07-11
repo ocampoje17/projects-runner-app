@@ -1,6 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+
 function fail(message) {
   console.error(message);
   process.exit(1);
@@ -105,7 +107,7 @@ await Promise.all([
   writeJson(tauriConfigPath, tauriConfig),
 ]);
 
-run("npm", ["run", "release:check"]);
+run(npmCommand, ["run", "release:check"]);
 
 run("git", [
   "add",
