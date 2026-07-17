@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
+import { normalizeCommandScript } from "./command-utils";
+import { parseProjectNotes, serializeProjectNotes } from "./project-notes";
 
 const BROWSER_PREVIEW_ONLY_MESSAGE = "This action is only available in the desktop app.";
+const BROWSER_MOCK_STORAGE_KEY = "projects-runner:browser-mock-data";
+const BROWSER_MOCK_QUERY_PARAM = "browserMockDataUrl";
+const BROWSER_MOCK_WINDOW_NAME_PREFIX = "projects-runner:browser-mock:";
+const BROWSER_MOCK_SCRIPT_ID = "projects-runner-browser-mock";
 
 export function isDesktopRuntime() {
   if (typeof window === "undefined") {
@@ -10,6 +16,154 @@ export function isDesktopRuntime() {
   return typeof (window as typeof window & {
     __TAURI_INTERNALS__?: { invoke?: unknown };
   }).__TAURI_INTERNALS__?.invoke === "function";
+}
+
+type BrowserMockPayload = {
+  projects: Project[];
+  commandsByProjectId: Record<number, ProjectCommand[]>;
+};
+
+function normalizeProject(project: Project): Project {
+  if (!project.notes) {
+    return project;
+  }
+
+  const normalizedNotes = parseProjectNotes(project.notes);
+  return {
+    ...project,
+    notes: serializeProjectNotes(normalizedNotes),
+  };
+}
+
+function normalizeCommand(command: ProjectCommand): ProjectCommand {
+  return {
+    ...command,
+    script: normalizeCommandScript(command.script),
+  };
+}
+
+function normalizeBrowserMockPayload(payload: BrowserMockPayload): BrowserMockPayload {
+  return {
+    projects: payload.projects.map(normalizeProject),
+    commandsByProjectId: Object.fromEntries(
+      Object.entries(payload.commandsByProjectId).map(([projectId, commands]) => [
+        Number(projectId),
+        commands.map(normalizeCommand),
+      ]),
+    ) as Record<number, ProjectCommand[]>,
+  };
+}
+
+let browserMockPayloadPromise: Promise<BrowserMockPayload | null> | null = null;
+
+function readBrowserMockPayload(): BrowserMockPayload | null {
+  if (typeof window === "undefined" || isDesktopRuntime()) {
+    return null;
+  }
+
+  const inlineScript = window.document?.getElementById(BROWSER_MOCK_SCRIPT_ID);
+  if (inlineScript?.textContent) {
+    try {
+      const parsed = JSON.parse(inlineScript.textContent) as Partial<BrowserMockPayload>;
+      if (Array.isArray(parsed.projects) && typeof parsed.commandsByProjectId === "object" && parsed.commandsByProjectId) {
+        return {
+          ...normalizeBrowserMockPayload({
+            projects: parsed.projects,
+            commandsByProjectId: parsed.commandsByProjectId as Record<number, ProjectCommand[]>,
+          }),
+        };
+      }
+    } catch {
+      // Fall through to other browser mock sources.
+    }
+  }
+
+  if (typeof window.name === "string" && window.name.startsWith(BROWSER_MOCK_WINDOW_NAME_PREFIX)) {
+    try {
+      const parsed = JSON.parse(window.name.slice(BROWSER_MOCK_WINDOW_NAME_PREFIX.length)) as Partial<BrowserMockPayload>;
+      if (Array.isArray(parsed.projects) && typeof parsed.commandsByProjectId === "object" && parsed.commandsByProjectId) {
+        return {
+          ...normalizeBrowserMockPayload({
+            projects: parsed.projects,
+            commandsByProjectId: parsed.commandsByProjectId as Record<number, ProjectCommand[]>,
+          }),
+        };
+      }
+    } catch {
+      // Fall through to other browser mock sources.
+    }
+  }
+
+  try {
+    const raw = window.localStorage.getItem(BROWSER_MOCK_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<BrowserMockPayload>;
+    if (!Array.isArray(parsed.projects) || typeof parsed.commandsByProjectId !== "object" || !parsed.commandsByProjectId) {
+      return null;
+    }
+
+    return {
+      ...normalizeBrowserMockPayload({
+        projects: parsed.projects,
+        commandsByProjectId: parsed.commandsByProjectId as Record<number, ProjectCommand[]>,
+      }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readBrowserMockUrl() {
+  if (typeof window === "undefined" || isDesktopRuntime()) {
+    return null;
+  }
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const value = params.get(BROWSER_MOCK_QUERY_PARAM)?.trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+async function readBrowserMockPayloadAsync(): Promise<BrowserMockPayload | null> {
+  const inlinePayload = readBrowserMockPayload();
+  if (inlinePayload) {
+    return inlinePayload;
+  }
+
+  const mockUrl = readBrowserMockUrl();
+  if (!mockUrl) {
+    return null;
+  }
+
+  if (!browserMockPayloadPromise) {
+    browserMockPayloadPromise = fetch(mockUrl)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Unable to load browser mock data from ${mockUrl}`);
+        }
+
+        const parsed = (await response.json()) as Partial<BrowserMockPayload>;
+        if (!Array.isArray(parsed.projects) || typeof parsed.commandsByProjectId !== "object" || !parsed.commandsByProjectId) {
+          throw new Error("Browser mock data is malformed.");
+        }
+
+        return {
+          ...normalizeBrowserMockPayload({
+            projects: parsed.projects,
+            commandsByProjectId: parsed.commandsByProjectId as Record<number, ProjectCommand[]>,
+          }),
+        };
+      })
+      .catch(() => null);
+  }
+
+  return browserMockPayloadPromise;
 }
 
 async function invokeDesktop<T>(command: string, args?: Record<string, unknown>) {
@@ -237,7 +391,13 @@ export type RunFinishedPayload = {
 };
 
 export const api = {
-  listProjects: () => (isDesktopRuntime() ? invokeDesktop<Project[]>("list_projects") : Promise.resolve([])),
+  listProjects: () => {
+    if (isDesktopRuntime()) {
+      return invokeDesktop<Project[]>("list_projects");
+    }
+
+    return readBrowserMockPayloadAsync().then((payload) => payload?.projects ?? []);
+  },
   createProject: (input: ProjectInput) =>
     invokeDesktop<Project>("create_project", { input }),
   updateProject: (id: number, input: ProjectInput) =>
@@ -246,7 +406,7 @@ export const api = {
   listCommands: (projectId: number) =>
     isDesktopRuntime()
       ? invokeDesktop<ProjectCommand[]>("list_commands", { projectId })
-      : Promise.resolve([]),
+      : readBrowserMockPayloadAsync().then((payload) => payload?.commandsByProjectId[projectId] ?? []),
   createCommand: (input: CommandInput) =>
     invokeDesktop<ProjectCommand>("create_command", { input }),
   updateCommand: (id: number, input: CommandInput) =>
@@ -273,7 +433,10 @@ export const api = {
   appInfo: () =>
     (isDesktopRuntime()
       ? invokeDesktop<AppInfo>("app_info")
-      : Promise.resolve({ name: "Projects Runner", version: "Browser Preview" })),
+      : readBrowserMockPayloadAsync().then((payload) => ({
+          name: "Projects Runner",
+          version: payload ? "Browser Preview (Mock Data)" : "Browser Preview",
+        }))),
   exportProject: (projectId: number) =>
     invokeDesktop<string | null>("export_project", { projectId }),
   pickPrdFile: () => invokeDesktop<ImportPreview | null>("pick_prd_file"),

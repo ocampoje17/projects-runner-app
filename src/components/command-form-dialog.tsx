@@ -118,7 +118,7 @@ export function CommandDialog({
           <DialogDescription>Paste the same multi-line script you would paste into a terminal.</DialogDescription>
         </DialogHeader>
         <DialogForm
-          className="flex flex-col gap-2"
+          className="flex flex-col gap-2.5"
           onSubmit={form.handleSubmit((values) =>
             onSubmit({
               project_id: projectId,
@@ -138,6 +138,8 @@ export function CommandDialog({
             avatarPath={avatar}
             onPickImage={pickAvatar}
             onPickIcon={pickIcon}
+            className="gap-1.5 p-2.5"
+            iconGridClassName="grid-cols-[repeat(auto-fill,minmax(28px,1fr))] gap-1"
           />
           <DialogField>
             <Label>Name</Label>
@@ -176,8 +178,8 @@ export function CommandDialog({
             <Label>Script</Label>
             <Textarea
               {...form.register("script")}
-              className="min-h-[168px] font-mono text-[12px] leading-relaxed"
-              rows={10}
+              className="min-h-[148px] bg-[var(--script-preview-bg)] font-mono text-[11.5px] leading-6 text-[var(--script-preview-color)]"
+              rows={8}
               placeholder={"cd frontend\nnpm run dev"}
             />
             <FieldError message={form.formState.errors.script?.message} />
@@ -203,11 +205,14 @@ export function CommandDialog({
                 </Select>
               )}
             />
-            <div className="grid gap-1 rounded-[14px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_76%,var(--bg-workspace))] p-2.5 text-[11.5px] text-muted-foreground">
+            <div className="grid gap-1 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2 text-[11.5px] text-muted-foreground">
               {runtimeModeOptions.map((option) => {
                 const isSelected = form.watch("runtime_mode") === option.value;
                 return (
-                  <div key={option.value} className={isSelected ? "text-foreground" : undefined}>
+                  <div
+                    key={option.value}
+                    className={isSelected ? "rounded-[4px] border border-[var(--vscode-border)] bg-[var(--vscode-list-active)] px-2 py-1 text-foreground" : "px-2 py-1"}
+                  >
                     <strong className="block text-[12px]">{option.label}</strong>
                     <span>{option.description}</span>
                   </div>

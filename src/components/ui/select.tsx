@@ -11,13 +11,13 @@ export const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
 >(({ className, children, ...props }, ref) => (
-  <SelectPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      "flex h-10 w-full items-center justify-between rounded-full border border-border bg-[color-mix(in_oklab,var(--bg-input)_92%,var(--bg-workspace))] px-3.5 py-2 text-left text-[13px] text-foreground shadow-[inset_0_1px_0_color-mix(in_oklab,var(--background)_70%,transparent)] outline-none transition-[background-color,border-color,box-shadow,color] hover:border-border-strong data-[placeholder]:text-muted-foreground app-focus-ring",
-      className,
-    )}
-    {...props}
+    <SelectPrimitive.Trigger
+      ref={ref}
+      className={cn(
+        "flex h-9 w-full items-center justify-between rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2 text-left text-[12px] text-foreground outline-none transition-[background-color,border-color,box-shadow,color,transform] hover:border-border-strong hover:bg-[var(--vscode-list-hover)] active:scale-[0.995] data-[placeholder]:text-muted-foreground data-[state=open]:border-primary/45 data-[state=open]:bg-[var(--vscode-list-active)] app-focus-ring",
+        className,
+      )}
+      {...props}
   >
     {children}
     <SelectPrimitive.Icon asChild>
@@ -35,7 +35,7 @@ export const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        "z-[1100] min-w-[8rem] overflow-hidden rounded-[18px] border border-border bg-popover/96 text-popover-foreground shadow-app-dialog backdrop-blur-xl",
+        "z-[1100] min-w-[8rem] overflow-hidden rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] text-popover-foreground shadow-[0_10px_24px_rgba(0,0,0,0.24)]",
         position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
         className,
       )}
@@ -68,7 +68,7 @@ export const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex min-h-9 w-full cursor-default items-center rounded-full border border-transparent py-1.5 pl-8 pr-3 text-[13px] text-muted-foreground outline-none transition-[background-color,border-color,color] data-[disabled]:pointer-events-none data-[highlighted]:border-primary/15 data-[highlighted]:bg-primary/6 data-[highlighted]:text-foreground data-[state=checked]:text-foreground",
+      "relative flex min-h-8 w-full cursor-default items-center rounded-[4px] border border-transparent py-1.5 pl-8 pr-3 text-[12px] text-muted-foreground outline-none transition-[background-color,border-color,color] data-[disabled]:pointer-events-none data-[highlighted]:border-[var(--vscode-border)] data-[highlighted]:bg-[var(--vscode-list-hover)] data-[highlighted]:text-foreground data-[state=checked]:border-primary/35 data-[state=checked]:bg-[var(--vscode-list-active)] data-[state=checked]:text-foreground",
       className,
     )}
     {...props}

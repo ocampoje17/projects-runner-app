@@ -1,47 +1,47 @@
 :root {
   /* Typography */
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", ui-monospace, monospace;
+  --font-sans: "Segoe UI Variable", "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", ui-monospace, monospace;
 
-  /* beUI-inspired base palette (light) */
-  --background: oklch(99% 0 0);
-  --foreground: oklch(15% 0 0);
-  --card: oklch(98.2% 0 0);
-  --card-foreground: oklch(15% 0 0);
-  --popover: oklch(98.8% 0 0);
-  --popover-foreground: oklch(15% 0 0);
-  --muted: oklch(96.9% 0 0);
-  --muted-foreground: oklch(50% 0 0);
-  --border: oklch(15% 0 0 / 0.13);
-  --border-strong: oklch(15% 0 0 / 0.22);
-  --input-border: oklch(15% 0 0 / 0.18);
-  --ring: oklch(15% 0 0 / 0.22);
-  --danger: oklch(62% 0.22 25);
-  --success: oklch(70% 0.18 155);
-  --warning: oklch(78% 0.18 75);
-  --glass-bg: oklch(99% 0 0 / 0.7);
-  --glass-border: oklch(15% 0 0 / 0.12);
+  /* VS Code-inspired base palette (dark-first) */
+  --background: #1e1e1e;
+  --foreground: #cccccc;
+  --card: #252526;
+  --card-foreground: #f3f3f3;
+  --popover: #252526;
+  --popover-foreground: #f3f3f3;
+  --muted: #2d2d30;
+  --muted-foreground: #9da0a6;
+  --border: rgb(255 255 255 / 0.1);
+  --border-strong: rgb(255 255 255 / 0.18);
+  --input-border: rgb(255 255 255 / 0.16);
+  --ring: rgb(0 122 204 / 0.55);
+  --danger: #f14c4c;
+  --success: #4ec9b0;
+  --warning: #cca700;
+  --glass-bg: rgb(30 30 30 / 0.82);
+  --glass-border: rgb(255 255 255 / 0.08);
 
   /* App bridge tokens */
-  --primary-color: oklch(15% 0 0);
-  --primary-foreground-color: oklch(99% 0 0);
-  --primary-gradient: linear-gradient(180deg, oklch(22% 0 0) 0%, oklch(15% 0 0) 100%);
-  --primary-glow: oklch(15% 0 0 / 0.12);
+  --primary-color: #007acc;
+  --primary-foreground-color: #ffffff;
+  --primary-gradient: linear-gradient(180deg, #1692e8 0%, #007acc 100%);
+  --primary-glow: rgb(0 122 204 / 0.24);
 
-  --bg-shell: oklch(97.5% 0 0);
+  --bg-shell: #181818;
   --bg-workspace: var(--background);
-  --bg-sidebar: oklch(97.2% 0 0);
+  --bg-sidebar: #252526;
   --bg-card: var(--card);
-  --bg-card-hover: oklch(99.1% 0 0);
+  --bg-card-hover: #2a2d2e;
   --bg-dialog: var(--popover);
-  --bg-input: oklch(99.55% 0 0);
+  --bg-input: #1f1f1f;
 
   --color-text: var(--foreground);
-  --color-text-secondary: oklch(35% 0 0);
+  --color-text-secondary: #b0b0b0;
   --color-text-muted: var(--muted-foreground);
   --color-border: var(--border);
   --color-border-hover: var(--border-strong);
-  --color-title: var(--foreground);
+  --color-title: #ffffff;
 
   --success-color: var(--success);
   --success-bg: color-mix(in oklab, var(--success) 12%, transparent);
@@ -55,42 +55,59 @@
   --warning-bg: color-mix(in oklab, var(--warning) 14%, transparent);
   --warning-border: color-mix(in oklab, var(--warning) 30%, transparent);
 
-  --btn-secondary-bg: var(--card);
-  --btn-secondary-text: var(--foreground);
-  --btn-secondary-hover: oklch(95.7% 0 0);
-  --btn-ghost-hover-bg: oklch(15% 0 0 / 0.055);
-  --btn-ghost-hover-text: var(--foreground);
+  --btn-secondary-bg: #2a2d2e;
+  --btn-secondary-text: #f3f3f3;
+  --btn-secondary-hover: #31353a;
+  --btn-ghost-hover-bg: rgb(255 255 255 / 0.06);
+  --btn-ghost-hover-text: #ffffff;
 
-  --sidebar-footer-bg: oklch(15% 0 0 / 0.03);
-  --sidebar-header-h1-color: var(--foreground);
-  --project-row-hover-bg: oklch(15% 0 0 / 0.05);
-  --project-row-hover-text: var(--foreground);
-  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 11%, transparent);
-  --project-row-active-border: color-mix(in oklab, var(--primary-color) 32%, transparent);
-  --project-row-active-text: var(--foreground);
+  --sidebar-footer-bg: rgb(0 0 0 / 0.22);
+  --sidebar-header-h1-color: #ffffff;
+  --project-row-hover-bg: rgb(255 255 255 / 0.1);
+  --project-row-hover-text: #ffffff;
+  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 22%, transparent);
+  --project-row-active-border: color-mix(in oklab, var(--primary-color) 50%, transparent);
+  --project-row-active-text: #ffffff;
 
-  --card-shadow: 0 1px 2px oklch(15% 0 0 / 0.05), 0 10px 30px oklch(15% 0 0 / 0.05);
-  --card-hover-shadow: 0 2px 8px oklch(15% 0 0 / 0.08), 0 16px 40px oklch(15% 0 0 / 0.08);
-  --dialog-shadow: 0 24px 80px oklch(15% 0 0 / 0.18);
+  --card-shadow: 0 1px 0 rgb(255 255 255 / 0.03), 0 16px 42px rgb(0 0 0 / 0.34);
+  --card-hover-shadow: 0 1px 0 rgb(255 255 255 / 0.05), 0 18px 52px rgb(0 0 0 / 0.42);
+  --dialog-shadow: 0 24px 80px rgb(0 0 0 / 0.48);
   --split-menu-bg: var(--popover);
-  --split-menu-shadow: 0 16px 40px oklch(15% 0 0 / 0.12);
-  --split-menu-hover-bg: oklch(15% 0 0 / 0.04);
-  --split-menu-hover-text: var(--foreground);
-  --workspace-header-bg: color-mix(in oklab, var(--background) 90%, transparent);
-  --command-section-bg: oklch(15% 0 0 / 0.03);
+  --split-menu-shadow: 0 18px 50px rgb(0 0 0 / 0.45);
+  --split-menu-hover-bg: rgb(255 255 255 / 0.04);
+  --split-menu-hover-text: #ffffff;
+  --workspace-header-bg: color-mix(in oklab, var(--background) 92%, transparent);
+  --command-section-bg: rgb(255 255 255 / 0.03);
 
-  --script-preview-bg: oklch(96% 0 0);
+  --script-preview-bg: #111317;
   --script-preview-border: var(--border);
-  --script-preview-color: oklch(32% 0 0);
+  --script-preview-color: #d4d4d4;
 
-  --log-panel-bg: oklch(98.8% 0 0);
-  --log-header-bg: oklch(15% 0 0 / 0.04);
-  --terminal-tabs-bg: oklch(15% 0 0 / 0.045);
-  --terminal-bg: #f4f4f5;
-  --terminal-fg: #18181b;
+  --log-panel-bg: #181818;
+  --log-header-bg: #252526;
+  --terminal-tabs-bg: #1f1f1f;
+  --terminal-bg: #1e1e1e;
+  --terminal-fg: #d4d4d4;
 
-  --icon-choice-bg: oklch(15% 0 0 / 0.03);
+  --icon-choice-bg: rgb(255 255 255 / 0.03);
   --icon-choice-border: var(--border);
+
+  /* VS Code shell tokens */
+  --vscode-shell: #181818;
+  --vscode-activity: #181818;
+  --vscode-sidebar: #252526;
+  --vscode-editor: #1e1e1e;
+  --vscode-panel: #252526;
+  --vscode-tabs: #2d2d30;
+  --vscode-border: rgb(255 255 255 / 0.1);
+  --vscode-list-hover: rgb(255 255 255 / 0.14);
+  --vscode-list-active: rgb(255 255 255 / 0.2);
+  --vscode-list-selected: color-mix(in oklab, var(--primary-color) 22%, rgb(255 255 255 / 0.08));
+  --vscode-foreground: #cccccc;
+  --vscode-icon: #c5c5c5;
+  --vscode-status: #007acc;
+  --vscode-status-border: #0062a3;
+  --vscode-status-foreground: #ffffff;
 
   --radius-sm: 10px;
   --radius-md: 14px;
@@ -109,117 +126,133 @@
 }
 
 .theme-light {
-  --background: oklch(99% 0 0);
-  --foreground: oklch(15% 0 0);
-  --card: oklch(98.2% 0 0);
-  --card-foreground: oklch(15% 0 0);
-  --popover: oklch(98.8% 0 0);
-  --popover-foreground: oklch(15% 0 0);
-  --muted: oklch(96.9% 0 0);
-  --muted-foreground: oklch(50% 0 0);
-  --border: oklch(15% 0 0 / 0.13);
-  --border-strong: oklch(15% 0 0 / 0.22);
-  --input-border: oklch(15% 0 0 / 0.18);
-  --ring: oklch(15% 0 0 / 0.22);
-  --glass-bg: oklch(99% 0 0 / 0.72);
-  --glass-border: oklch(15% 0 0 / 0.12);
+  --background: #ffffff;
+  --foreground: #1f2328;
+  --card: #f3f3f3;
+  --card-foreground: #1f2328;
+  --popover: #ffffff;
+  --popover-foreground: #1f2328;
+  --muted: #ececec;
+  --muted-foreground: #5f6368;
+  --border: rgb(0 0 0 / 0.1);
+  --border-strong: rgb(0 0 0 / 0.18);
+  --input-border: rgb(0 0 0 / 0.16);
+  --ring: rgb(0 122 204 / 0.35);
+  --glass-bg: rgb(255 255 255 / 0.78);
+  --glass-border: rgb(0 0 0 / 0.08);
 
-  --bg-shell: oklch(97.5% 0 0);
+  --bg-shell: #f6f8fa;
   --bg-workspace: var(--background);
-  --bg-sidebar: oklch(97.2% 0 0);
+  --bg-sidebar: #f3f3f3;
   --bg-card: var(--card);
-  --bg-card-hover: oklch(99.1% 0 0);
+  --bg-card-hover: #ffffff;
   --bg-dialog: var(--popover);
-  --bg-input: oklch(99.55% 0 0);
+  --bg-input: #ffffff;
 
   --color-text: var(--foreground);
-  --color-text-secondary: oklch(35% 0 0);
+  --color-text-secondary: #43474d;
   --color-text-muted: var(--muted-foreground);
   --color-border: var(--border);
   --color-border-hover: var(--border-strong);
   --color-title: var(--foreground);
 
-  --btn-secondary-bg: var(--card);
+  --btn-secondary-bg: #f3f3f3;
   --btn-secondary-text: var(--foreground);
-  --btn-secondary-hover: oklch(95.7% 0 0);
-  --btn-ghost-hover-bg: oklch(15% 0 0 / 0.055);
+  --btn-secondary-hover: #ebebeb;
+  --btn-ghost-hover-bg: rgb(0 0 0 / 0.05);
   --btn-ghost-hover-text: var(--foreground);
 
-  --sidebar-footer-bg: oklch(15% 0 0 / 0.03);
+  --sidebar-footer-bg: rgb(0 0 0 / 0.03);
   --sidebar-header-h1-color: var(--foreground);
-  --project-row-hover-bg: oklch(15% 0 0 / 0.05);
+  --project-row-hover-bg: rgb(0 0 0 / 0.08);
   --project-row-hover-text: var(--foreground);
-  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 11%, transparent);
-  --project-row-active-border: color-mix(in oklab, var(--primary-color) 32%, transparent);
+  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 18%, transparent);
+  --project-row-active-border: color-mix(in oklab, var(--primary-color) 46%, transparent);
   --project-row-active-text: var(--foreground);
 
-  --card-shadow: 0 1px 2px oklch(15% 0 0 / 0.05), 0 10px 30px oklch(15% 0 0 / 0.05);
-  --card-hover-shadow: 0 2px 8px oklch(15% 0 0 / 0.08), 0 16px 40px oklch(15% 0 0 / 0.08);
-  --dialog-shadow: 0 24px 80px oklch(15% 0 0 / 0.18);
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 14px 36px rgb(0 0 0 / 0.08);
+  --card-hover-shadow: 0 2px 8px rgb(0 0 0 / 0.09), 0 16px 40px rgb(0 0 0 / 0.12);
+  --dialog-shadow: 0 20px 70px rgb(0 0 0 / 0.18);
   --split-menu-bg: var(--popover);
-  --split-menu-shadow: 0 16px 40px oklch(15% 0 0 / 0.12);
-  --split-menu-hover-bg: oklch(15% 0 0 / 0.04);
+  --split-menu-shadow: 0 16px 40px rgb(0 0 0 / 0.12);
+  --split-menu-hover-bg: rgb(0 0 0 / 0.04);
   --split-menu-hover-text: var(--foreground);
   --workspace-header-bg: color-mix(in oklab, var(--background) 90%, transparent);
-  --command-section-bg: oklch(15% 0 0 / 0.03);
+  --command-section-bg: rgb(0 0 0 / 0.03);
 
-  --script-preview-bg: oklch(96% 0 0);
+  --script-preview-bg: #f5f5f5;
   --script-preview-border: var(--border);
-  --script-preview-color: oklch(32% 0 0);
+  --script-preview-color: #2f3337;
 
-  --log-panel-bg: oklch(98.8% 0 0);
-  --log-header-bg: oklch(15% 0 0 / 0.04);
-  --terminal-tabs-bg: oklch(15% 0 0 / 0.045);
-  --terminal-bg: #f4f4f5;
-  --terminal-fg: #18181b;
+  --log-panel-bg: #f3f3f3;
+  --log-header-bg: #ececec;
+  --terminal-tabs-bg: #ffffff;
+  --terminal-bg: #f7f7f7;
+  --terminal-fg: #1f2328;
 
-  --icon-choice-bg: oklch(15% 0 0 / 0.03);
+  --icon-choice-bg: rgb(0 0 0 / 0.03);
   --icon-choice-border: var(--border);
+
+  --vscode-shell: #f6f8fa;
+  --vscode-activity: #f3f3f3;
+  --vscode-sidebar: #f3f3f3;
+  --vscode-editor: #ffffff;
+  --vscode-panel: #f8f8f8;
+  --vscode-tabs: #ececec;
+  --vscode-border: rgb(0 0 0 / 0.1);
+  --vscode-list-hover: rgb(0 0 0 / 0.1);
+  --vscode-list-active: rgb(0 0 0 / 0.16);
+  --vscode-list-selected: rgb(0 122 204 / 0.18);
+  --vscode-foreground: #1f2328;
+  --vscode-icon: #444b53;
+  --vscode-status: #007acc;
+  --vscode-status-border: #0062a3;
+  --vscode-status-foreground: #ffffff;
 }
 
 .theme-dark {
-  --background: #151515;
-  --foreground: oklch(96% 0 0);
-  --card: #1c1c1c;
-  --card-foreground: oklch(96% 0 0);
-  --popover: #1f1f1f;
-  --popover-foreground: oklch(96% 0 0);
-  --muted: #222222;
-  --muted-foreground: oklch(62% 0 0);
+  --background: #1e1e1e;
+  --foreground: #cccccc;
+  --card: #252526;
+  --card-foreground: #f3f3f3;
+  --popover: #252526;
+  --popover-foreground: #f3f3f3;
+  --muted: #2d2d30;
+  --muted-foreground: #9da0a6;
   --border: rgb(255 255 255 / 0.11);
   --border-strong: rgb(255 255 255 / 0.2);
   --input-border: rgb(255 255 255 / 0.15);
-  --ring: rgb(255 255 255 / 0.22);
-  --glass-bg: rgb(28 28 28 / 0.72);
+  --ring: rgb(0 122 204 / 0.55);
+  --glass-bg: rgb(30 30 30 / 0.82);
   --glass-border: rgb(255 255 255 / 0.12);
 
-  --bg-shell: #111111;
+  --bg-shell: #181818;
   --bg-workspace: var(--background);
-  --bg-sidebar: #121212;
+  --bg-sidebar: #252526;
   --bg-card: var(--card);
-  --bg-card-hover: #242424;
+  --bg-card-hover: #2a2d2e;
   --bg-dialog: var(--popover);
-  --bg-input: #191919;
+  --bg-input: #1f1f1f;
 
   --color-text: var(--foreground);
-  --color-text-secondary: oklch(78% 0 0);
+  --color-text-secondary: #b0b0b0;
   --color-text-muted: var(--muted-foreground);
   --color-border: var(--border);
   --color-border-hover: var(--border-strong);
-  --color-title: var(--foreground);
+  --color-title: #ffffff;
 
-  --btn-secondary-bg: var(--card);
-  --btn-secondary-text: var(--foreground);
-  --btn-secondary-hover: #282828;
+  --btn-secondary-bg: #2a2d2e;
+  --btn-secondary-text: #f3f3f3;
+  --btn-secondary-hover: #31353a;
   --btn-ghost-hover-bg: rgb(255 255 255 / 0.07);
   --btn-ghost-hover-text: var(--foreground);
 
   --sidebar-footer-bg: rgb(0 0 0 / 0.25);
   --sidebar-header-h1-color: var(--foreground);
-  --project-row-hover-bg: rgb(255 255 255 / 0.06);
+  --project-row-hover-bg: rgb(255 255 255 / 0.1);
   --project-row-hover-text: var(--foreground);
-  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 16%, transparent);
-  --project-row-active-border: color-mix(in oklab, var(--primary-color) 34%, transparent);
+  --project-row-active-bg: color-mix(in oklab, var(--primary-color) 24%, transparent);
+  --project-row-active-border: color-mix(in oklab, var(--primary-color) 52%, transparent);
   --project-row-active-text: var(--foreground);
 
   --card-shadow: 0 1px 0 rgb(255 255 255 / 0.03), 0 12px 36px rgb(0 0 0 / 0.28);
@@ -232,18 +265,34 @@
   --workspace-header-bg: color-mix(in oklab, var(--background) 92%, transparent);
   --command-section-bg: rgb(255 255 255 / 0.03);
 
-  --script-preview-bg: #111111;
+  --script-preview-bg: #111317;
   --script-preview-border: var(--border);
-  --script-preview-color: oklch(82% 0 0);
+  --script-preview-color: #d4d4d4;
 
-  --log-panel-bg: #101010;
-  --log-header-bg: rgb(0 0 0 / 0.34);
-  --terminal-tabs-bg: rgb(255 255 255 / 0.045);
-  --terminal-bg: #0d0d0d;
-  --terminal-fg: #e8e8e8;
+  --log-panel-bg: #181818;
+  --log-header-bg: #252526;
+  --terminal-tabs-bg: #1f1f1f;
+  --terminal-bg: #1e1e1e;
+  --terminal-fg: #d4d4d4;
 
   --icon-choice-bg: rgb(255 255 255 / 0.03);
   --icon-choice-border: var(--border);
+
+  --vscode-shell: #181818;
+  --vscode-activity: #181818;
+  --vscode-sidebar: #252526;
+  --vscode-editor: #1e1e1e;
+  --vscode-panel: #252526;
+  --vscode-tabs: #2d2d30;
+  --vscode-border: rgb(255 255 255 / 0.1);
+  --vscode-list-hover: rgb(255 255 255 / 0.14);
+  --vscode-list-active: rgb(255 255 255 / 0.2);
+  --vscode-list-selected: color-mix(in oklab, var(--primary-color) 24%, rgb(255 255 255 / 0.08));
+  --vscode-foreground: #cccccc;
+  --vscode-icon: #c5c5c5;
+  --vscode-status: #007acc;
+  --vscode-status-border: #0062a3;
+  --vscode-status-foreground: #ffffff;
 }
 
 * {
@@ -377,8 +426,8 @@ p {
 .terminal-tab-item-active::after {
   content: "";
   position: absolute;
-  left: 10px;
-  right: 10px;
+  left: 8px;
+  right: 8px;
   bottom: -1px;
   height: 1px;
   background: var(--log-header-bg);
@@ -390,23 +439,6 @@ p {
 
 .terminal-tab-trigger[data-state="active"] + .terminal-tab-close {
   background: color-mix(in oklab, var(--foreground) 6%, transparent);
-}
-
-.notes-masonry {
-  column-count: 1;
-  column-gap: 0.75rem;
-}
-
-@media (min-width: 768px) {
-  .notes-masonry {
-    column-count: 2;
-  }
-}
-
-.notes-masonry-item {
-  break-inside: avoid;
-  margin-bottom: 0.75rem;
-  width: 100%;
 }
 
 .log-terminal .xterm-host {
@@ -429,7 +461,7 @@ p {
 }
 
 .log-terminal .xterm-screen canvas {
-  border-radius: 10px;
+  border-radius: 0;
 }
 
 @keyframes spin {

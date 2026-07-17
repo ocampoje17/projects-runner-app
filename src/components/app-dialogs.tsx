@@ -28,7 +28,8 @@ export function AppDialogs({
   onDeleteProject,
   onProjectError,
   onProjectSubmit,
-  selectedProject,
+  commandDialogProject,
+  exportProject,
   editingCommand,
   defaultSection,
   availableSections,
@@ -73,7 +74,8 @@ export function AppDialogs({
   onDeleteProject: (project: Project) => void;
   onProjectError: (error: unknown) => void;
   onProjectSubmit: (input: ProjectInput) => void;
-  selectedProject: Project | null;
+  commandDialogProject: Project | null;
+  exportProject: Project | null;
   editingCommand: ProjectCommand | null;
   defaultSection: string | null;
   availableSections: string[];
@@ -124,7 +126,7 @@ export function AppDialogs({
         onSubmit={onProjectSubmit}
       />
 
-      {selectedProject && (
+      {commandDialogProject && (
         <CommandDialog
           key={`${editingCommand?.id ?? "new-command"}-${defaultSection ?? ""}`}
           command={editingCommand}
@@ -132,18 +134,18 @@ export function AppDialogs({
           availableSections={availableSections}
           isPending={commandDialogPending}
           open={commandDialogOpen}
-          projectId={selectedProject.id}
+          projectId={commandDialogProject.id}
           onError={onCommandError}
           onOpenChange={onCommandDialogOpenChange}
           onSubmit={onCommandSubmit}
         />
       )}
 
-      {selectedProject && (
+      {exportProject && (
         <ExportProjectDialog
           isPending={exportDialogPending}
           open={exportDialogOpen}
-          project={selectedProject}
+          project={exportProject}
           onOpenChange={onExportDialogOpenChange}
           onSave={onExportSave}
         />

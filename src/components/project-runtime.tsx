@@ -5,9 +5,9 @@ import { Card, CardContent, CardHeader } from "./ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { EntityAvatar } from "./entity-avatar";
 import { XtermTerminal } from "./xterm-terminal";
-import { commandPorts } from "../lib/command-utils";
-import type { ProjectCommand } from "../lib/api";
-import { BrushCleaning, Keyboard, Loader2, Maximize2, Minimize2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
+import { commandPorts, normalizeCommandScript, runtimeModeLabel } from "../lib/command-utils";
+import type { Project, ProjectCommand } from "../lib/api";
+import { BrushCleaning, FolderOpen, Keyboard, Loader2, Maximize2, Minimize2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
 import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -42,6 +42,7 @@ export function CommandCard({
   onDelete,
   onEdit,
   onKillPorts,
+  onOpenDetail,
   onRestart,
   onRun,
   onStop,
@@ -56,6 +57,7 @@ export function CommandCard({
   onDelete: () => void;
   onEdit: () => void;
   onKillPorts: () => void;
+  onOpenDetail?: () => void;
   onRestart: () => void;
   onRun: () => void;
   onStop: () => void;
@@ -75,24 +77,24 @@ export function CommandCard({
   }, []);
   const badgeVariant = isRunning ? "success" : run?.status === "failed" ? "danger" : "muted";
   const ports = commandPorts(command);
+  const normalizedScript = normalizeCommandScript(command.script);
 
   return (
     <Card
       className={cn(
-        "self-start overflow-hidden transition-[border-color,box-shadow,background-color]",
-        isRunning && "command-card-running",
-        run?.status === "failed"
-          ? "command-card-failed"
-          : allowRichMotion && "hover:border-primary/30 hover:shadow-app-card-hover",
+        "w-full self-start overflow-hidden rounded-[8px] border-[var(--vscode-border)] bg-[var(--vscode-panel)] shadow-none transition-[border-color,background-color]",
+        isRunning && "command-card-running border-success/25",
+        run?.status === "failed" ? "command-card-failed border-destructive/30" : allowRichMotion && "hover:border-border-strong hover:bg-[var(--bg-card-hover)]",
       )}
     >
-      <CardHeader className="flex-row items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
+      <CardHeader className="flex-row items-start justify-between gap-3 border-b border-[var(--vscode-border)] bg-transparent px-3 py-3">
+        <div className="flex min-w-0 items-start gap-2.5">
           <EntityAvatar name={command.name} path={command.avatar_path} />
           <div className="min-w-0">
-            <h3 className="truncate text-[13px] font-semibold text-app-title">{command.name}</h3>
+            <h3 className="truncate text-[12px] font-semibold tracking-[0.01em] text-foreground">{command.name}</h3>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <Badge variant={badgeVariant}>{run?.status ?? "ready"}</Badge>
+              <Badge variant="muted">{command.section}</Badge>
               {runtimeModeBadgeLabel(command) && <Badge variant="muted">{runtimeModeBadgeLabel(command)}</Badge>}
               {command.runtime_mode === "internal_interactive" ? (
                 <Tooltip content="Interactive terminal">
@@ -110,29 +112,31 @@ export function CommandCard({
         </div>
         <div className="flex items-center gap-1">
           <Tooltip content="Edit command">
-            <Button size="icon" variant="ghost" onClick={onEdit} aria-label="Edit command">
-              <Pencil size={16} />
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onEdit} aria-label="Edit command">
+              <Pencil size={14} />
             </Button>
           </Tooltip>
           <Tooltip content="Delete command">
-            <Button size="icon" variant="ghost" onClick={onDelete} aria-label="Delete command">
-              <Trash2 size={16} />
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onDelete} aria-label="Delete command">
+              <Trash2 size={14} />
             </Button>
           </Tooltip>
         </div>
       </CardHeader>
-      <CardContent className="space-y-2">
-        {ports.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1">
+      <CardContent className="space-y-2.5 px-3 py-3">
+        {ports.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
             {ports.map((port) => (
               <Badge key={port} variant="muted">
                 :{port}
               </Badge>
             ))}
           </div>
+        ) : (
+          <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/44">No tracked ports</div>
         )}
-        <pre className="max-h-[calc(1.625em*5+1rem)] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-[14px] border border-border bg-[var(--script-preview-bg)] p-2 font-mono text-[11px] leading-relaxed text-[var(--script-preview-color)]">{command.script}</pre>
-        <div className="mt-2 flex flex-nowrap items-center gap-1">
+        <pre className="max-h-[calc(1.5em*4+0.75rem)] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-2.5 py-2 font-mono text-[10.5px] leading-6 text-[var(--script-preview-color)]">{normalizedScript}</pre>
+        <div className="flex flex-wrap items-center gap-1 border-t border-[var(--vscode-border)] pt-2">
           <Tooltip content={isStopping ? "Stopping" : isRunning ? "Stop - double-click to force stop" : "Run"}>
             <Button
               size="icon"
@@ -165,7 +169,7 @@ export function CommandCard({
               }}
               aria-label={isStopping ? `Stopping ${command.name}` : isRunning ? `Stop ${command.name}` : `Run ${command.name}`}
             >
-              {isStopping ? <Loader2 size={14} className="animate-spin" /> : isRunning ? <Square size={14} /> : <Play size={14} />}
+              {isStopping ? <Loader2 size={13} className="animate-spin" /> : isRunning ? <Square size={13} /> : <Play size={13} />}
             </Button>
           </Tooltip>
           {isRunning && (
@@ -180,7 +184,7 @@ export function CommandCard({
                 }}
                 aria-label={isRestarting ? `Restarting ${command.name}` : `Rerun ${command.name}`}
               >
-                {isRestarting ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                {isRestarting ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
               </Button>
             </Tooltip>
           )}
@@ -193,14 +197,20 @@ export function CommandCard({
               aria-label="Kill ports"
               className="h-8 w-8 shrink-0"
             >
-              {isScanningPorts ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+              {isScanningPorts ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
             </Button>
           </Tooltip>
           <Tooltip content="Logs">
             <Button size="icon" variant="secondary" onClick={onOpenLogs} aria-label="Logs" className="h-8 w-8 shrink-0">
-              <Terminal size={14} />
+              <Terminal size={13} />
             </Button>
           </Tooltip>
+          {onOpenDetail ? (
+            <Button size="sm" variant="ghost" className="ml-auto h-8 px-2.5 text-[11.5px]" onClick={onOpenDetail}>
+              <Maximize2 size={13} />
+              Open detail
+            </Button>
+          ) : null}
         </div>
       </CardContent>
     </Card>
@@ -210,6 +220,7 @@ export function CommandCard({
 export function LogPanel({
   activeCommandId,
   commands,
+  projects,
   openCommandIds,
   onActiveCommandChange,
   onClear,
@@ -224,6 +235,7 @@ export function LogPanel({
 }: {
   activeCommandId: number | null;
   commands: ProjectCommand[];
+  projects: Project[];
   openCommandIds: number[];
   onActiveCommandChange: (commandId: number) => void;
   onClear: (commandId: number) => void;
@@ -238,6 +250,7 @@ export function LogPanel({
 }) {
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const previousVisibleCountRef = useRef(0);
+  const [activePanelView, setActivePanelView] = useState<"terminal" | "environments">("terminal");
   const [panelHeight, setPanelHeight] = useState(() => {
     const saved = localStorage.getItem("logPanelHeight");
     if (saved) {
@@ -303,8 +316,10 @@ export function LogPanel({
 
   const selectedCommand = visibleCommands.find((command) => command.id === activeCommandId) ?? visibleCommands[0] ?? null;
   const selectedCommandId = selectedCommand?.id ?? null;
+  const selectedProject = projects.find((project) => project.id === selectedCommand?.project_id) ?? null;
   const selectedTerminalContent = selectedCommandId ? terminalContentByCommandId[selectedCommandId] ?? "" : "";
   const resolvedTerminalFontSize = Number.parseInt(terminalFontSize, 10) || 13;
+  const selectedCommandPorts = selectedCommand ? commandPorts(selectedCommand) : [];
   const handleSelectedTerminalInput = useCallback(
     (data: string) => {
       if (!selectedCommand || selectedCommand.runtime_mode !== "internal_interactive") {
@@ -362,7 +377,7 @@ export function LogPanel({
   return (
     <aside
       className={cn(
-        "log-panel relative flex w-full min-w-0 flex-col overflow-hidden rounded-[18px] border border-border bg-[var(--log-panel-bg)] shadow-app-card",
+        "log-panel relative flex w-full min-w-0 flex-col overflow-hidden rounded-none border-0 bg-[var(--log-panel-bg)]",
         isCollapsed
           ? "h-auto min-h-0 shrink-0"
           : "h-[var(--log-panel-height)] min-h-[220px] xl:h-full xl:min-h-0",
@@ -384,43 +399,103 @@ export function LogPanel({
 
       {visibleCommands.length === 0 ? (
         <>
-          <div className="flex items-center justify-between gap-3 border-b border-border bg-[var(--log-header-bg)] px-2.5 py-1">
-            <div className="min-w-0 px-1 py-1">
-              <h3 className="text-[13px] font-semibold text-app-title">Terminal Output</h3>
-              <p className="text-[11px] text-muted-foreground">No command is selected yet</p>
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--vscode-border)] bg-[var(--log-header-bg)] px-2.5 py-1">
+            <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+              {[
+                { id: "terminal", label: "Terminal" },
+                { id: "environments", label: "Environments" },
+              ].map((view) => {
+                const active = activePanelView === view.id;
+                return (
+                  <button
+                    key={view.id}
+                    type="button"
+                    onClick={() => setActivePanelView(view.id as "terminal" | "environments")}
+                    className={cn(
+                      "inline-flex h-8 items-center border border-transparent border-b-0 px-3 text-[12px] text-[var(--vscode-foreground)]/72 transition-[background-color,color,border-color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
+                      active && "bg-[var(--terminal-tabs-bg)] text-foreground border-[var(--vscode-border)]",
+                    )}
+                  >
+                    {view.label}
+                  </button>
+                );
+              })}
             </div>
             <div className="flex shrink-0 items-center gap-1.5 pr-1">{collapseToggle}</div>
           </div>
           {!isCollapsed ? (
-            <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" ref={terminalRef}>
-              <XtermTerminal
-                content={"Run a command to open its terminal tab.\r\n"}
-                fontFamily={terminalFontFamily}
-                fontSize={resolvedTerminalFontSize}
-                theme={theme}
-              />
-            </div>
+            activePanelView === "terminal" ? (
+              <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" ref={terminalRef}>
+                <XtermTerminal
+                  content={"Run a command to open its terminal tab.\r\n"}
+                  fontFamily={terminalFontFamily}
+                  fontSize={resolvedTerminalFontSize}
+                  theme={theme}
+                />
+              </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-[var(--vscode-editor)] px-5 py-6 text-[12px] text-muted-foreground">
+                Run a command to inspect its environment details.
+              </div>
+            )
           ) : null}
         </>
       ) : (
-        <Tabs
-          className={cn("flex min-h-0 flex-col", !isCollapsed && "flex-1")}
-          value={String(selectedCommandId)}
-          onValueChange={(value) => onActiveCommandChange(Number(value))}
-          variant="underline"
-        >
-          <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border bg-[var(--log-header-bg)] px-2.5 py-1">
-            <TabsList className="flex min-h-9 min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden border-0 bg-transparent p-0">
+        <div className={cn("flex min-h-0 flex-col", !isCollapsed && "flex-1")}>
+          <div className="flex min-w-0 items-center justify-between gap-3 border-b border-[var(--vscode-border)] bg-[var(--log-header-bg)] px-2.5 py-1">
+            <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+              {[
+                { id: "terminal", label: "Terminal" },
+                { id: "environments", label: "Environments" },
+              ].map((view) => {
+                const active = activePanelView === view.id;
+                return (
+                  <button
+                    key={view.id}
+                    type="button"
+                    onClick={() => setActivePanelView(view.id as "terminal" | "environments")}
+                    className={cn(
+                      "inline-flex h-8 items-center border border-transparent border-b-0 px-3 text-[12px] text-[var(--vscode-foreground)]/72 transition-[background-color,color,border-color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
+                      active && "bg-[var(--terminal-tabs-bg)] text-foreground border-[var(--vscode-border)]",
+                    )}
+                  >
+                    {view.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5 pr-1">
+              <Button
+                size="icon"
+                variant="secondary"
+                className="h-7 w-7"
+                disabled={!selectedCommandId || activePanelView !== "terminal"}
+                onClick={() => selectedCommandId && onClear(selectedCommandId)}
+                aria-label="Clear current terminal"
+              >
+                <BrushCleaning size={14} />
+              </Button>
+              {collapseToggle}
+            </div>
+          </div>
+
+          <Tabs
+            className={cn("flex min-h-0 flex-col border-b border-[var(--vscode-border)] bg-[var(--vscode-tabs)]", !isCollapsed && activePanelView === "terminal" && "shrink-0")}
+            value={String(selectedCommandId)}
+            onValueChange={(value) => onActiveCommandChange(Number(value))}
+            variant="underline"
+          >
+            <TabsList className="flex min-h-9 min-w-0 flex-1 items-center gap-0 overflow-x-auto overflow-y-hidden border-0 bg-transparent px-1 pt-1">
               {visibleCommands.map((command) => (
                 <div
                   className={cn(
-                    "terminal-tab-item inline-flex items-center gap-1 rounded-t-[12px] border border-transparent border-b-0 pr-1 transition-colors",
-                    selectedCommandId === command.id && "terminal-tab-item-active border-border/80 bg-[var(--terminal-tabs-bg)] shadow-sm",
+                    "terminal-tab-item inline-flex items-center gap-1 border border-transparent border-b-0 pr-1 transition-colors",
+                    selectedCommandId === command.id && "terminal-tab-item-active border-[var(--vscode-border)] bg-[var(--terminal-tabs-bg)]",
                   )}
                   key={command.id}
                 >
                   <TabsTrigger
-                    className="terminal-tab-trigger max-w-[180px] gap-2 rounded-t-[12px] pl-3 pr-2 text-[12px] data-[state=active]:font-semibold data-[state=active]:text-foreground"
+                    className="terminal-tab-trigger max-w-[180px] gap-2 border-0 px-3 py-2 text-[12px] data-[state=active]:font-semibold data-[state=active]:text-foreground"
                     value={String(command.id)}
                   >
                     <span className="truncate">{command.name}</span>
@@ -431,7 +506,7 @@ export function LogPanel({
                     size="icon"
                     variant="ghost"
                     className={cn(
-                      "terminal-tab-close mr-0.5 h-6 w-6 rounded-full p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
+                      "terminal-tab-close mr-0.5 h-6 w-6 rounded-[4px] p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
                       selectedCommandId === command.id && "text-foreground/70 hover:text-destructive",
                     )}
                     onClick={() => onCloseTab(command.id)}
@@ -442,36 +517,62 @@ export function LogPanel({
                 </div>
               ))}
             </TabsList>
-            <div className="flex shrink-0 items-center gap-1.5 pr-1">
-              <Button
-                size="icon"
-                variant="secondary"
-                className="h-7 w-7"
-                disabled={!selectedCommandId}
-                onClick={() => selectedCommandId && onClear(selectedCommandId)}
-                aria-label="Clear current terminal"
-              >
-                <BrushCleaning size={14} />
-              </Button>
-              {collapseToggle}
-            </div>
-          </div>
+          </Tabs>
+
           {!isCollapsed && selectedCommand ? (
-            <TabsContent className="m-0 flex h-full min-h-0 flex-1 overflow-hidden" value={String(selectedCommand.id)}>
-              <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" key={selectedCommand.id} ref={terminalRef}>
-                <XtermTerminal
-                  content={selectedTerminalContent || "Waiting for output...\r\n"}
-                  fontFamily={terminalFontFamily}
-                  fontSize={resolvedTerminalFontSize}
-                  theme={theme}
-                  onData={selectedCommand.runtime_mode === "internal_interactive" ? handleSelectedTerminalInput : undefined}
-                  onSizeChange={handleSelectedTerminalResize}
-                  readOnly={selectedCommand.runtime_mode !== "internal_interactive"}
-                />
+            activePanelView === "terminal" ? (
+              <Tabs
+                className="flex min-h-0 flex-1 flex-col"
+                value={String(selectedCommandId)}
+                onValueChange={(value) => onActiveCommandChange(Number(value))}
+                variant="underline"
+              >
+                <TabsContent className="m-0 flex h-full min-h-0 flex-1 overflow-hidden" value={String(selectedCommand.id)}>
+                  <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" key={selectedCommand.id} ref={terminalRef}>
+                    <XtermTerminal
+                      content={selectedTerminalContent || "Waiting for output...\r\n"}
+                      fontFamily={terminalFontFamily}
+                      fontSize={resolvedTerminalFontSize}
+                      theme={theme}
+                      onData={selectedCommand.runtime_mode === "internal_interactive" ? handleSelectedTerminalInput : undefined}
+                      onSizeChange={handleSelectedTerminalResize}
+                      readOnly={selectedCommand.runtime_mode !== "internal_interactive"}
+                    />
+                  </div>
+                </TabsContent>
+              </Tabs>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--vscode-editor)] p-4">
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {[
+                    { label: "Project", value: selectedProject?.name ?? "Unknown project", icon: <FolderOpen size={14} /> },
+                    { label: "Working directory", value: selectedProject?.path ?? "Unavailable" },
+                    { label: "Runtime mode", value: runtimeModeLabel(selectedCommand.runtime_mode) },
+                    { label: "Interactivity", value: selectedCommand.runtime_mode === "internal_interactive" ? "Interactive terminal" : "Read-only output" },
+                    { label: "Run status", value: runs[selectedCommand.id]?.status ?? "ready" },
+                    { label: "Ports", value: selectedCommandPorts.length > 0 ? selectedCommandPorts.join(", ") : "No tracked ports" },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-3.5 py-3">
+                      <div className="mb-1 flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/52">
+                        {item.icon ?? null}
+                        <span>{item.label}</span>
+                      </div>
+                      <div className="break-words font-mono text-[12px] text-foreground">{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
+                  <div className="border-b border-[var(--vscode-border)] px-3.5 py-2 text-[11px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/52">
+                    Command script
+                  </div>
+                  <pre className="overflow-x-auto whitespace-pre-wrap break-words px-3.5 py-3 font-mono text-[12px] leading-6 text-foreground">
+                    {normalizeCommandScript(selectedCommand.script)}
+                  </pre>
+                </div>
               </div>
-            </TabsContent>
+            )
           ) : null}
-        </Tabs>
+        </div>
       )}
     </aside>
   );

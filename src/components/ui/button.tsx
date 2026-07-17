@@ -10,27 +10,27 @@ import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap border shadow-sm font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 app-focus-ring disabled:pointer-events-none disabled:opacity-50 select-none",
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap border font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 app-focus-ring disabled:pointer-events-none disabled:opacity-50 select-none",
   {
     variants: {
       variant: {
-        default: "border-primary bg-primary text-primary-foreground shadow-[0_1px_2px_var(--primary-glow)] hover:bg-primary/92 hover:shadow-[0_4px_14px_var(--primary-glow)]",
-        primary: "border-primary bg-primary text-primary-foreground shadow-[0_1px_2px_var(--primary-glow)] hover:bg-primary/92 hover:shadow-[0_4px_14px_var(--primary-glow)]",
+        default: "border-primary bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] hover:bg-primary/92 active:scale-[0.985] active:bg-primary/85",
+        primary: "border-primary bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] hover:bg-primary/92 active:scale-[0.985] active:bg-primary/85",
         secondary:
-          "border-border bg-card/96 text-foreground hover:border-border-strong hover:bg-[var(--btn-secondary-hover)] hover:shadow-[0_1px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)]",
+          "border-[var(--vscode-border)] bg-[var(--vscode-panel)] text-foreground hover:border-border-strong hover:bg-[var(--vscode-list-hover)] active:scale-[0.985] active:border-primary/35 active:bg-[var(--vscode-list-active)]",
         ghost:
-          "border-transparent bg-transparent text-muted-foreground shadow-none hover:border-border hover:bg-[var(--btn-ghost-hover-bg)] hover:text-foreground",
+          "border-transparent bg-transparent text-muted-foreground shadow-none hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:scale-[0.985] active:border-primary/30 active:bg-[var(--vscode-list-active)] active:text-foreground",
         danger:
-          "border-destructive/35 bg-destructive text-destructive-foreground shadow-[0_1px_2px_color-mix(in_oklab,var(--danger-color)_18%,transparent)] hover:bg-destructive/92 hover:shadow-[0_4px_14px_color-mix(in_oklab,var(--danger-color)_18%,transparent)]",
+          "border-destructive/35 bg-destructive text-destructive-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] hover:bg-destructive/92 active:scale-[0.985] active:bg-destructive/85",
         outline:
-          "border-border bg-[color-mix(in_oklab,var(--bg-input)_82%,var(--bg-workspace))] text-foreground hover:border-border-strong hover:bg-[var(--btn-ghost-hover-bg)]",
+          "border-[var(--vscode-border)] bg-[var(--vscode-editor)] text-foreground hover:border-border-strong hover:bg-[var(--vscode-list-hover)] active:scale-[0.985] active:border-primary/35 active:bg-[var(--vscode-list-active)]",
       },
       size: {
-        default: "h-9 rounded-full px-4 text-[13px]",
-        sm: "h-8 rounded-full px-3 text-xs gap-1.5",
-        md: "h-10 rounded-full px-5 text-sm gap-2",
-        lg: "h-12 rounded-full px-6 text-base gap-2",
-        icon: "h-9 w-9 rounded-[12px] p-0",
+        default: "h-8 rounded-[6px] px-3 text-[12.5px]",
+        sm: "h-7 rounded-[6px] px-2.5 text-[11.5px] gap-1.5",
+        md: "h-9 rounded-[6px] px-4 text-[13px] gap-2",
+        lg: "h-10 rounded-[7px] px-5 text-[13.5px] gap-2",
+        icon: "h-8 w-8 rounded-[6px] p-0",
       },
     },
     defaultVariants: {

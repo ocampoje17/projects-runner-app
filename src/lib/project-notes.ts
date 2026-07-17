@@ -6,6 +6,31 @@ export type ProjectNote = {
   updatedAt: string;
 };
 
+export function projectNoteVisibilityKey(projectId: number, noteId: string) {
+  return `${projectId}:${noteId}`;
+}
+
+export function noteTitle(content: string, fallback = "Project Note") {
+  return content.split(/\r?\n/, 1)[0]?.replace(/^#+\s*/, "").trim() || fallback;
+}
+
+export function noteExcerpt(content: string) {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/^#+\s*/, "")
+        .replace(/^\s*[-*+]\s+/, "")
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+        .trim(),
+    )
+    .filter(Boolean);
+
+  const excerptSource = lines.slice(1).join(" ").trim() || lines.join(" ").trim();
+  return excerptSource.replace(/\s{2,}/g, " ").trim();
+}
+
 export function parseProjectNotes(value: string | null | undefined): ProjectNote[] {
   if (!value?.trim()) {
     return [];

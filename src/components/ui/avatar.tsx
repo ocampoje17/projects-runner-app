@@ -5,7 +5,7 @@ export function Avatar({ className, ...props }: AvatarPrimitive.AvatarProps) {
   return (
     <AvatarPrimitive.Root
       className={cn(
-        "relative inline-flex h-9 w-9 shrink-0 overflow-hidden rounded-[14px] border border-border bg-muted",
+        "relative inline-flex h-9 w-9 shrink-0 overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)]",
         className,
       )}
       {...props}
@@ -21,7 +21,7 @@ export function AvatarFallback({ className, ...props }: AvatarPrimitive.AvatarFa
   return (
     <AvatarPrimitive.Fallback
       className={cn(
-        "flex h-full w-full items-center justify-center bg-primary/10 text-[12px] font-semibold text-primary",
+        "flex h-full w-full items-center justify-center bg-[var(--vscode-panel)] text-[12px] font-semibold text-foreground",
         className,
       )}
       {...props}

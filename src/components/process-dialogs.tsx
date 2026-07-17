@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { PortProcess, ProjectCommand } from "../lib/api";
 import { commandPorts } from "../lib/command-utils";
-import { Button } from "./ui/button"
+import { Button } from "./ui/button";
 import { StatefulButton } from "./ui/stateful-button";
 import { Checkbox } from "./ui/checkbox";
 import {
@@ -121,14 +121,14 @@ export function KillPortsDialog({
 
         <div className="my-3 flex min-h-[110px] flex-col">
           {processes.length === 0 ? (
-            <div className="no-processes-state flex flex-col items-center justify-center gap-3 rounded-[14px] border border-dashed border-border bg-[color-mix(in_oklab,var(--bg-input)_82%,var(--bg-workspace))] px-4 py-8 text-center text-muted-foreground">
+            <div className="no-processes-state flex flex-col items-center justify-center gap-3 rounded-[6px] border border-dashed border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-4 py-8 text-center text-muted-foreground">
               <Check className="text-app-success animate-bounce-subtle" size={24} />
               <p>No active processes found using these ports.</p>
             </div>
           ) : (
             <div className="processes-list-wrapper flex flex-col gap-2">
               <div className="processes-list-header flex items-center justify-between px-1">
-                <label className="inline-flex items-center gap-2 text-[13px] font-medium text-muted-foreground">
+                <label className="inline-flex items-center gap-2 text-[12px] font-medium text-muted-foreground">
                   <Checkbox
                     checked={selectedPids.size === processes.length && processes.length > 0}
                     onCheckedChange={toggleSelectAll}
@@ -147,7 +147,7 @@ export function KillPortsDialog({
                   return (
                     <div
                       key={`${process.pid}-${process.port}`}
-                      className={`group flex items-center gap-2.5 rounded-[14px] border border-border bg-card/96 px-2.5 py-2 transition-colors ${isChecked ? "border-primary/45 bg-primary/6 shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary-color)_10%,transparent)]" : "hover:border-border-strong hover:bg-muted"}`}
+                      className={`group flex items-center gap-2.5 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-2.5 py-2 transition-colors ${isChecked ? "border-primary/35 bg-[var(--vscode-list-active)]" : "hover:border-border-strong hover:bg-[var(--vscode-list-hover)]"}`}
                       onClick={() => !isKilling && toggleSelectPid(process.pid)}
                     >
                       <Checkbox
@@ -157,15 +157,15 @@ export function KillPortsDialog({
                         onClick={(event) => event.stopPropagation()}
                       />
                       <div className="flex min-w-0 flex-1 flex-col">
-                        <span className="text-[13px] font-semibold text-foreground">{process.name}</span>
+                        <span className="text-[12px] font-semibold text-foreground">{process.name}</span>
                         <span className="mt-0.5 text-[11.5px] text-muted-foreground">
-                          PID: <code className="rounded bg-black/10 px-1 py-0.5 font-mono text-[11px] dark:bg-white/10">{process.pid}</code> | Port: <code className="rounded bg-black/10 px-1 py-0.5 font-mono text-[11px] dark:bg-white/10">:{process.port}</code>
+                          PID: <code className="rounded-[4px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] px-1 py-0.5 font-mono text-[11px]">{process.pid}</code> | Port: <code className="rounded-[4px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] px-1 py-0.5 font-mono text-[11px]">:{process.port}</code>
                         </span>
                       </div>
                       <Button
                         size="sm"
                         variant="danger"
-                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                        className="h-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                         onClick={(event) => {
                           event.stopPropagation();
                           onKill([process.pid]);
@@ -191,6 +191,7 @@ export function KillPortsDialog({
               type="button"
               variant="danger"
               disabled={selectedPids.size === 0}
+              icon={<Check size={14} />}
               state={isKilling ? "loading" : "idle"}
               loadingText="Killing..."
               onClick={() => onKill(Array.from(selectedPids))}

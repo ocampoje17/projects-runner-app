@@ -60,9 +60,9 @@ export function SettingsPage({
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4">
       <header className="flex shrink-0 items-start gap-2.5">
-        <Settings className="h-9 w-9 rounded-[14px] border border-border bg-primary/6 p-2 text-primary shadow-sm" size={20} />
+        <Settings className="h-9 w-9 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-2 text-primary" size={20} />
         <div className="min-w-0">
-          <h2 className="text-[18px] font-semibold tracking-[-0.02em] text-app-title">Settings</h2>
+          <h2 className="text-[18px] font-semibold tracking-[-0.02em] text-foreground">Settings</h2>
           <p className="text-[12.5px] text-muted-foreground">
             Workspace appearance, terminal preferences, and system info
           </p>
@@ -73,24 +73,24 @@ export function SettingsPage({
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as "appearance" | "terminal" | "system")}
         className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
-        variant="pill"
+        variant="underline"
       >
-        <TabsList className="w-fit shrink-0">
-          <TabsTrigger value="appearance" className="gap-1.5">
+        <TabsList className="w-full shrink-0 justify-start gap-0 overflow-x-auto border-b border-[var(--vscode-border)] bg-[var(--vscode-tabs)] px-2 pt-2">
+          <TabsTrigger value="appearance" className="gap-1.5 border border-transparent border-b-0 px-3 py-2 data-[state=active]:border-[var(--vscode-border)] data-[state=active]:bg-[var(--vscode-editor)]">
             <Palette size={14} />
             Appearance
           </TabsTrigger>
-          <TabsTrigger value="terminal" className="gap-1.5">
+          <TabsTrigger value="terminal" className="gap-1.5 border border-transparent border-b-0 px-3 py-2 data-[state=active]:border-[var(--vscode-border)] data-[state=active]:bg-[var(--vscode-editor)]">
             <Terminal size={14} />
             Terminal
           </TabsTrigger>
-          <TabsTrigger value="system" className="gap-1.5">
+          <TabsTrigger value="system" className="gap-1.5 border border-transparent border-b-0 px-3 py-2 data-[state=active]:border-[var(--vscode-border)] data-[state=active]:bg-[var(--vscode-editor)]">
             <Info size={14} />
             System
           </TabsTrigger>
         </TabsList>
 
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-4">
           <TabsContent value="appearance" className="block">
             <AppearanceSettingsPanel
               theme={theme}

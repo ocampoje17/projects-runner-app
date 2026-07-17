@@ -48,20 +48,22 @@ function SettingsSection({
         <div className="flex min-w-0 items-start gap-2.5">
           <div
             className={cn(
-              "mt-0.5 shrink-0 rounded-[12px] p-2",
-              tone === "danger" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary",
+              "mt-0.5 shrink-0 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-2",
+              tone === "danger" ? "text-destructive" : "text-primary",
             )}
           >
             {icon}
           </div>
           <div className="min-w-0">
-            <h3 className="text-[14px] font-semibold tracking-[-0.02em] text-app-title">{title}</h3>
+            <h3 className="text-[14px] font-semibold tracking-[-0.02em] text-foreground">{title}</h3>
             <p className="text-[12px] text-muted-foreground">{description}</p>
           </div>
         </div>
         {action}
       </div>
-      <div className="space-y-2.5">{children}</div>
+      <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3.5">
+        <div className="space-y-2.5">{children}</div>
+      </div>
     </section>
   );
 }
@@ -80,12 +82,12 @@ function SettingsRow({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-3 rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] px-3.5 py-3",
+        "flex items-center justify-between gap-3 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-3.5 py-3",
         className,
       )}
     >
       <div className="min-w-0">
-        <h4 className="text-[12.5px] font-semibold text-app-title">{title}</h4>
+        <h4 className="text-[12.5px] font-semibold text-foreground">{title}</h4>
         {description ? <p className="text-[11.5px] text-muted-foreground">{description}</p> : null}
       </div>
       <div className="shrink-0">{children}</div>
@@ -98,8 +100,6 @@ export function AppearanceSettingsPanel({
   setTheme,
   accent,
   setAccent,
-  motionLevel,
-  setMotionLevel,
 }: {
   theme: "light" | "dark";
   setTheme: (theme: "light" | "dark") => void;
@@ -108,37 +108,15 @@ export function AppearanceSettingsPanel({
   motionLevel: MotionLevel;
   setMotionLevel: (level: MotionLevel) => void;
 }) {
-  const motionOptions: Array<{
-    id: MotionLevel;
-    label: string;
-    description: string;
-  }> = [
-    {
-      id: "full",
-      label: "Full",
-      description: "Keep richer transitions, hover feedback, and theme reveals.",
-    },
-    {
-      id: "reduced",
-      label: "Reduced",
-      description: "Use simpler transitions and remove heavy layout or blur effects.",
-    },
-    {
-      id: "off",
-      label: "Off",
-      description: "Disable non-essential motion and keep feedback mostly static.",
-    },
-  ];
-
   return (
-    <div className="fade-in space-y-6">
+    <div className="fade-in mx-auto flex w-full max-w-[1120px] flex-col gap-6">
       <SettingsSection
         icon={<Palette size={16} />}
         title="Theme mode"
         description="Switch between light and dark interface styles"
         action={<ThemeToggle theme={theme} onThemeChange={setTheme} variant="circle" start="center" />}
       >
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           {(
             [
               { id: "light", label: "Light", Icon: Sun },
@@ -152,14 +130,14 @@ export function AppearanceSettingsPanel({
                 type="button"
                 variant="ghost"
                 className={cn(
-                  "h-auto flex-col items-stretch gap-2 rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-3 text-left hover:border-border-strong hover:bg-card",
-                  active && "border-primary/50 bg-primary/6 shadow-[0_0_0_3px_var(--primary-glow)]",
+                  "h-auto flex-col items-stretch gap-2 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3 text-left hover:border-border-strong hover:bg-[var(--vscode-list-hover)]",
+                  active && "border-primary/50 bg-[var(--vscode-list-active)] text-foreground",
                 )}
                 onClick={() => setTheme(option.id)}
               >
                 <div
                   className={cn(
-                    "flex h-[78px] w-full flex-col gap-2 overflow-hidden rounded-[12px] border border-border bg-card/96 p-2.5",
+                    "flex h-[78px] w-full flex-col gap-2 overflow-hidden rounded-[6px] border border-[var(--vscode-border)] p-2.5",
                     option.id === "light" ? "bg-[#fafafa]" : "bg-[#151515]",
                   )}
                 >
@@ -192,7 +170,7 @@ export function AppearanceSettingsPanel({
         description="Primary highlights, focus rings, and gradients"
       >
         <div className="flex flex-wrap gap-2">
-          {(["mono", "violet", "blue", "emerald", "rose", "amber", "sky"] as AccentColor[]).map((col) => {
+          {(["mono", "blue"] as AccentColor[]).map((col) => {
             const active = accent === col;
             return (
               <Button
@@ -200,14 +178,14 @@ export function AppearanceSettingsPanel({
                 type="button"
                 variant="ghost"
                 className={cn(
-                  "h-auto rounded-full border border-border bg-[color-mix(in_oklab,var(--bg-input)_80%,var(--bg-workspace))] px-3 py-2 text-[12.5px] font-medium text-muted-foreground hover:border-border-strong hover:bg-card hover:text-app-title",
-                  active && "border-primary bg-card text-app-title shadow-[0_0_0_3px_var(--primary-glow)]",
+                  "h-auto rounded-[999px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-3 py-2 text-[12.5px] font-medium text-muted-foreground hover:border-border-strong hover:bg-[var(--vscode-list-hover)] hover:text-foreground",
+                  active && "border-primary bg-[var(--vscode-list-active)] text-foreground",
                 )}
                 style={{ ["--accent-color-color" as string]: ACCENT_THEMES[col].primary } as CSSProperties}
                 onClick={() => setAccent(col)}
                 title={col.charAt(0).toUpperCase() + col.slice(1)}
               >
-                <span className="h-3 w-3 rounded-full shadow-sm" style={{ backgroundColor: ACCENT_THEMES[col].primary }} />
+                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: ACCENT_THEMES[col].primary }} />
                 <span>{col.charAt(0).toUpperCase() + col.slice(1)}</span>
                 {active ? <Check size={14} className="text-primary" /> : null}
               </Button>
@@ -219,30 +197,10 @@ export function AppearanceSettingsPanel({
       <SettingsSection
         icon={<Check size={16} />}
         title="Motion"
-        description="Choose how much interface motion should run across the app"
+        description="Interface motion is disabled so the app behaves like a static VS Code-style shell"
       >
-        <div className="grid gap-2">
-          {motionOptions.map((option) => {
-            const active = motionLevel === option.id;
-            return (
-              <Button
-                key={option.id}
-                type="button"
-                variant="ghost"
-                className={cn(
-                  "h-auto items-start justify-between rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] px-3.5 py-3 text-left hover:border-border-strong hover:bg-card",
-                  active && "border-primary/50 bg-primary/6 shadow-[0_0_0_3px_var(--primary-glow)]",
-                )}
-                onClick={() => setMotionLevel(option.id)}
-              >
-                <div className="min-w-0">
-                  <div className="text-[12.5px] font-semibold text-app-title">{option.label}</div>
-                  <div className="mt-1 text-[11.5px] text-muted-foreground">{option.description}</div>
-                </div>
-                {active ? <Check className="mt-0.5 shrink-0 text-primary" size={16} /> : null}
-              </Button>
-            );
-          })}
+        <div className="rounded-[8px] border border-primary/35 bg-[var(--vscode-list-active)] px-3.5 py-3 text-[12.5px] text-foreground">
+          Motion has been turned off globally. Hover, focus, active, and selected states now use static color and border changes only.
         </div>
       </SettingsSection>
     </div>
@@ -282,13 +240,13 @@ export function TerminalSettingsPanel({
           : "monospace";
 
   return (
-    <div className="fade-in space-y-6">
+    <div className="fade-in mx-auto flex w-full max-w-[1120px] flex-col gap-6">
       <SettingsSection
         icon={<Terminal size={16} />}
         title="Typography"
         description="Font family and size used by the logs terminal"
       >
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 lg:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor="terminal-font">Font family</Label>
             <Select value={terminalFontFamily} onValueChange={setTerminalFontFamily}>
@@ -314,7 +272,7 @@ export function TerminalSettingsPanel({
                     type="button"
                     size="sm"
                     variant={active ? "primary" : "secondary"}
-                    className={cn("min-w-12", !active && "bg-input/40")}
+                    className={cn("min-w-12", !active && "border-[var(--vscode-border)] bg-[var(--vscode-editor)] hover:bg-[var(--vscode-list-hover)]")}
                     onClick={() => setTerminalFontSize(size)}
                   >
                     {size.replace("px", "")}
@@ -363,7 +321,7 @@ export function TerminalSettingsPanel({
         description="Live preview of the selected terminal styles"
       >
         <div
-          className="overflow-hidden rounded-[16px] border border-border bg-[var(--terminal-bg)] p-3 font-mono text-[var(--terminal-fg)]"
+          className="overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[var(--terminal-bg)] p-3 font-mono text-[var(--terminal-fg)]"
           style={{ fontSize: terminalFontSize, fontFamily: previewFontFamily }}
         >
           <div className="text-slate-400">$ npm run dev</div>
@@ -395,17 +353,17 @@ export function SystemSettingsPanel({
   onResetCache: () => void;
 }) {
   return (
-    <div className="fade-in space-y-6">
+    <div className="fade-in mx-auto flex w-full max-w-[1120px] flex-col gap-6">
       <SettingsSection
         icon={<Info size={16} />}
         title="About"
         description="App identity and workspace inventory"
       >
-        <div className="flex items-start gap-3 rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-3.5">
-          <img className="h-12 w-12 rounded-[14px] border border-border bg-card object-cover" src={appIcon} alt="" />
+        <div className="flex items-start gap-3 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3.5">
+          <img className="h-12 w-12 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] object-cover" src={appIcon} alt="" />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h4 className="text-[14px] font-semibold text-app-title">{appInfo?.name ?? "Projects Runner"}</h4>
+              <h4 className="text-[14px] font-semibold text-foreground">{appInfo?.name ?? "Projects Runner"}</h4>
               <Badge variant="muted">v{appInfo?.version ?? "0.1.0"}</Badge>
             </div>
             <p className="mt-1 text-[12px] text-muted-foreground">
@@ -415,17 +373,17 @@ export function SystemSettingsPanel({
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-3">
+          <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3">
             <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
               Projects
             </span>
-            <strong className="mt-1 block text-[20px] text-app-title">{projectCount}</strong>
+            <strong className="mt-1 block text-[20px] text-foreground">{projectCount}</strong>
           </div>
-          <div className="rounded-[16px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-3">
+          <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3">
             <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
               Commands
             </span>
-            <strong className="mt-1 block text-[20px] text-app-title">{commandCount}</strong>
+            <strong className="mt-1 block text-[20px] text-foreground">{commandCount}</strong>
           </div>
         </div>
       </SettingsSection>

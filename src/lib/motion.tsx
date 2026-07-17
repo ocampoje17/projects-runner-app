@@ -1,9 +1,8 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { useReducedMotion } from "motion/react";
 
 export type MotionLevel = "full" | "reduced" | "off";
 
-const MotionLevelContext = createContext<MotionLevel>("full");
+const MotionLevelContext = createContext<MotionLevel>("off");
 
 export function MotionLevelProvider({
   level,
@@ -21,9 +20,9 @@ export function useMotionLevel() {
 
 export function useMotionPreferences() {
   const level = useMotionLevel();
-  const systemReducedMotion = useReducedMotion() ?? false;
-  const allowRichMotion = level === "full" && !systemReducedMotion;
-  const allowBasicMotion = level !== "off";
+  const systemReducedMotion = true;
+  const allowRichMotion = false;
+  const allowBasicMotion = false;
 
   return {
     level,

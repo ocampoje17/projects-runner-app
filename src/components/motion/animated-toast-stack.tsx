@@ -385,7 +385,7 @@ const ToastItem = memo(function ToastItem({
     >
       <div
         className={cn(
-          "relative overflow-hidden rounded-2xl border border-app-border bg-card/95 p-3 shadow-2xl backdrop-blur-xl",
+          "relative overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[color-mix(in_oklab,var(--vscode-panel)_96%,transparent)] p-3 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-md",
           classNames?.surface,
         )}
       >

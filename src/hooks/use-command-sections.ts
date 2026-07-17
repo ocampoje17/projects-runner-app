@@ -3,15 +3,37 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { api, type Project, type ProjectCommand } from "../lib/api";
 import { commandPorts, DEFAULT_SECTION } from "../lib/command-utils";
+import type { CommandSection } from "../components/project-detail-types";
+
+type CommandsByProjectId = Record<number, ProjectCommand[]>;
+
+function buildCommandSections(commands: ProjectCommand[], persistedEmptySections: string[] | undefined) {
+  const sections = new Map<string, ProjectCommand[]>();
+
+  for (const command of commands) {
+    const section = command.section?.trim() || DEFAULT_SECTION;
+    sections.set(section, [...(sections.get(section) ?? []), command]);
+  }
+
+  for (const section of persistedEmptySections ?? [DEFAULT_SECTION]) {
+    if (!sections.has(section)) {
+      sections.set(section, []);
+    }
+  }
+
+  return Array.from(sections.entries()).map<CommandSection>(([section, items]) => ({ section, commands: items }));
+}
 
 export function useCommandSections({
-  selectedProject,
-  commands,
+  projects,
+  selectedProjectId,
+  commandsByProjectId,
   queryClient,
   onError,
 }: {
-  selectedProject: Project | null;
-  commands: ProjectCommand[];
+  projects: Project[];
+  selectedProjectId: number | null;
+  commandsByProjectId: CommandsByProjectId;
   queryClient: QueryClient;
   onError: (error: unknown) => void;
 }) {
@@ -39,44 +61,42 @@ export function useCommandSections({
     }
   }, [isAddingSection]);
 
-  const commandSections = useMemo(() => {
-    const sections = new Map<string, ProjectCommand[]>();
-    for (const command of commands) {
-      const section = command.section?.trim() || DEFAULT_SECTION;
-      sections.set(section, [...(sections.get(section) ?? []), command]);
-    }
+  const commandSectionsByProjectId = useMemo(
+    () =>
+      projects.reduce<Record<number, CommandSection[]>>((acc, project) => {
+        acc[project.id] = buildCommandSections(commandsByProjectId[project.id] ?? [], emptySections[project.id]);
+        return acc;
+      }, {}),
+    [commandsByProjectId, emptySections, projects],
+  );
 
-    if (selectedProject) {
-      const projectEmptySections =
-        emptySections[selectedProject.id] !== undefined ? emptySections[selectedProject.id] : [DEFAULT_SECTION];
-      for (const section of projectEmptySections) {
-        if (!sections.has(section)) {
-          sections.set(section, []);
-        }
-      }
-    }
+  const commandSections = selectedProjectId !== null ? commandSectionsByProjectId[selectedProjectId] ?? [] : [];
 
-    return Array.from(sections.entries()).map(([section, items]) => ({ section, commands: items }));
-  }, [commands, selectedProject, emptySections]);
-
-  function handleAddSectionSubmit(event: FormEvent) {
+  function handleAddSectionSubmit(event: FormEvent, projectId = selectedProjectId) {
     event.preventDefault();
-    const name = newSectionName.trim();
-    if (!name || !selectedProject) return;
+    if (projectId === null) {
+      return;
+    }
 
-    const exists = commandSections.some((s) => s.section.toLowerCase() === name.toLowerCase());
+    const name = newSectionName.trim();
+    if (!name) return;
+
+    const projectSections = commandSectionsByProjectId[projectId] ?? [];
+    const exists = projectSections.some((section) => section.section.toLowerCase() === name.toLowerCase());
     if (exists) {
       onError(new Error(`Section "${name}" already exists.`));
       return;
     }
 
     setEmptySections((current) => {
-      const projectSections = current[selectedProject.id] !== undefined ? current[selectedProject.id] : [DEFAULT_SECTION];
+      const existingSections = current[projectId] !== undefined ? current[projectId] : [DEFAULT_SECTION];
+      if (existingSections.includes(name)) {
+        return current;
+      }
 
-      if (projectSections.includes(name)) return current;
       return {
         ...current,
-        [selectedProject.id]: [...projectSections, name],
+        [projectId]: [...existingSections, name],
       };
     });
 
@@ -84,17 +104,20 @@ export function useCommandSections({
     setNewSectionName("");
   }
 
-  async function handleRenameSection(oldName: string, newName: string) {
+  async function handleRenameSection(oldName: string, newName: string, projectId = selectedProjectId) {
+    if (projectId === null) {
+      return;
+    }
+
     const cleanNewName = newName.trim();
     if (!cleanNewName || cleanNewName === oldName) {
       setRenamingSection(null);
       return;
     }
 
-    if (!selectedProject) return;
-
-    const exists = commandSections.some(
-      (s) => s.section.toLowerCase() === cleanNewName.toLowerCase() && s.section !== oldName,
+    const projectSections = commandSectionsByProjectId[projectId] ?? [];
+    const exists = projectSections.some(
+      (section) => section.section.toLowerCase() === cleanNewName.toLowerCase() && section.section !== oldName,
     );
     if (exists) {
       onError(new Error(`Section "${cleanNewName}" already exists.`));
@@ -102,31 +125,34 @@ export function useCommandSections({
     }
 
     try {
-      const oldSectionCommands = commandSections.find((s) => s.section === oldName)?.commands ?? [];
-      for (const cmd of oldSectionCommands) {
-        await api.updateCommand(cmd.id, {
-          project_id: cmd.project_id,
-          name: cmd.name,
-          script: cmd.script,
-          avatar_path: cmd.avatar_path,
-          ports: commandPorts(cmd),
+      const oldSectionCommands = projectSections.find((section) => section.section === oldName)?.commands ?? [];
+      for (const command of oldSectionCommands) {
+        await api.updateCommand(command.id, {
+          project_id: command.project_id,
+          name: command.name,
+          script: command.script,
+          avatar_path: command.avatar_path,
+          ports: commandPorts(command),
           section: cleanNewName,
-          order_index: cmd.order_index,
-          runtime_mode: cmd.runtime_mode,
-          run_in_external_terminal: cmd.run_in_external_terminal,
+          order_index: command.order_index,
+          runtime_mode: command.runtime_mode,
+          run_in_external_terminal: command.run_in_external_terminal,
         });
       }
 
       setEmptySections((current) => {
-        const projectSections = current[selectedProject.id];
-        if (!projectSections) return current;
+        const existingSections = current[projectId];
+        if (!existingSections) {
+          return current;
+        }
+
         return {
           ...current,
-          [selectedProject.id]: projectSections.map((s) => (s === oldName ? cleanNewName : s)),
+          [projectId]: existingSections.map((section) => (section === oldName ? cleanNewName : section)),
         };
       });
 
-      void queryClient.invalidateQueries({ queryKey: ["commands", selectedProject.id] });
+      void queryClient.invalidateQueries({ queryKey: ["commands", projectId] });
     } catch (error) {
       onError(error);
     } finally {
@@ -134,22 +160,23 @@ export function useCommandSections({
     }
   }
 
-  function handleDeleteSection(section: string) {
-    if (!selectedProject) {
+  function handleDeleteSection(sectionName: string, projectId = selectedProjectId) {
+    if (projectId === null) {
       return;
     }
 
     setEmptySections((current) => {
-      const projectSections = current[selectedProject.id] !== undefined ? current[selectedProject.id] : [DEFAULT_SECTION];
+      const existingSections = current[projectId] !== undefined ? current[projectId] : [DEFAULT_SECTION];
       return {
         ...current,
-        [selectedProject.id]: projectSections.filter((item) => item !== section),
+        [projectId]: existingSections.filter((section) => section !== sectionName),
       };
     });
   }
 
   return {
     commandSections,
+    commandSectionsByProjectId,
     emptySections,
     isAddingSection,
     newSectionName,

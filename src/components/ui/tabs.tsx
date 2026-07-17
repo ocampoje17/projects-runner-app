@@ -78,10 +78,10 @@ export function Tabs({
 }
 
 const listClasses: Record<Variant, string> = {
-  pill: "tabs-list inline-flex items-center gap-1 rounded-full border border-border bg-card/92 p-1 text-muted-foreground shadow-sm backdrop-blur",
+  pill: "tabs-list inline-flex items-center gap-1 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-tabs)] p-1 text-muted-foreground",
   underline: "tabs-list inline-flex items-center gap-1 border-b border-border text-muted-foreground",
   segment:
-    "tabs-list inline-flex h-10 items-center gap-1 rounded-full border border-border bg-card/92 p-1 text-muted-foreground shadow-sm backdrop-blur",
+    "tabs-list inline-flex h-9 items-center gap-1 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-tabs)] p-1 text-muted-foreground",
 };
 
 export function TabsList({
@@ -114,7 +114,7 @@ export function TabsTrigger({
   const { allowRichMotion } = useMotionPreferences();
   const active = current === value;
   const usesDefaultIndicator = indicatorClassName === undefined;
-  const radius = variant === "underline" ? "rounded-none" : "rounded-full";
+  const radius = variant === "underline" ? "rounded-none" : "rounded-[7px]";
 
   if (variant === "underline") {
     return (
@@ -125,8 +125,8 @@ export function TabsTrigger({
         data-state={active ? "active" : "inactive"}
         onClick={() => setValue(value)}
         className={cn(
-          "tabs-trigger relative isolate inline-flex items-center px-3 pb-2.5 pt-1 text-[13px] font-medium outline-none transition-colors app-focus-ring",
-          active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+            "tabs-trigger relative isolate inline-flex items-center rounded-t-[6px] px-2.5 pb-2 pt-1 text-[12px] font-medium outline-none transition-[background-color,color] app-focus-ring",
+          active ? "bg-[var(--vscode-list-active)] text-foreground" : "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground",
           className,
         )}
       >
@@ -146,13 +146,13 @@ export function TabsTrigger({
       {active && allowRichMotion ? (
         <motion.span
           layoutId={layoutId}
-          style={{ borderRadius: 9999 }}
-          className={cn("absolute inset-0 border border-primary bg-primary shadow-sm", radius, indicatorClassName)}
+          style={{ borderRadius: 7 }}
+          className={cn("absolute inset-0 border border-primary/35 bg-[var(--vscode-list-active)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]", radius, indicatorClassName)}
         />
       ) : active ? (
         <span
-          className={cn("absolute inset-0 border border-primary bg-primary shadow-sm", radius, indicatorClassName)}
-          style={{ borderRadius: 9999 }}
+          className={cn("absolute inset-0 border border-primary/35 bg-[var(--vscode-list-active)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]", radius, indicatorClassName)}
+          style={{ borderRadius: 7 }}
         />
       ) : null}
       <button
@@ -162,15 +162,15 @@ export function TabsTrigger({
         data-state={active ? "active" : "inactive"}
         onClick={() => setValue(value)}
         className={cn(
-          "tabs-trigger relative z-10 inline-flex h-8 items-center justify-center whitespace-nowrap bg-transparent px-3.5 text-[13px] font-medium outline-none app-focus-ring",
-          usesDefaultIndicator ? "transition-colors" : "transition-colors",
+          "tabs-trigger relative z-10 inline-flex h-7 items-center justify-center whitespace-nowrap bg-transparent px-3 text-[12px] font-medium outline-none app-focus-ring",
+          usesDefaultIndicator ? "transition-[background-color,color,transform]" : "transition-[background-color,color,transform]",
           usesDefaultIndicator
             ? active
-              ? "text-primary-foreground"
-              : "text-muted-foreground hover:text-foreground"
+              ? "text-foreground"
+              : "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:scale-[0.985]"
             : active
-              ? "text-primary-foreground"
-              : "text-muted-foreground hover:text-foreground",
+              ? "text-foreground"
+              : "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:scale-[0.985]",
           radius,
           className,
         )}

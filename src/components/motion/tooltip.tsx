@@ -137,7 +137,7 @@ export function Tooltip({ content, children, side = "top", delay = 120, classNam
       {trigger}
       <AnimatePresence mode="wait">
         {open ? (
-          <span className={cn("pointer-events-none absolute z-50", wrapperClasses[side])}>
+          <span className={cn("pointer-events-none absolute z-[1200]", wrapperClasses[side])}>
             {allowBasicMotion ? (
               <motion.span
                 id={id}
@@ -151,7 +151,7 @@ export function Tooltip({ content, children, side = "top", delay = 120, classNam
                   willChange: allowRichMotion ? "transform, opacity, filter" : "opacity",
                 }}
                 className={cn(
-                  "block whitespace-nowrap rounded-lg border border-app-border bg-popover/85 px-2.5 py-1 text-xs font-medium text-popover-foreground shadow-2xl backdrop-blur-xl",
+                  "block whitespace-nowrap rounded-[4px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-2 py-1 text-[11px] font-medium leading-none text-[var(--vscode-foreground)] shadow-[0_8px_18px_rgba(0,0,0,0.18)]",
                   className,
                 )}
               >
@@ -162,7 +162,7 @@ export function Tooltip({ content, children, side = "top", delay = 120, classNam
                 id={id}
                 role="tooltip"
                 className={cn(
-                  "block whitespace-nowrap rounded-lg border border-app-border bg-popover/95 px-2.5 py-1 text-xs font-medium text-popover-foreground shadow-2xl",
+                  "block whitespace-nowrap rounded-[4px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-2 py-1 text-[11px] font-medium leading-none text-[var(--vscode-foreground)] shadow-[0_8px_18px_rgba(0,0,0,0.18)]",
                   className,
                 )}
               >

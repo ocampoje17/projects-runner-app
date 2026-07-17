@@ -404,7 +404,12 @@ export function useCommandRuntime({
       }
     }
 
-    setOpenLogCommandIds((current) => current.filter((id) => id !== commandId));
+    let nextActiveLogCommandId: number | null = null;
+    setOpenLogCommandIds((current) => {
+      const remaining = current.filter((id) => id !== commandId);
+      nextActiveLogCommandId = remaining.length > 0 ? remaining[remaining.length - 1] : null;
+      return remaining;
+    });
     clearCommandLogs(commandId);
     setRuns((current) => {
       const next = { ...current };
@@ -416,15 +421,8 @@ export function useCommandRuntime({
       delete next[commandId];
       return next;
     });
-    setActiveLogCommandId((current) => {
-      if (current !== commandId) {
-        return current;
-      }
-
-      const remaining = openLogCommandIds.filter((id) => id !== commandId);
-      return remaining.length > 0 ? remaining[remaining.length - 1] : null;
-    });
-  }, [interactiveSessionsByCommandId, openLogCommandIds, runs, stopMutation, stoppingRunIds]);
+    setActiveLogCommandId((current) => (current === commandId ? nextActiveLogCommandId : current));
+  }, [interactiveSessionsByCommandId, runs, stopMutation, stoppingRunIds]);
 
   const handleTerminalInput = useCallback((commandId: number, data: string) => {
     const interactiveSession = interactiveSessionsByCommandId[commandId];

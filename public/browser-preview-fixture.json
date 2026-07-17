@@ -1,0 +1,60 @@
+{
+  "projects": [
+    {
+      "id": 101,
+      "name": "Command Center",
+      "path": "E:/Workspaces/command-center",
+      "avatar_path": null,
+      "description": "Desktop workspace for coordinating local services, build steps, and release checks.",
+      "notes": "[{\"id\":\"note-setup\",\"content\":\"# Local setup\\n- `pnpm install`\\n- `pnpm dev`\\n\\n## Test accounts\\n- admin@example.com / demo123\\n- qa@example.com / qa-pass\",\"pinned\":true,\"createdAt\":\"2026-07-10T09:20:00.000Z\",\"updatedAt\":\"2026-07-16T14:20:00.000Z\"},{\"id\":\"note-release\",\"content\":\"# Release checklist\\n- Verify migrations\\n- Smoke test command palette\\n- Export latest workspace bundle\",\"pinned\":false,\"createdAt\":\"2026-07-11T08:00:00.000Z\",\"updatedAt\":\"2026-07-15T18:05:00.000Z\"}]",
+      "created_at": "2026-07-01T08:30:00.000Z",
+      "updated_at": "2026-07-16T14:20:00.000Z"
+    }
+  ],
+  "commandsByProjectId": {
+    "101": [
+      {
+        "id": 2001,
+        "project_id": 101,
+        "name": "Web dev server",
+        "script": "pnpm install\\npnpm dev --host 0.0.0.0 --port 3000",
+        "avatar_path": null,
+        "ports": "3000,5173",
+        "section": "Development",
+        "order_index": 0,
+        "created_at": "2026-07-02T07:10:00.000Z",
+        "updated_at": "2026-07-16T09:10:00.000Z",
+        "runtime_mode": "internal_interactive",
+        "run_in_external_terminal": false
+      },
+      {
+        "id": 2002,
+        "project_id": 101,
+        "name": "API mock server",
+        "script": "pnpm mock:api",
+        "avatar_path": null,
+        "ports": "4010",
+        "section": "Development",
+        "order_index": 1,
+        "created_at": "2026-07-02T07:20:00.000Z",
+        "updated_at": "2026-07-16T09:22:00.000Z",
+        "runtime_mode": "internal_headless",
+        "run_in_external_terminal": false
+      },
+      {
+        "id": 2003,
+        "project_id": 101,
+        "name": "Build desktop app",
+        "script": "pnpm build\\npnpm tauri build",
+        "avatar_path": null,
+        "ports": "",
+        "section": "Release",
+        "order_index": 2,
+        "created_at": "2026-07-03T10:00:00.000Z",
+        "updated_at": "2026-07-15T11:30:00.000Z",
+        "runtime_mode": "external_terminal",
+        "run_in_external_terminal": true
+      }
+    ]
+  }
+}

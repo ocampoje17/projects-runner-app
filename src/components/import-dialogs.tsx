@@ -1,6 +1,6 @@
 import { Check, FileInput } from "lucide-react";
 
-import { Button } from "./ui/button"
+import { Button } from "./ui/button";
 import { StatefulButton } from "./ui/stateful-button";
 import {
   Dialog,

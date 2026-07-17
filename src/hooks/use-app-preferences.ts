@@ -3,28 +3,21 @@ import { resolveAccentTheme, type AccentColor } from "../lib/theme";
 import type { MotionLevel } from "../lib/motion";
 
 const SYSTEM_MONO_FAMILY = '"Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace';
-const ACCENT_VALUES: AccentColor[] = ["mono", "violet", "blue", "emerald", "rose", "amber", "sky"];
-const MOTION_LEVEL_VALUES: MotionLevel[] = ["full", "reduced", "off"];
+const ACCENT_VALUES: AccentColor[] = ["mono", "blue"];
 
 function isAccentColor(value: string | null): value is AccentColor {
   return ACCENT_VALUES.includes(value as AccentColor);
 }
 
-function isMotionLevel(value: string | null): value is MotionLevel {
-  return MOTION_LEVEL_VALUES.includes(value as MotionLevel);
-}
-
 export function useAppPreferences() {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const saved = localStorage.getItem("theme");
-    return saved === "dark" || saved === "light" ? saved : "light";
+    return saved === "dark" || saved === "light" ? saved : "dark";
   });
 
   const [accent, setAccent] = useState<AccentColor>(() => {
     const saved = localStorage.getItem("accent");
     if (isAccentColor(saved)) return saved;
-    // migrate previous default indigo -> mono (beUI default)
-    if (saved === "indigo") return "mono";
     return "mono";
   });
 
@@ -50,10 +43,7 @@ export function useAppPreferences() {
     const saved = localStorage.getItem("showStreamName");
     return saved === null ? true : saved === "true";
   });
-  const [motionLevel, setMotionLevel] = useState<MotionLevel>(() => {
-    const saved = localStorage.getItem("motionLevel");
-    return isMotionLevel(saved) ? saved : "reduced";
-  });
+  const [motionLevel, setMotionLevel] = useState<MotionLevel>("off");
 
   useEffect(() => {
     localStorage.setItem("theme", theme);
@@ -109,8 +99,11 @@ export function useAppPreferences() {
   }, [showStreamName]);
 
   useEffect(() => {
-    localStorage.setItem("motionLevel", motionLevel);
-    document.documentElement.dataset.motion = motionLevel;
+    localStorage.setItem("motionLevel", "off");
+    document.documentElement.dataset.motion = "off";
+    if (motionLevel !== "off") {
+      setMotionLevel("off");
+    }
   }, [motionLevel]);
 
   return {

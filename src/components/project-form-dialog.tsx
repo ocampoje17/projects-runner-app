@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { EntityAvatar, lucideIconValue } from "./entity-avatar";
 import { AvatarPicker, FieldError } from "./dialog-shared";
-import { Button } from "./ui/button"
+import { Button } from "./ui/button";
 import { StatefulButton } from "./ui/stateful-button";
 import {
   Dialog,
@@ -86,7 +86,7 @@ export function ProjectDialog({
           <DialogTitle>{project ? "Edit project" : "Add project"}</DialogTitle>
           <DialogDescription>Save a folder you work in and group its commands.</DialogDescription>
         </DialogHeader>
-        <DialogForm className="flex flex-col gap-2" onSubmit={form.handleSubmit((values) => onSubmit(values))}>
+        <DialogForm className="flex flex-col gap-2.5" onSubmit={form.handleSubmit((values) => onSubmit(values))}>
           <AvatarPicker
             name={form.watch("name") || "Project"}
             avatarPath={avatar}
@@ -112,7 +112,12 @@ export function ProjectDialog({
 
           <DialogField>
             <Label>Description</Label>
-            <Textarea {...form.register("description")} rows={3} placeholder="Optional notes" />
+            <Textarea
+              {...form.register("description")}
+              rows={3}
+              placeholder="Optional notes"
+              className="bg-[var(--vscode-editor)] text-[12px] leading-6"
+            />
           </DialogField>
 
           <DialogFooter>
@@ -157,18 +162,22 @@ export function ExportProjectDialog({
           <DialogTitle>Export project</DialogTitle>
           <DialogDescription>Save this project and its commands as a .prd file.</DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-[34px_minmax(0,1fr)] items-center gap-2.5">
+        <div className="grid grid-cols-[34px_minmax(0,1fr)] items-center gap-2.5 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-3">
           <EntityAvatar name={project.name} path={project.avatar_path} />
-          <div>
-            <strong>{project.name}</strong>
-            <span>{project.path}</span>
+          <div className="min-w-0">
+            <strong className="block truncate text-[12px] text-foreground">{project.name}</strong>
+            <span className="block truncate font-mono text-[11px] text-muted-foreground">{project.path}</span>
           </div>
         </div>
         <DialogFooter>
-          <StatefulButton onClick={onSave} state={isPending ? "loading" : "idle"} icon={<Download size={16} />} loadingText="Exporting">
-              Save
-          
-            </StatefulButton>
+          <StatefulButton
+            onClick={onSave}
+            state={isPending ? "loading" : "idle"}
+            icon={<Download size={16} />}
+            loadingText="Exporting"
+          >
+            Save
+          </StatefulButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>

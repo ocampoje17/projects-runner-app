@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import type { Project } from "../lib/api";
+import { noteExcerpt, noteTitle, projectNoteVisibilityKey } from "../lib/project-notes";
 import type { ProjectNote } from "./project-detail-types";
 import { Button } from "./ui/button";
 import {
@@ -20,7 +21,7 @@ import { Textarea } from "./ui/textarea";
 
 function MarkdownNote({ content }: { content: string }) {
   return (
-    <div className="markdown-note max-h-[280px] overflow-y-auto rounded-[14px] bg-input px-3 py-2.5 text-[12.5px] leading-relaxed text-foreground">
+    <div className="markdown-note max-h-[280px] overflow-y-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2.5 text-[12px] leading-6 text-foreground">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
     </div>
   );
@@ -55,22 +56,22 @@ function ProjectNoteDialog({
     }
   }, [open]);
 
-  const title = mode === "create" ? "Thêm note mới" : "Sửa note";
+  const title = mode === "create" ? "Add note" : "Edit note";
   const description =
     mode === "create"
       ? (
         <>
-          Viết ghi chú cho <span className="font-medium text-foreground">{projectName}</span>. Hỗ trợ Markdown để dễ
-          đọc hơn khi xem lại.
+          Write a note for <span className="font-medium text-foreground">{projectName}</span>. Markdown is supported
+          so it stays easy to scan later.
         </>
       )
       : (
         <>
-          Cập nhật nội dung note của <span className="font-medium text-foreground">{projectName}</span>. Markdown sẽ
-          được giữ nguyên để bạn chỉnh sửa tiếp thuận tiện.
+          Update the note for <span className="font-medium text-foreground">{projectName}</span>. Markdown formatting
+          stays intact so you can keep editing comfortably.
         </>
       );
-  const submitLabel = mode === "create" ? "Thêm note" : "Lưu thay đổi";
+  const submitLabel = mode === "create" ? "Add note" : "Save changes";
   const submitIcon = mode === "create" ? <Plus size={16} /> : <Save size={16} />;
 
   return (
@@ -83,20 +84,18 @@ function ProjectNoteDialog({
 
         <DialogForm onSubmit={onSubmit}>
           <DialogField>
-            <Label htmlFor={`${mode}-project-note`}>Nội dung note</Label>
+            <Label htmlFor={`${mode}-project-note`}>Note content</Label>
             <Textarea
               id={`${mode}-project-note`}
               value={value}
               onChange={(event) => onValueChange(event.target.value)}
               rows={10}
-              className="min-h-[220px] font-mono text-[12.5px]"
-              placeholder={
-                "## Local setup\n- `pnpm install`\n- `pnpm dev`\n\n### Tài khoản test\n- user: demo@example.com\n- pass: demo123"
-              }
+              className="min-h-[220px] bg-[var(--script-preview-bg)] font-mono text-[11.5px] leading-6 text-[var(--script-preview-color)]"
+              placeholder={"## Local setup\n- `pnpm install`\n- `pnpm dev`\n\n### Test accounts\n- user: demo@example.com\n- pass: demo123"}
               autoFocus
             />
             <p className="text-[11.5px] text-muted-foreground">
-              Gợi ý: dùng heading, list, code block và checklist Markdown để note dễ quét hơn.
+              Tip: use headings, lists, code blocks, and markdown checklists so the note stays easy to scan.
             </p>
           </DialogField>
 
@@ -104,16 +103,16 @@ function ProjectNoteDialog({
             <DialogField>
               <button
                 type="button"
-                className="flex w-full items-center justify-between rounded-[14px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_72%,var(--bg-workspace))] px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-card"
+                className="flex w-full items-center justify-between rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-[var(--vscode-list-hover)]"
                 onClick={() => setIsPreviewExpanded((current) => !current)}
                 aria-expanded={isPreviewExpanded}
               >
                 <span>
-                  <span className="block text-[12.5px] font-medium text-foreground">Xem trước</span>
-                  <span className="block text-[11.5px] text-muted-foreground">
-                    Mặc định thu gọn. Nhấn để {isPreviewExpanded ? "thu gọn lại" : "mở rộng"} bản xem trước Markdown.
+                    <span className="block text-[12.5px] font-medium text-foreground">Preview</span>
+                    <span className="block text-[11.5px] text-muted-foreground">
+                      Collapsed by default. Click to {isPreviewExpanded ? "hide" : "expand"} the markdown preview.
+                    </span>
                   </span>
-                </span>
                 {isPreviewExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               </button>
               {isPreviewExpanded ? <MarkdownNote content={value} /> : null}
@@ -122,7 +121,7 @@ function ProjectNoteDialog({
 
           <DialogFooter>
             <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
-              Hủy
+              Cancel
             </Button>
             <StatefulButton
               type="submit"
@@ -161,18 +160,31 @@ export function ProjectDetailNotes({
   onAddProjectNote: () => void;
   onSaveProjectNote: (noteId: string, content: string) => void;
   onTogglePinnedProjectNote: (noteId: string) => void;
-  onToggleProjectNoteVisibility: (noteId: string) => void;
+  onToggleProjectNoteVisibility: (projectId: number, noteId: string) => void;
   onDeleteProjectNote: (noteId: string) => void;
   isSavingNotes: boolean;
 }) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState("");
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
 
   const editingNote = useMemo(
     () => sortedProjectNotes.find((note) => note.id === editingNoteId) ?? null,
     [editingNoteId, sortedProjectNotes],
   );
+  const selectedNote = useMemo(
+    () => sortedProjectNotes.find((note) => note.id === selectedNoteId) ?? sortedProjectNotes[0] ?? null,
+    [selectedNoteId, sortedProjectNotes],
+  );
+  const selectedNoteVisibilityKey = selectedNote ? projectNoteVisibilityKey(selectedProject.id, selectedNote.id) : null;
+  const isSelectedNoteVisible = selectedNoteVisibilityKey ? (noteVisibility[selectedNoteVisibilityKey] ?? true) : true;
+
+  useEffect(() => {
+    if (!sortedProjectNotes.some((note) => note.id === selectedNoteId)) {
+      setSelectedNoteId(sortedProjectNotes[0]?.id ?? null);
+    }
+  }, [selectedNoteId, sortedProjectNotes]);
 
   function openAddDialog() {
     setIsAddDialogOpen(true);
@@ -203,6 +215,7 @@ export function ProjectDetailNotes({
   }
 
   function startEditingNote(note: ProjectNote) {
+    setSelectedNoteId(note.id);
     setEditingNoteId(note.id);
     setEditingDraft(note.content);
   }
@@ -219,84 +232,147 @@ export function ProjectDetailNotes({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-      <div className="flex shrink-0 justify-end">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--vscode-border)] pb-3">
+        <div>
+          <h3 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/82">Notes workspace</h3>
+          <p className="text-[11.5px] text-muted-foreground">Keep setup docs, checklists, and project context in one place.</p>
+        </div>
         <Button size="sm" onClick={openAddDialog}>
           <Plus size={14} />
-          Thêm note
+          Add note
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5">
-        {sortedProjectNotes.length > 0 ? (
-          <div className="notes-masonry">
-            {sortedProjectNotes.map((note) => {
-              const isVisible = noteVisibility[note.id] ?? true;
-
-              return (
-                <article
-                  key={note.id}
-                  className={`notes-masonry-item flex flex-col gap-2 rounded-[18px] border border-border bg-card p-3 shadow-app-card ${
-                    note.pinned ? "border-primary/40" : ""
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                      {note.pinned ? (
-                        <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-primary">
-                          <Pin size={11} />
-                          Pinned
-                        </span>
-                      ) : null}
-                      <span>{new Date(note.updatedAt).toLocaleString()}</span>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => onToggleProjectNoteVisibility(note.id)}>
-                        {isVisible ? <EyeOff size={14} /> : <Eye size={14} />}
-                        {isVisible ? "Ẩn" : "Hiện"}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => onTogglePinnedProjectNote(note.id)}>
-                        {note.pinned ? <PinOff size={14} /> : <Pin size={14} />}
-                        {note.pinned ? "Bỏ ghim" : "Ghim"}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => onDeleteProjectNote(note.id)}>
-                        <Trash2 size={14} />
-                        Xóa
-                      </Button>
-                    </div>
-                  </div>
-
-                  {isVisible ? (
-                    <>
-                      <MarkdownNote content={note.content} />
-                      <div className="flex items-center justify-end">
-                        <Button size="sm" variant="ghost" onClick={() => startEditingNote(note)}>
-                          <Pencil size={14} />
-                          Sửa
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="rounded-[14px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_84%,var(--bg-workspace))] px-2.5 py-2 text-[12.5px] text-muted-foreground">
-                      <p>Nội dung note đang được ẩn.</p>
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="rounded-[18px] border border-dashed border-border px-3 py-8 text-center">
-            <p className="text-[12.5px] text-muted-foreground">
-              Chưa có note nào cho project này. Thêm note đầu tiên để ghi lại checklist, tài khoản test hoặc cách chạy local.
-            </p>
-            <div className="mt-3 flex justify-center">
-              <Button size="sm" onClick={openAddDialog}>
-                <Plus size={14} />
-                Thêm note
-              </Button>
+      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
+          <div className="border-b border-[var(--vscode-border)] px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              Project notes
             </div>
           </div>
-        )}
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            {sortedProjectNotes.length > 0 ? (
+              <div className="space-y-1.5">
+                {sortedProjectNotes.map((note) => {
+                  const title = noteTitle(note.content, "Untitled note");
+                  const excerpt = noteExcerpt(note.content);
+                  const isActive = selectedNote?.id === note.id;
+                  return (
+                    <button
+                      key={note.id}
+                      type="button"
+                      onClick={() => setSelectedNoteId(note.id)}
+                      className={`flex w-full flex-col gap-1 rounded-[6px] border px-3 py-2 text-left transition-colors ${
+                        isActive
+                          ? "border-[var(--vscode-border)] bg-[var(--vscode-list-active)]"
+                          : "border-transparent bg-transparent hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-[12px] font-medium text-foreground">{title}</span>
+                        {note.pinned ? <Pin size={12} className="shrink-0 text-primary" /> : null}
+                      </div>
+                      <span className="line-clamp-2 text-[11px] leading-5 text-muted-foreground">{excerpt || "No preview available."}</span>
+                      <span className="text-[10.5px] text-muted-foreground">{new Date(note.updatedAt).toLocaleString()}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-[8px] border border-dashed border-[var(--vscode-border)] px-3 py-8 text-center">
+                <p className="text-[12px] text-muted-foreground">
+                  No notes exist for this project yet. Add the first one to capture checklists, test accounts, or local run steps.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
+          {selectedNote ? (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--vscode-border)] px-4 py-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="truncate text-[13px] font-semibold text-foreground">
+                      {noteTitle(selectedNote.content)}
+                    </h4>
+                    {selectedNote.pinned ? (
+                      <span className="inline-flex items-center gap-1 rounded-[6px] border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10.5px] font-medium text-primary">
+                        <Pin size={11} />
+                        Pinned
+                      </span>
+                    ) : null}
+                    {!isSelectedNoteVisible ? (
+                      <span className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+                        <EyeOff size={11} />
+                        Hidden
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Updated {new Date(selectedNote.updatedAt).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button size="sm" variant="secondary" onClick={() => onToggleProjectNoteVisibility(selectedProject.id, selectedNote.id)}>
+                    {isSelectedNoteVisible ? <EyeOff size={13} /> : <Eye size={13} />}
+                    {isSelectedNoteVisible ? "Hide" : "Show"}
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => onTogglePinnedProjectNote(selectedNote.id)}>
+                    {selectedNote.pinned ? <PinOff size={13} /> : <Pin size={13} />}
+                    {selectedNote.pinned ? "Unpin" : "Pin"}
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => startEditingNote(selectedNote)}>
+                    <Pencil size={13} />
+                    Edit
+                  </Button>
+                  <Button size="sm" variant="danger" onClick={() => onDeleteProjectNote(selectedNote.id)}>
+                    <Trash2 size={13} />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid min-h-0 flex-1 gap-0 xl:grid-cols-2">
+                <div className="min-h-0 border-b border-[var(--vscode-border)] bg-[var(--vscode-editor)] xl:border-b-0 xl:border-r">
+                  {isSelectedNoteVisible ? (
+                    <div className="h-full overflow-y-auto p-4">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                        Preview
+                      </div>
+                      <MarkdownNote content={selectedNote.content} />
+                    </div>
+                  ) : (
+                    <div className="flex h-full min-h-[260px] items-center justify-center px-4 text-center text-[12px] text-muted-foreground">
+                      This note is hidden right now. Use the "Show" button to reveal it again.
+                    </div>
+                  )}
+                </div>
+                <div className="min-h-0 overflow-y-auto bg-[var(--vscode-panel)] p-4">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    Raw markdown
+                  </div>
+                  <pre className="min-h-full whitespace-pre-wrap break-words rounded-[6px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] p-3 font-mono text-[11.5px] leading-6 text-[var(--script-preview-color)]">
+                    {selectedNote.content}
+                  </pre>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex h-full min-h-[300px] items-center justify-center px-6 text-center">
+              <div>
+                <p className="text-[12.5px] text-muted-foreground">Select a note from the list on the left to inspect its content.</p>
+                <div className="mt-3 flex justify-center">
+                  <Button size="sm" onClick={openAddDialog}>
+                    <Plus size={14} />
+                    Add note
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
 
       <ProjectNoteDialog

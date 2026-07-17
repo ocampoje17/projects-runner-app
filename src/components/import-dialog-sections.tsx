@@ -1,10 +1,10 @@
 import {
   CommandImportDiff,
-  CommandRuntimeMode,
   NoteImportDiff,
   ProjectFieldChange,
   PrdImportAnalysis,
 } from "../lib/api";
+import { normalizeCommandScript, runtimeModeLabel } from "../lib/command-utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -29,17 +29,11 @@ function formatPorts(ports: number[]) {
   return ports.length > 0 ? ports.map((port) => `:${port}`).join(", ") : "None";
 }
 
-function runtimeModeLabel(runtimeMode: CommandRuntimeMode) {
-  if (runtimeMode === "external_terminal") return "External terminal";
-  if (runtimeMode === "internal_interactive") return "Interactive terminal";
-  return "Headless terminal";
-}
-
 function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
-    <div className="mb-2 flex items-start justify-between gap-2">
+    <div className="flex items-start justify-between gap-2">
       <div>
-        <h3 className="text-[13px] font-semibold text-app-title">{title}</h3>
+        <h3 className="text-[13px] font-semibold text-foreground">{title}</h3>
         <p className="text-[12px] text-muted-foreground">{description}</p>
       </div>
     </div>
@@ -61,10 +55,12 @@ function CommandPanel({
   status?: CommandImportDiff["status"];
   overwriteFields?: string[];
 }) {
+  const script = command ? normalizeCommandScript(command.script) : "";
+
   return (
-    <div className={title === "Incoming" ? "rounded-[18px] border border-primary/35 bg-primary/6 p-2.5" : "rounded-[18px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-2.5"}>
+    <div className={title === "Incoming" ? "rounded-[6px] border border-primary/35 bg-[var(--vscode-list-active)] p-2.5" : "rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2.5"}>
       <div className="mb-1.5 flex flex-wrap items-center gap-2">
-        <span>{title}</span>
+        <span className="text-[11.5px] font-medium uppercase tracking-[0.04em] text-muted-foreground">{title}</span>
         {command ? (
           <strong>
             {command.section} / {command.name}
@@ -80,10 +76,10 @@ function CommandPanel({
           <span>{runtimeModeLabel(command.runtime_mode)}</span>
           {command.avatar_label && <span>{command.avatar_label}</span>}
           {overwriteFields && overwriteFields.length > 0 && <span>Changes: {overwriteFields.join(", ")}</span>}
-          <pre className="mt-1 overflow-x-auto rounded-[14px] bg-input p-2 text-[11px] text-foreground">{command.script}</pre>
+          <pre className="mt-1 overflow-x-auto whitespace-pre-wrap rounded-[6px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] p-2 text-[11px] text-[var(--script-preview-color)]">{script}</pre>
         </div>
       ) : (
-        <div className="rounded-[14px] border border-dashed border-border px-2.5 py-3 text-[12px] text-muted-foreground">This command does not exist yet.</div>
+        <div className="rounded-[6px] border border-dashed border-[var(--vscode-border)] px-2.5 py-3 text-[12px] text-muted-foreground">This command does not exist yet.</div>
       )}
     </div>
   );
@@ -101,9 +97,9 @@ function NotePanel({
   overwriteFields?: string[];
 }) {
   return (
-    <div className={title === "Incoming" ? "rounded-[18px] border border-primary/35 bg-primary/6 p-2.5" : "rounded-[18px] border border-border bg-[color-mix(in_oklab,var(--bg-input)_78%,var(--bg-workspace))] p-2.5"}>
+    <div className={title === "Incoming" ? "rounded-[6px] border border-primary/35 bg-[var(--vscode-list-active)] p-2.5" : "rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2.5"}>
       <div className="mb-1.5 flex flex-wrap items-center gap-2">
-        <span>{title}</span>
+        <span className="text-[11.5px] font-medium uppercase tracking-[0.04em] text-muted-foreground">{title}</span>
         <strong>{note ? note.id : "No matching note"}</strong>
         {status ? <StatusBadge status={status} /> : null}
       </div>
@@ -112,10 +108,10 @@ function NotePanel({
           <span>{note.pinned ? "Pinned" : "Not pinned"}</span>
           <span>{new Date(note.updatedAt).toLocaleString()}</span>
           {overwriteFields && overwriteFields.length > 0 && <span>Changes: {overwriteFields.join(", ")}</span>}
-          <pre className="mt-1 overflow-x-auto rounded-[14px] bg-input p-2 text-[11px] text-foreground">{note.content}</pre>
+          <pre className="mt-1 overflow-x-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] p-2 text-[11px] text-[var(--script-preview-color)]">{note.content}</pre>
         </div>
       ) : (
-        <div className="rounded-[14px] border border-dashed border-border px-2.5 py-3 text-[12px] text-muted-foreground">This note does not exist yet.</div>
+        <div className="rounded-[6px] border border-dashed border-[var(--vscode-border)] px-2.5 py-3 text-[12px] text-muted-foreground">This note does not exist yet.</div>
       )}
     </div>
   );
@@ -137,13 +133,13 @@ function OverwriteCard({
   incomingLabel?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-[12px] border border-border bg-card/92 p-2.5">
-      <strong className="text-[12.5px] text-app-title">{title}</strong>
+    <div className="flex flex-col gap-1 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2.5">
+      <strong className="text-[12.5px] text-foreground">{title}</strong>
       {fields && fields.length > 0 ? <span>Fields: {fields.join(", ")}</span> : null}
       <span>{currentLabel}:</span>
-      <pre className="overflow-x-auto rounded-[14px] bg-input p-2 text-[11px] text-foreground">{currentContent}</pre>
+      <pre className="overflow-x-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] p-2 text-[11px] text-[var(--script-preview-color)]">{currentContent}</pre>
       <span>{incomingLabel}:</span>
-      <pre className="overflow-x-auto rounded-[14px] bg-input p-2 text-[11px] text-foreground">{incomingContent}</pre>
+      <pre className="overflow-x-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] p-2 text-[11px] text-[var(--script-preview-color)]">{incomingContent}</pre>
     </div>
   );
 }
@@ -151,14 +147,14 @@ function OverwriteCard({
 export function ImportWizardSummary({ analysis }: { analysis: PrdImportAnalysis }) {
   return (
     <div className="mt-2.5 grid grid-cols-2 gap-2">
-      <div className="rounded-[12px] border border-border bg-card/92 p-2.5">
+      <div className="rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2.5">
         <span className="text-[12px] text-muted-foreground">Current project</span>
-        <strong className="block text-[13px] text-app-title">{analysis.existing_project?.name}</strong>
+        <strong className="block text-[13px] text-foreground">{analysis.existing_project?.name}</strong>
         <small className="block text-[11.5px] text-muted-foreground">{analysis.existing_project?.path}</small>
       </div>
-      <div className="rounded-[12px] border border-border bg-card/92 p-2.5">
+      <div className="rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2.5">
         <span className="text-[12px] text-muted-foreground">.prd file</span>
-        <strong className="block text-[13px] text-app-title">{analysis.project_name}</strong>
+        <strong className="block text-[13px] text-foreground">{analysis.project_name}</strong>
         <small className="block text-[11.5px] text-muted-foreground">{analysis.project_path}</small>
       </div>
     </div>
@@ -176,10 +172,10 @@ export function ImportWizardStepper({
 }) {
   return (
     <div className="mt-2.5 flex flex-wrap gap-2">
-      <Button type="button" variant="ghost" className={step === "commands" ? "min-h-8 rounded-full border border-primary bg-primary/10 px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-full border border-border bg-card/90 px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onBack}>
+      <Button type="button" variant="ghost" className={step === "commands" ? "min-h-8 rounded-[6px] border border-primary bg-[var(--vscode-list-active)] px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onBack}>
         1. Commands
       </Button>
-      <Button type="button" variant="ghost" className={step === "notes" ? "min-h-8 rounded-full border border-primary bg-primary/10 px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-full border border-border bg-card/90 px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onNext}>
+      <Button type="button" variant="ghost" className={step === "notes" ? "min-h-8 rounded-[6px] border border-primary bg-[var(--vscode-list-active)] px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onNext}>
         2. Notes
       </Button>
     </div>
@@ -205,11 +201,11 @@ export function ProjectFieldsSection({
         {changes.map((change) => {
           const checked = selectedFields.includes(change.field);
           return (
-            <label key={change.field} className="flex items-start gap-2 rounded-[12px] border border-border bg-card/92 p-2.5">
-              <Checkbox checked={checked} onCheckedChange={() => onToggleField(change.field)} />
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <strong>{change.label}</strong>
+            <label key={change.field} className="flex items-start gap-2.5 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2.5 hover:border-border-strong">
+              <Checkbox checked={checked} onCheckedChange={() => onToggleField(change.field)} className="mt-0.5" />
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <strong className="text-[12.5px] text-foreground">{change.label}</strong>
                   <Badge variant={change.status === "overwrite" ? "danger" : "success"}>
                     {change.status === "overwrite" ? "Overwrite" : "New"}
                   </Badge>
@@ -243,7 +239,7 @@ export function CommandDiffSection({
   onToggleCommand: (index: number) => void;
 }) {
   return (
-    <div className="grid gap-2 md:grid-cols-2">
+    <div className="space-y-2">
       <SectionHeader
         title="Commands"
         description="Left is your current project, right is the content from the `.prd` file."
@@ -252,14 +248,28 @@ export function CommandDiffSection({
         {diffs.map((diff) => {
           const checked = selectedIndexes.includes(diff.index);
           return (
-            <label key={`command-${diff.index}`} className="flex flex-col gap-2 rounded-[12px] border border-border bg-card/92 p-2.5">
-              <Checkbox checked={checked} onCheckedChange={() => onToggleCommand(diff.index)} />
+            <label key={`command-${diff.index}`} className="flex flex-col gap-2 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2.5 hover:border-border-strong">
+              <div className="flex items-center gap-2.5">
+                <Checkbox checked={checked} onCheckedChange={() => onToggleCommand(diff.index)} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12.5px] font-semibold text-foreground">
+                    {diff.incoming.section} / {diff.incoming.name}
+                  </div>
+                  <div className="text-[11.5px] text-muted-foreground">
+                    {diff.status === "overwrite"
+                      ? "Incoming command will replace matching fields."
+                      : diff.status === "identical"
+                        ? "Incoming command already matches the current one."
+                        : "Incoming command will be added to this project."}
+                  </div>
+                </div>
+                <StatusBadge status={diff.status} />
+              </div>
               <div className="grid gap-2 md:grid-cols-2">
                 <CommandPanel title="Current" command={diff.existing} />
                 <CommandPanel
                   title="Incoming"
                   command={diff.incoming}
-                  status={diff.status}
                   overwriteFields={diff.overwrite_fields}
                 />
               </div>
@@ -281,7 +291,7 @@ export function NoteDiffSection({
   onToggleNote: (index: number) => void;
 }) {
   return (
-    <div className="grid gap-2 md:grid-cols-2">
+    <div className="space-y-2">
       <SectionHeader
         title="Notes"
         description="Pick the notes you want to merge in from the `.prd` file."
@@ -290,14 +300,26 @@ export function NoteDiffSection({
         {diffs.map((diff) => {
           const checked = selectedIndexes.includes(diff.index);
           return (
-            <label key={`note-${diff.index}`} className="flex flex-col gap-2 rounded-[12px] border border-border bg-card/92 p-2.5">
-              <Checkbox checked={checked} onCheckedChange={() => onToggleNote(diff.index)} />
+            <label key={`note-${diff.index}`} className="flex flex-col gap-2 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2.5 hover:border-border-strong">
+              <div className="flex items-center gap-2.5">
+                <Checkbox checked={checked} onCheckedChange={() => onToggleNote(diff.index)} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12.5px] font-semibold text-foreground">{diff.incoming.id}</div>
+                  <div className="text-[11.5px] text-muted-foreground">
+                    {diff.status === "overwrite"
+                      ? "Incoming note will replace matching fields."
+                      : diff.status === "identical"
+                        ? "Incoming note already matches the current one."
+                        : "Incoming note will be added to this project."}
+                  </div>
+                </div>
+                <StatusBadge status={diff.status} />
+              </div>
               <div className="grid gap-2 md:grid-cols-2">
                 <NotePanel title="Current" note={diff.existing} />
                 <NotePanel
                   title="Incoming"
                   note={diff.incoming}
-                  status={diff.status}
                   overwriteFields={diff.overwrite_fields}
                 />
               </div>
@@ -312,10 +334,10 @@ export function NoteDiffSection({
 export function OverwriteProjectFieldsSection({ fields }: { fields: ProjectFieldChange[] }) {
   return (
     <div className="space-y-2">
-      <h3>Project details</h3>
+      <h3 className="text-[13px] font-semibold text-foreground">Project details</h3>
       <div className="grid gap-2">
         {fields.map((field) => (
-          <div key={field.field} className="flex flex-col gap-1 rounded-[12px] border border-border bg-card/92 p-2.5">
+          <div key={field.field} className="flex flex-col gap-1 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2.5">
             <strong>{field.label}</strong>
             <span>Current: {formatImportValue(field.existing_value)}</span>
             <span>Incoming: {formatImportValue(field.incoming_value)}</span>
@@ -329,7 +351,7 @@ export function OverwriteProjectFieldsSection({ fields }: { fields: ProjectField
 export function OverwriteCommandsSection({ diffs }: { diffs: CommandImportDiff[] }) {
   return (
     <div className="space-y-2">
-      <h3>Commands</h3>
+      <h3 className="text-[13px] font-semibold text-foreground">Commands</h3>
       <div className="grid gap-2">
         {diffs.map((diff) => (
           <OverwriteCard
@@ -350,7 +372,7 @@ export function OverwriteCommandsSection({ diffs }: { diffs: CommandImportDiff[]
 export function OverwriteNotesSection({ diffs }: { diffs: NoteImportDiff[] }) {
   return (
     <div className="space-y-2">
-      <h3>Notes</h3>
+      <h3 className="text-[13px] font-semibold text-foreground">Notes</h3>
       <div className="grid gap-2">
         {diffs.map((diff) => (
           <OverwriteCard

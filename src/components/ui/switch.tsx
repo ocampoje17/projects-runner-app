@@ -77,18 +77,18 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(function 
           initial={false}
           data-state={current ? "checked" : "unchecked"}
           className={cn(
-            "group peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border px-0.5 shadow-sm outline-none transition-[background-color,border-color,box-shadow] duration-200 app-focus-ring",
+            "group peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border px-0.5 outline-none transition-[background-color,border-color,box-shadow,transform] duration-200 app-focus-ring",
             "disabled:cursor-not-allowed disabled:opacity-60",
             current
-              ? "justify-end border-primary bg-primary shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary-color)_18%,transparent)]"
-              : "justify-start border-border bg-[color-mix(in_oklab,var(--bg-input)_90%,var(--bg-workspace))] hover:border-border-strong",
+              ? "justify-end border-primary bg-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] hover:brightness-110 active:scale-[0.97]"
+              : "justify-start border-[var(--vscode-border)] bg-[var(--vscode-editor)] hover:border-border-strong hover:bg-[var(--vscode-list-hover)] active:scale-[0.97] active:bg-[var(--vscode-list-active)]",
           )}
         >
           <motion.div
             ref={thumbRef}
             layout={allowRichMotion}
             animate={{ scale: squish ? 0.9 : 1 }}
-            className="pointer-events-none block h-[18px] w-[18px] rounded-full border border-black/5 bg-white shadow-sm dark:border-white/10"
+            className="pointer-events-none block h-[18px] w-[18px] rounded-full border border-black/5 bg-white dark:border-white/10"
           />
         </motion.button>
         {label ? (

@@ -143,9 +143,9 @@ const ICON_VARIANTS: Record<CoreAnimation, Variants> = {
 
 const VARIANT_CLASS: Record<ActionSwapButtonVariant, string> = {
   primary: "bg-primary text-primary-foreground hover:bg-primary/90",
-  secondary: "border border-border bg-card text-foreground hover:border-border",
-  outline: "border border-border bg-transparent text-foreground hover:bg-primary/5",
-  ghost: "text-muted-foreground hover:bg-primary/5 hover:text-foreground",
+  secondary: "border border-[var(--vscode-border)] bg-[var(--vscode-panel)] text-foreground hover:border-border-strong hover:bg-[var(--vscode-list-hover)]",
+  outline: "border border-[var(--vscode-border)] bg-transparent text-foreground hover:border-border-strong hover:bg-[var(--vscode-list-hover)]",
+  ghost: "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground",
 };
 
 const SIZE_CLASS: Record<ActionSwapButtonSize, string> = {
