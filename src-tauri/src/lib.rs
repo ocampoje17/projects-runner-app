@@ -1,3 +1,5 @@
+mod app_updates;
+
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::Utc;
 use diesel::connection::SimpleConnection;
@@ -3253,7 +3255,7 @@ fn start_interactive_command(
         }
     };
 
-    let mut reader = pair
+    let reader = pair
         .master
         .try_clone_reader()
         .map_err(|error| error.to_string())?;
@@ -3304,40 +3306,13 @@ fn start_interactive_command(
         },
     );
 
-    let app_for_reader = app.clone();
-    let session_id_for_reader = session_id.clone();
-    std::thread::spawn(move || {
-        let mut buffer = [0u8; 4096];
-        loop {
-            match reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(length) => {
-                    let chunk = String::from_utf8_lossy(&buffer[..length]).to_string();
-                    let _ = app_for_reader.emit(
-                        "pty://data",
-                        InteractiveDataPayload {
-                            session_id: session_id_for_reader.clone(),
-                            run_id: run.id,
-                            command_id,
-                            data: chunk,
-                        },
-                    );
-                }
-                Err(error) => {
-                    let _ = app_for_reader.emit(
-                        "pty://error",
-                        InteractiveErrorPayload {
-                            session_id: session_id_for_reader.clone(),
-                            run_id: run.id,
-                            command_id,
-                            error: error.to_string(),
-                        },
-                    );
-                    break;
-                }
-            }
-        }
-    });
+    spawn_interactive_reader(
+        app.clone(),
+        reader,
+        session_id.clone(),
+        run.id,
+        command_id,
+    );
 
     let paths = state.paths.clone();
     let app_for_wait = app.clone();
@@ -3451,7 +3426,7 @@ fn start_project_interactive_terminal(
         }
     };
 
-    let mut reader = pair
+    let reader = pair
         .master
         .try_clone_reader()
         .map_err(|error| error.to_string())?;
@@ -3504,40 +3479,13 @@ fn start_project_interactive_terminal(
         },
     );
 
-    let app_for_reader = app.clone();
-    let session_id_for_reader = session_id.clone();
-    std::thread::spawn(move || {
-        let mut buffer = [0u8; 4096];
-        loop {
-            match reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(length) => {
-                    let chunk = String::from_utf8_lossy(&buffer[..length]).to_string();
-                    let _ = app_for_reader.emit(
-                        "pty://data",
-                        InteractiveDataPayload {
-                            session_id: session_id_for_reader.clone(),
-                            run_id,
-                            command_id: terminal_id,
-                            data: chunk,
-                        },
-                    );
-                }
-                Err(error) => {
-                    let _ = app_for_reader.emit(
-                        "pty://error",
-                        InteractiveErrorPayload {
-                            session_id: session_id_for_reader.clone(),
-                            run_id,
-                            command_id: terminal_id,
-                            error: error.to_string(),
-                        },
-                    );
-                    break;
-                }
-            }
-        }
-    });
+    spawn_interactive_reader(
+        app.clone(),
+        reader,
+        session_id.clone(),
+        run_id,
+        terminal_id,
+    );
 
     let app_for_wait = app.clone();
     std::thread::spawn(move || {
@@ -4072,6 +4020,66 @@ fn interactive_exit_code(status: portable_pty::ExitStatus) -> Option<i32> {
     Some(status.exit_code() as i32)
 }
 
+fn spawn_interactive_reader(
+    app: AppHandle,
+    mut reader: Box<dyn Read + Send>,
+    session_id: String,
+    run_id: i64,
+    command_id: i64,
+) {
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(length) => {
+                    let chunk = String::from_utf8_lossy(&buffer[..length]).to_string();
+                    let _ = app.emit(
+                        "pty://data",
+                        InteractiveDataPayload {
+                            session_id: session_id.clone(),
+                            run_id,
+                            command_id,
+                            data: chunk,
+                        },
+                    );
+                }
+                Err(error) => {
+                    if is_benign_interactive_read_error(&error) {
+                        break;
+                    }
+
+                    let _ = app.emit(
+                        "pty://error",
+                        InteractiveErrorPayload {
+                            session_id: session_id.clone(),
+                            run_id,
+                            command_id,
+                            error: error.to_string(),
+                        },
+                    );
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn is_benign_interactive_read_error(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::BrokenPipe {
+        return true;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if error.raw_os_error() == Some(0) {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn remove_interactive_session(state: &AppState, session_id: &str, run_id: i64, command_id: i64) {
     if let Ok(mut sessions) = state.interactive_sessions.lock() {
         sessions.remove(session_id);
@@ -4277,6 +4285,7 @@ pub fn run() {
                 stopped_runs: Mutex::new(HashSet::new()),
                 pending_prd_open_requests: Mutex::new(Vec::new()),
             });
+            app.manage(app_updates::UpdateState::default());
             let current_dir = std::env::current_dir().ok();
             for file_path in
                 collect_prd_paths_from_args(std::env::args_os().skip(1), current_dir.as_deref())
@@ -4317,7 +4326,11 @@ pub fn run() {
             show_project_in_explorer,
             open_in_external_terminal,
             pick_and_copy_avatar,
-            take_pending_prd_open_requests
+            take_pending_prd_open_requests,
+            app_updates::check_for_update,
+            app_updates::download_update,
+            app_updates::reveal_downloaded_update,
+            app_updates::install_downloaded_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -10,7 +10,11 @@ import {
 
 type ProjectById = Record<number, Project>;
 type ProjectNotesById = Record<number, ProjectNote[]>;
-type DraftsByProjectId = Record<number, string>;
+type ProjectNoteDraft = {
+  title: string;
+  content: string;
+};
+type DraftsByProjectId = Record<number, ProjectNoteDraft>;
 
 function buildProjectMap(projects: Project[]): ProjectById {
   return projects.reduce<ProjectById>((acc, project) => {
@@ -53,7 +57,7 @@ export function useProjectNotes({
     setNewProjectNotesById((current) => {
       const next: DraftsByProjectId = {};
       for (const project of projects) {
-        next[project.id] = current[project.id] ?? "";
+        next[project.id] = current[project.id] ?? { title: "", content: "" };
       }
       return next;
     });
@@ -70,10 +74,13 @@ export function useProjectNotes({
     [projectNotesById],
   );
 
-  function setNewProjectNote(projectId: number, value: string) {
+  function setNewProjectNote(projectId: number, field: keyof ProjectNoteDraft, value: string) {
     setNewProjectNotesById((current) => ({
       ...current,
-      [projectId]: value,
+      [projectId]: {
+        title: field === "title" ? value : (current[projectId]?.title ?? ""),
+        content: field === "content" ? value : (current[projectId]?.content ?? ""),
+      },
     }));
   }
 
@@ -97,8 +104,10 @@ export function useProjectNotes({
   }
 
   function handleAddProjectNote(projectId: number) {
-    const content = newProjectNotesById[projectId]?.trim();
-    if (!content) {
+    const draft = newProjectNotesById[projectId];
+    const title = draft?.title.trim();
+    const content = draft?.content.trim();
+    if (!title || !content) {
       return;
     }
 
@@ -107,6 +116,7 @@ export function useProjectNotes({
     const nextNotes = [
       {
         id: `note-${crypto.randomUUID()}`,
+        title,
         content,
         pinned: false,
         createdAt: timestamp,
@@ -121,24 +131,27 @@ export function useProjectNotes({
     }));
     setNewProjectNotesById((current) => ({
       ...current,
-      [projectId]: "",
+      [projectId]: { title: "", content: "" },
     }));
     persistProjectNotes(projectId, nextNotes, "Note added");
   }
 
-  function handleSaveEditedProjectNote(projectId: number, noteId: string, content: string) {
+  function handleSaveEditedProjectNote(projectId: number, noteId: string, title: string, content: string) {
+    const normalizedTitle = title.trim();
+    const normalizedContent = content.trim();
     const currentNotes = projectNotesById[projectId] ?? [];
     const nextNotes = currentNotes
       .map((note) =>
         note.id === noteId
           ? {
               ...note,
-              content: content.trim(),
+              title: normalizedTitle || note.title,
+              content: normalizedContent,
               updatedAt: new Date().toISOString(),
             }
           : note,
       )
-      .filter((note) => note.content);
+      .filter((note) => note.title || note.content);
 
     setProjectNotesById((current) => ({
       ...current,

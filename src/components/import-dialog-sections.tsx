@@ -5,6 +5,7 @@ import {
   PrdImportAnalysis,
 } from "../lib/api";
 import { normalizeCommandScript, runtimeModeLabel } from "../lib/command-utils";
+import { formatDateTime } from "../lib/date-time";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -106,7 +107,7 @@ function NotePanel({
       {note ? (
         <div className="flex flex-col gap-1 text-[12px] text-muted-foreground">
           <span>{note.pinned ? "Pinned" : "Not pinned"}</span>
-          <span>{new Date(note.updatedAt).toLocaleString()}</span>
+          <span>{formatDateTime(note.updatedAt)}</span>
           {overwriteFields && overwriteFields.length > 0 && <span>Changes: {overwriteFields.join(", ")}</span>}
           <pre className="mt-1 overflow-x-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] p-2 text-[11px] text-[var(--script-preview-color)]">{note.content}</pre>
         </div>

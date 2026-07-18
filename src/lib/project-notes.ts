@@ -1,5 +1,6 @@
 export type ProjectNote = {
   id: string;
+  title: string;
   content: string;
   pinned: boolean;
   createdAt: string;
@@ -24,18 +25,28 @@ export function projectNoteVisibilityKey(projectId: number, noteId: string) {
   return `${projectId}:${noteId}`;
 }
 
-export function noteTitle(content: string, fallback = "Project Note") {
-  return content.split(/\r?\n/, 1)[0]?.replace(/^#+\s*/, "").trim() || fallback;
+function deriveNoteTitleFromContent(content: string) {
+  return content.split(/\r?\n/, 1)[0]?.replace(/^#+\s*/, "").trim() || "";
 }
 
-export function noteExcerpt(content: string) {
+export function noteTitle(noteOrContent: ProjectNote | string, fallback = "Project Note") {
+  if (typeof noteOrContent === "string") {
+    return deriveNoteTitleFromContent(noteOrContent) || fallback;
+  }
+
+  return noteOrContent.title.trim() || deriveNoteTitleFromContent(noteOrContent.content) || fallback;
+}
+
+export function noteExcerpt(noteOrContent: ProjectNote | string) {
+  const content = typeof noteOrContent === "string" ? noteOrContent : noteOrContent.content;
+  const title = typeof noteOrContent === "string" ? noteTitle(noteOrContent, "") : noteTitle(noteOrContent, "");
   const lines = notePlainText(content)
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
 
   const excerptSource = lines.slice(1).join(" ").trim() || lines.join(" ").trim();
-  return excerptSource.replace(/\s{2,}/g, " ").trim();
+  return excerptSource.replace(/\s{2,}/g, " ").trim() || title;
 }
 
 export function notePlainText(content: string) {
@@ -73,13 +84,15 @@ export function parseProjectNotes(value: string | null | undefined): ProjectNote
         }
 
         const content = typeof item.content === "string" ? item.content : "";
-        if (!content.trim()) {
+        const title = typeof item.title === "string" ? item.title.trim() : "";
+        if (!content.trim() && !title) {
           return null;
         }
 
         const fallbackTime = new Date().toISOString();
         return {
           id: typeof item.id === "string" && item.id ? item.id : `note-${index}-${fallbackTime}`,
+          title: title || deriveNoteTitleFromContent(content) || "Untitled note",
           content,
           pinned: Boolean(item.pinned),
           createdAt: typeof item.createdAt === "string" && item.createdAt ? item.createdAt : fallbackTime,
@@ -97,6 +110,7 @@ export function parseProjectNotes(value: string | null | undefined): ProjectNote
     return [
       {
         id: `legacy-note-${fallbackTime}`,
+        title: deriveNoteTitleFromContent(content) || "Untitled note",
         content,
         pinned: false,
         createdAt: fallbackTime,
@@ -110,9 +124,10 @@ export function serializeProjectNotes(notes: ProjectNote[]) {
   const cleanNotes = notes
     .map((note) => ({
       ...note,
+      title: note.title.trim(),
       content: note.content.trim(),
     }))
-    .filter((note) => note.content);
+    .filter((note) => note.title || note.content);
 
   return cleanNotes.length > 0 ? JSON.stringify(cleanNotes) : null;
 }
@@ -128,7 +143,7 @@ export function sortProjectNotes(notes: ProjectNote[]) {
 }
 
 export function buildProjectNoteMeta(note: ProjectNote, isVisible: boolean): ProjectNoteMeta {
-  const title = noteTitle(note.content, "Untitled note");
+  const title = noteTitle(note, "Untitled note");
   const plainText = notePlainText(note.content);
   return {
     id: note.id,

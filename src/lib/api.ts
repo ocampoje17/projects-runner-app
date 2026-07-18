@@ -246,6 +246,18 @@ export type AppInfo = {
   version: string;
 };
 
+export type AppUpdateInfo = {
+  currentVersion: string;
+  version: string;
+  assetName: string;
+  assetSize: number;
+  installAction: "install" | "reveal";
+};
+
+export type UpdateCheckResult = {
+  update: AppUpdateInfo | null;
+};
+
 export type ImportPreview = {
   file_path: string;
   project_name: string;
@@ -297,6 +309,7 @@ export type CommandImportDiff = {
 
 export type ProjectNoteItem = {
   id: string;
+  title: string;
   content: string;
   pinned: boolean;
   createdAt: string;
@@ -451,6 +464,10 @@ export const api = {
           name: "Projects Runner",
           version: payload ? "Browser Preview (Mock Data)" : "Browser Preview",
         }))),
+  checkForUpdate: () => invokeDesktop<UpdateCheckResult>("check_for_update"),
+  downloadUpdate: () => invokeDesktop<string>("download_update"),
+  installDownloadedUpdate: () => invokeDesktop<void>("install_downloaded_update"),
+  revealDownloadedUpdate: () => invokeDesktop<void>("reveal_downloaded_update"),
   exportProject: (projectId: number) =>
     invokeDesktop<string | null>("export_project", { projectId }),
   pickPrdFile: () => invokeDesktop<ImportPreview | null>("pick_prd_file"),

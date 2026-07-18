@@ -1,4 +1,6 @@
 export type AccentColor = "mono" | "blue";
+export type ThemePreference = "light" | "dark" | "system";
+export type ResolvedTheme = "light" | "dark";
 
 export type AccentTheme = {
   primary: string;
@@ -41,7 +43,7 @@ export const DARK_ACCENT_OVERRIDES: Partial<Record<AccentColor, Partial<AccentTh
   },
 };
 
-export function resolveAccentTheme(accent: AccentColor, mode: "light" | "dark"): AccentTheme {
+export function resolveAccentTheme(accent: AccentColor, mode: ResolvedTheme): AccentTheme {
   const base = ACCENT_THEMES[accent] ?? ACCENT_THEMES.mono;
   if (mode === "dark") {
     return { ...base, ...(DARK_ACCENT_OVERRIDES[accent] ?? {}) };

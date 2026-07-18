@@ -83,14 +83,18 @@ if (remoteTag) {
 const packageJsonPath = new URL("../package.json", import.meta.url);
 const packageLockPath = new URL("../package-lock.json", import.meta.url);
 const tauriConfigPath = new URL("../src-tauri/tauri.conf.json", import.meta.url);
+const cargoTomlPath = new URL("../src-tauri/Cargo.toml", import.meta.url);
+const cargoLockPath = new URL("../src-tauri/Cargo.lock", import.meta.url);
 
-const [packageJson, packageLock, tauriConfig] = await Promise.all([
+const [packageJson, packageLock, tauriConfig, cargoToml, cargoLock] = await Promise.all([
   readJson(packageJsonPath),
   readJson(packageLockPath),
   readJson(tauriConfigPath),
+  readFile(cargoTomlPath, "utf8"),
+  readFile(cargoLockPath, "utf8"),
 ]);
 
-if (packageJson.version === version && tauriConfig.version === version) {
+if (packageJson.version === version && tauriConfig.version === version && cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1] === version) {
   fail(`Version '${version}' is already set. Choose a new version before publishing.`);
 }
 
@@ -100,11 +104,18 @@ if (packageLock.packages?.[""]) {
   packageLock.packages[""].version = version;
 }
 tauriConfig.version = version;
+const nextCargoToml = cargoToml.replace(/^version\s*=\s*"[^"]+"/m, `version = "${version}"`);
+const nextCargoLock = cargoLock.replace(
+  /(\[\[package\]\]\r?\nname = "projects-runner-app"\r?\nversion = ")[^"]+"/,
+  `$1${version}"`,
+);
 
 await Promise.all([
   writeJson(packageJsonPath, packageJson),
   writeJson(packageLockPath, packageLock),
   writeJson(tauriConfigPath, tauriConfig),
+  writeFile(cargoTomlPath, nextCargoToml, "utf8"),
+  writeFile(cargoLockPath, nextCargoLock, "utf8"),
 ]);
 
 run(npmCommand, ["run", "release:check"]);
@@ -114,6 +125,8 @@ run("git", [
   "package.json",
   "package-lock.json",
   "src-tauri/tauri.conf.json",
+  "src-tauri/Cargo.toml",
+  "src-tauri/Cargo.lock",
 ]);
 run("git", ["commit", "-m", `Release v${version}`]);
 run("git", ["push", "origin", "master"]);

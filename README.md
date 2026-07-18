@@ -134,6 +134,7 @@ npm run release:check
 npm run release:publish -- 0.4.7
 npm run release:build
 npm run release:artifacts
+npm run release:checksums
 ```
 
 ## Release Process
@@ -157,6 +158,12 @@ npm run release:publish -- 0.4.7
 ```
 
 That command updates the app version files, verifies release metadata, creates a `Release v0.4.7` commit, then pushes both `master` and the `app-v0.4.7` tag.
+
+## In-app updates
+
+The app checks the latest stable GitHub Release one minute after startup, then every five hours. Windows downloads the NSIS installer and can start it from the app; Linux and macOS download the matching package and open its folder for manual installation.
+
+Each release publishes `SHA256SUMS.txt`; the app also verifies the SHA-256 digest returned by GitHub for the selected asset before it can be installed or revealed. This project intentionally does not sign update artifacts, so repository and release access must be protected carefully.
 
 ## Tech Stack
 

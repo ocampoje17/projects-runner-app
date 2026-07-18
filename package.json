@@ -12,7 +12,8 @@
     "release:check": "node ./scripts/check-version-sync.mjs",
     "release:publish": "node ./scripts/publish-release.mjs",
     "release:build": "tauri build --config src-tauri/tauri.release.conf.json --ci",
-    "release:artifacts": "node ./scripts/prepare-release-artifacts.mjs"
+    "release:artifacts": "node ./scripts/prepare-release-artifacts.mjs",
+    "release:checksums": "node ./scripts/create-release-checksums.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

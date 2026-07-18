@@ -28,9 +28,11 @@ import { useCommandSections } from "./hooks/use-command-sections";
 import { useCommandRuntime } from "./hooks/use-command-runtime";
 import { usePrdImportFlow } from "./hooks/use-prd-import-flow";
 import { useProjectNotes } from "./hooks/use-project-notes";
+import { useAppUpdater } from "./hooks/use-app-updater";
 import { buildTitlebarSearchCollections, type TitlebarSearchItem } from "./lib/titlebar-search";
 import { MotionLevelProvider } from "./lib/motion";
 import appIcon from "./assets/app-icon.png";
+import { UpdateDialog } from "./components/update-dialog";
 
 type PrdOpenRequestPayload = {
   file_path: string;
@@ -305,8 +307,11 @@ function App() {
   const {
     theme,
     setTheme,
+    resolvedTheme,
     accent,
     setAccent,
+    dateFormat,
+    setDateFormat,
     terminalFontSize,
     setTerminalFontSize,
     terminalFontFamily,
@@ -337,6 +342,7 @@ function App() {
   });
   const { toasts, showToast, dismissToast } = useAnimatedToastStack({ limit: 4, defaultDuration: 5200 });
   const [defaultSection, setDefaultSection] = useState<string | null>(null);
+  const appUpdater = useAppUpdater();
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -694,6 +700,7 @@ function App() {
     setNewProjectNote,
     noteVisibility,
     handleAddProjectNote,
+    handleSaveEditedProjectNote,
     handleDeleteProjectNote,
     handleTogglePinnedProjectNote,
     handleToggleProjectNoteVisibility,
@@ -790,6 +797,31 @@ function App() {
       duration: 4200,
     });
   }
+
+  async function handleManualUpdateCheck() {
+    const result = await appUpdater.checkManually();
+    if (result === "up-to-date") {
+      setConfirmDialog({
+        isOpen: true,
+        title: "Kiểm tra cập nhật",
+        description: "Không có bản cập nhật mới.",
+        confirmLabel: "OK",
+        cancelLabel: "Đóng",
+        isDestructive: false,
+        onConfirm: () => {},
+      });
+    } else if (result === "error") {
+      setConfirmDialog({
+        isOpen: true,
+        title: "Không thể kiểm tra cập nhật",
+        description: "Không thể kiểm tra, vui lòng thử lại sau.",
+        confirmLabel: "OK",
+        cancelLabel: "Đóng",
+        isDestructive: false,
+        onConfirm: () => {},
+      });
+    }
+  }
   function openProjectDialog(project?: Project) {
     setEditingProject(project ?? null);
     setProjectDialogOpen(true);
@@ -843,6 +875,8 @@ function App() {
     setTheme,
     accent,
     setAccent,
+    dateFormat,
+    setDateFormat,
     terminalFontSize,
     setTerminalFontSize,
     terminalFontFamily,
@@ -870,6 +904,10 @@ function App() {
           window.location.reload();
         },
       });
+    },
+    isCheckingUpdates: appUpdater.status === "checking",
+    onCheckUpdates: () => {
+      void handleManualUpdateCheck();
     },
   };
 
@@ -944,11 +982,15 @@ function App() {
             commandsByProjectId={commandsByProjectId}
             commandSectionsByProjectId={commandSectionsByProjectId}
             settingsProps={settingsProps}
+            updateStatus={appUpdater.status}
+            updateVersion={appUpdater.update?.version ?? null}
+            onOpenUpdate={() => appUpdater.setDialogOpen(true)}
             sortedProjectNotesByProjectId={sortedProjectNotesById}
             noteVisibility={noteVisibility}
             newProjectNotesByProjectId={newProjectNotesById}
             onNewProjectNoteChange={setNewProjectNote}
             onAddProjectNote={handleAddProjectNote}
+            onEditProjectNote={handleSaveEditedProjectNote}
             onTogglePinnedProjectNote={handleTogglePinnedProjectNote}
             onToggleProjectNoteVisibility={handleToggleProjectNoteVisibility}
             onDeleteProjectNote={(projectId, noteId) => {
@@ -974,7 +1016,7 @@ function App() {
             onTerminalResize={handleTerminalResize}
             terminalFontFamily={resolveTerminalFontFamilyValue(terminalFontFamily)}
             terminalFontSize={terminalFontSize}
-            theme={theme}
+            theme={resolvedTheme}
             onAddProject={() => openProjectDialog()}
             onImportProject={pickImportProjectFile}
             onSelectProject={setSelectedProjectId}
@@ -1128,6 +1170,18 @@ function App() {
           onKillProcesses={handleKillProcesses}
           isKillingPorts={killingPorts}
           onRefreshProcesses={handleRefreshProcesses}
+        />
+
+        <UpdateDialog
+          open={appUpdater.dialogOpen}
+          update={appUpdater.update}
+          status={appUpdater.status}
+          progress={appUpdater.progress}
+          error={appUpdater.error}
+          onOpenChange={appUpdater.setDialogOpen}
+          onDismiss={appUpdater.dismiss}
+          onDownload={() => void appUpdater.download()}
+          onInstallOrReveal={() => void appUpdater.installOrReveal()}
         />
 
         <AnimatedToastStack toasts={toasts} onDismiss={dismissToast} position="top-right" placement="fixed" />

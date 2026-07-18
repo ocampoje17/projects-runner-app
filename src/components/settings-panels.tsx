@@ -5,6 +5,7 @@ import {
   Palette,
   Sparkles,
   Sun,
+  RefreshCw,
   Terminal,
   Trash2,
 } from "lucide-react";
@@ -23,9 +24,9 @@ import {
 import { Switch } from "./ui/switch";
 import { Badge } from "./ui/badge";
 import type { AppInfo } from "../lib/api";
-import { ACCENT_THEMES, type AccentColor } from "../lib/theme";
+import { ACCENT_THEMES, type AccentColor, type ThemePreference } from "../lib/theme";
 import type { MotionLevel } from "../lib/motion";
-import { ThemeToggle } from "./motion/theme-toggle";
+import { formatTime, type DateFormatPreference } from "../lib/date-time";
 import { cn } from "@/lib/utils";
 
 function SettingsSection({
@@ -99,11 +100,15 @@ export function AppearanceSettingsPanel({
   setTheme,
   accent,
   setAccent,
+  dateFormat,
+  setDateFormat,
 }: {
-  theme: "light" | "dark";
-  setTheme: (theme: "light" | "dark") => void;
+  theme: ThemePreference;
+  setTheme: (theme: ThemePreference) => void;
   accent: AccentColor;
   setAccent: (accent: AccentColor) => void;
+  dateFormat: DateFormatPreference;
+  setDateFormat: (format: DateFormatPreference) => void;
   motionLevel: MotionLevel;
   setMotionLevel: (level: MotionLevel) => void;
 }) {
@@ -112,14 +117,14 @@ export function AppearanceSettingsPanel({
       <SettingsSection
         icon={<Palette size={16} />}
         title="Theme mode"
-        description="Switch between light and dark interface styles"
-        action={<ThemeToggle theme={theme} onThemeChange={setTheme} variant="rectangle" start="center" />}
+        description="Choose light, dark, or follow your system setting"
       >
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {(
             [
               { id: "light", label: "Light", Icon: Sun },
               { id: "dark", label: "Dark", Icon: Moon },
+              { id: "system", label: "System", Icon: Info },
             ] as const
           ).map((option) => {
             const active = theme === option.id;
@@ -204,6 +209,25 @@ export function AppearanceSettingsPanel({
           </Select>
         </div>
       </SettingsSection>
+
+      <SettingsSection
+        icon={<Info size={16} />}
+        title="Date format"
+        description="Choose how dates are displayed across the app"
+      >
+        <div className="max-w-[260px] py-1">
+          <Select value={dateFormat} onValueChange={(value) => setDateFormat(value as DateFormatPreference)}>
+            <SelectTrigger aria-label="Date format">
+              <SelectValue placeholder="Select a date format" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="dd/mm/yyyy">dd/mm/yyyy</SelectItem>
+              <SelectItem value="mm/dd/yyyy">mm/dd/yyyy</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </SettingsSection>
+
     </div>
   );
 }
@@ -323,12 +347,12 @@ export function TerminalSettingsPanel({
         >
           <div className="text-slate-400">$ npm run dev</div>
           <div className="text-emerald-200">
-            {showLogsTimestamp ? <span className="mr-1 opacity-60">[{new Date().toLocaleTimeString()}] </span> : null}
+            {showLogsTimestamp ? <span className="mr-1 opacity-60">[{formatTime(new Date())}] </span> : null}
             {showStreamName ? <span className="mr-1 opacity-70">[stdout] </span> : null}
             Vite server started on port 3000 successfully.
           </div>
           <div className="text-emerald-200">
-            {showLogsTimestamp ? <span className="mr-1 opacity-60">[{new Date().toLocaleTimeString()}] </span> : null}
+            {showLogsTimestamp ? <span className="mr-1 opacity-60">[{formatTime(new Date())}] </span> : null}
             {showStreamName ? <span className="mr-1 opacity-70">[stdout] </span> : null}
             Watching files in /projects/app-shell...
           </div>
@@ -341,9 +365,13 @@ export function TerminalSettingsPanel({
 export function SystemSettingsPanel({
   appInfo,
   onResetCache,
+  isCheckingUpdates,
+  onCheckUpdates,
 }: {
   appInfo?: AppInfo;
   onResetCache: () => void;
+  isCheckingUpdates: boolean;
+  onCheckUpdates: () => void;
 }) {
   return (
     <div className="flex w-full flex-col gap-4">
@@ -390,7 +418,23 @@ export function SystemSettingsPanel({
       </SettingsSection>
 
       <SettingsSection
-        icon={<Trash2 size={16} />}
+        icon={<RefreshCw size={16} />}
+        title="Kiểm tra cập nhật"
+        description="Tìm bản phát hành mới nhất từ GitHub"
+      >
+        <SettingsRow
+          title="Kiểm tra bản cập nhật mới"
+          description="Bạn sẽ được thông báo nếu có phiên bản mới tương thích với thiết bị này"
+        >
+          <Button variant="outline" onClick={onCheckUpdates} disabled={isCheckingUpdates}>
+            <RefreshCw className={isCheckingUpdates ? "animate-spin" : undefined} size={14} />
+            {isCheckingUpdates ? "Đang kiểm tra" : "Kiểm tra cập nhật"}
+          </Button>
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection
+        icon={<Trash2 size={16} className="text-[var(--vscode-danger)]" />}
         title="Danger zone"
         description="Reset local preferences and cached application state"
         tone="danger"

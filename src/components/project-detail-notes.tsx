@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ChevronDown, ChevronRight, Eye, Plus, Save, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, Pencil, Pin, PinOff, Plus, Save, Search, Trash2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -12,24 +12,24 @@ import {
   type ProjectNoteSortDirection,
   type ProjectNoteSortField,
 } from "../lib/project-notes";
+import { formatDateTime } from "../lib/date-time";
 import { Tooltip } from "./motion/tooltip";
 import type { ProjectNote } from "./project-detail-types";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { DialogField, DialogFooter, DialogForm } from "./ui/dialog-form";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { StatefulButton } from "./ui/stateful-button";
 import { Textarea } from "./ui/textarea";
 
-function MarkdownNote({ content, className }: { content: string; className?: string }) {
+export type ProjectNoteDraftValue = {
+  title: string;
+  content: string;
+};
+
+export function MarkdownNote({ content, className }: { content: string; className?: string }) {
   return (
     <div className={`markdown-note rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2.5 text-[12px] leading-6 text-foreground ${className ?? ""}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
@@ -38,6 +38,7 @@ function MarkdownNote({ content, className }: { content: string; className?: str
 }
 
 type NoteDialogMode = "create" | "edit";
+
 const SORT_FIELD_OPTIONS: { value: ProjectNoteSortField; label: string }[] = [
   { value: "updatedAt", label: "Updated time" },
   { value: "createdAt", label: "Created time" },
@@ -45,12 +46,13 @@ const SORT_FIELD_OPTIONS: { value: ProjectNoteSortField; label: string }[] = [
   { value: "length", label: "Length" },
   { value: "visibility", label: "Visibility" },
 ];
+
 const SORT_DIRECTION_OPTIONS: { value: ProjectNoteSortDirection; label: string }[] = [
   { value: "desc", label: "Descending" },
   { value: "asc", label: "Ascending" },
 ];
 
-function ProjectNoteDialog({
+export function ProjectNoteDialog({
   mode,
   open,
   onOpenChange,
@@ -64,8 +66,8 @@ function ProjectNoteDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectName: string;
-  value: string;
-  onValueChange: (value: string) => void;
+  value: ProjectNoteDraftValue;
+  onValueChange: (field: keyof ProjectNoteDraftValue, value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   isSaving: boolean;
 }) {
@@ -105,22 +107,32 @@ function ProjectNoteDialog({
 
         <DialogForm onSubmit={onSubmit}>
           <DialogField>
-            <Label htmlFor={`${mode}-project-note`}>Note content</Label>
+            <Label htmlFor={`${mode}-project-note-title`}>Note title</Label>
+            <Input
+              id={`${mode}-project-note-title`}
+              value={value.title}
+              onChange={(event) => onValueChange("title", event.target.value)}
+              placeholder="Local setup"
+              autoFocus
+            />
+          </DialogField>
+
+          <DialogField>
+            <Label htmlFor={`${mode}-project-note-content`}>Note content</Label>
             <Textarea
-              id={`${mode}-project-note`}
-              value={value}
-              onChange={(event) => onValueChange(event.target.value)}
+              id={`${mode}-project-note-content`}
+              value={value.content}
+              onChange={(event) => onValueChange("content", event.target.value)}
               rows={10}
               className="min-h-[220px] bg-[var(--script-preview-bg)] font-mono text-[11.5px] leading-6 text-[var(--script-preview-color)]"
               placeholder={"## Local setup\n- `pnpm install`\n- `pnpm dev`\n\n### Test accounts\n- user: demo@example.com\n- pass: demo123"}
-              autoFocus
             />
             <p className="text-[11.5px] text-muted-foreground">
               Tip: use headings, lists, code blocks, and markdown checklists so the note stays easy to scan.
             </p>
           </DialogField>
 
-          {value.trim() ? (
+          {value.content.trim() ? (
             <DialogField>
               <button
                 type="button"
@@ -129,14 +141,14 @@ function ProjectNoteDialog({
                 aria-expanded={isPreviewExpanded}
               >
                 <span>
-                    <span className="block text-[12.5px] font-normal text-foreground">Preview</span>
-                    <span className="block text-[11.5px] text-muted-foreground">
-                      Collapsed by default. Click to {isPreviewExpanded ? "hide" : "expand"} the markdown preview.
-                    </span>
+                  <span className="block text-[12.5px] font-normal text-foreground">Preview</span>
+                  <span className="block text-[11.5px] text-muted-foreground">
+                    Collapsed by default. Click to {isPreviewExpanded ? "hide" : "expand"} the markdown preview.
                   </span>
+                </span>
                 {isPreviewExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               </button>
-              {isPreviewExpanded ? <MarkdownNote content={value} /> : null}
+              {isPreviewExpanded ? <MarkdownNote content={value.content} /> : null}
             </DialogField>
           ) : null}
 
@@ -146,7 +158,7 @@ function ProjectNoteDialog({
             </Button>
             <StatefulButton
               type="submit"
-              disabled={!value.trim()}
+              disabled={!value.title.trim() || !value.content.trim()}
               state={isSaving ? "loading" : "idle"}
               icon={submitIcon}
               loadingText="Saving"
@@ -167,22 +179,33 @@ export function ProjectDetailNotes({
   newProjectNote,
   onNewProjectNoteChange,
   onAddProjectNote,
+  onEditProjectNote,
+  onTogglePinnedProjectNote,
+  onToggleProjectNoteVisibility,
+  onDeleteProjectNote,
   onOpenProjectNote,
   isSavingNotes,
 }: {
   selectedProject: Project;
   sortedProjectNotes: ProjectNote[];
   noteVisibility: Record<string, boolean>;
-  newProjectNote: string;
-  onNewProjectNoteChange: (value: string) => void;
+  newProjectNote: ProjectNoteDraftValue;
+  onNewProjectNoteChange: (field: keyof ProjectNoteDraftValue, value: string) => void;
   onAddProjectNote: () => void;
+  onEditProjectNote: (noteId: string, title: string, content: string) => void;
+  onTogglePinnedProjectNote: (noteId: string) => void;
+  onToggleProjectNoteVisibility: (noteId: string) => void;
+  onDeleteProjectNote: (noteId: string) => void;
   onOpenProjectNote: (noteId: string) => void;
   isSavingNotes: boolean;
 }) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState<ProjectNoteDraftValue>({ title: "", content: "" });
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<ProjectNoteSortField>("updatedAt");
   const [sortDirection, setSortDirection] = useState<ProjectNoteSortDirection>("desc");
+
   const visibleNotes = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
 
@@ -195,25 +218,47 @@ export function ProjectDetailNotes({
       .sort((left, right) => compareProjectNoteMeta(left.meta, right.meta, sortField, sortDirection));
   }, [noteVisibility, searchQuery, selectedProject.id, sortDirection, sortField, sortedProjectNotes]);
 
-  function openAddDialog() {
-    setIsAddDialogOpen(true);
-  }
-
   function closeAddDialog(open: boolean) {
     setIsAddDialogOpen(open);
     if (!open) {
-      onNewProjectNoteChange("");
+      onNewProjectNoteChange("title", "");
+      onNewProjectNoteChange("content", "");
     }
   }
 
   function handleSubmitNewNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!newProjectNote.trim()) {
+    if (!newProjectNote.title.trim() || !newProjectNote.content.trim()) {
       return;
     }
 
     onAddProjectNote();
     setIsAddDialogOpen(false);
+  }
+
+  function openEditDialog(note: ProjectNote) {
+    setEditingNoteId(note.id);
+    setEditingDraft({
+      title: note.title,
+      content: note.content,
+    });
+  }
+
+  function closeEditDialog(open: boolean) {
+    if (!open) {
+      setEditingNoteId(null);
+      setEditingDraft({ title: "", content: "" });
+    }
+  }
+
+  function handleSubmitEditNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingNoteId || !editingDraft.title.trim() || !editingDraft.content.trim()) {
+      return;
+    }
+
+    onEditProjectNote(editingNoteId, editingDraft.title, editingDraft.content);
+    closeEditDialog(false);
   }
 
   return (
@@ -223,7 +268,7 @@ export function ProjectDetailNotes({
           <h3 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/82">Notes workspace</h3>
           <p className="text-[11.5px] text-muted-foreground">Keep setup docs, checklists, and project context in one place.</p>
         </div>
-        <Button size="sm" onClick={openAddDialog}>
+        <Button size="sm" onClick={() => setIsAddDialogOpen(true)}>
           <Plus size={14} />
           Add note
         </Button>
@@ -279,28 +324,52 @@ export function ProjectDetailNotes({
         </div>
 
         {visibleNotes.length > 0 ? (
-          <div className="columns-1 gap-4 md:columns-2 2xl:columns-3">
+          <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
             {visibleNotes.map(({ note, meta }) => {
-              const title = noteTitle(note.content, "Untitled note");
+              const title = noteTitle(note, "Untitled note");
               const isVisible = meta.isVisible;
-              const createdTooltip = `Created ${new Date(note.createdAt).toLocaleString()}`;
+              const createdTooltip = `Created ${formatDateTime(note.createdAt)}`;
 
               return (
                 <Tooltip key={note.id} content={createdTooltip}>
-                  <article className="mb-4 break-inside-avoid rounded-[10px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3 shadow-none transition-colors hover:border-border-strong hover:bg-[var(--bg-card-hover)]">
+                  <article className="rounded-[10px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3 shadow-none transition-colors hover:border-border-strong hover:bg-[var(--bg-card-hover)]">
                     <div className="flex items-start justify-between gap-3">
-                      <h4 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">{title}</h4>
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <h4 className="block truncate whitespace-nowrap text-[13px] font-semibold text-foreground">{title}</h4>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Created {formatDateTime(note.createdAt)}
+                        </p>
+                      </div>
 
-                      <div className="flex shrink-0 items-center gap-1">
-                        <Tooltip content="View note">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            onClick={() => onOpenProjectNote(note.id)}
-                            aria-label={`View ${title}`}
-                          >
+                      <div className="flex shrink-0 items-center gap-1 pl-1">
+                        <Tooltip content="View detail">
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => onOpenProjectNote(note.id)}>
                             <Eye size={14} />
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content={note.pinned ? "Unpin note" : "Pin note"}>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => onTogglePinnedProjectNote(note.id)}>
+                            {note.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content="Edit note">
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEditDialog(note)}>
+                            <Pencil size={14} />
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content={isVisible ? "Hide content" : "Show content"}>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => onToggleProjectNoteVisibility(note.id)}>
+                            {isVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content="Copy content">
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => void navigator.clipboard.writeText(note.content)}>
+                            <Copy size={14} />
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content="Delete note">
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-[var(--vscode-danger)] hover:text-[var(--vscode-danger)]" onClick={() => onDeleteProjectNote(note.id)}>
+                            <Trash2 size={14} className="text-[var(--vscode-danger)]" />
                           </Button>
                         </Tooltip>
                       </div>
@@ -313,7 +382,7 @@ export function ProjectDetailNotes({
                         <MarkdownNote content={note.content} className="max-h-[360px] overflow-y-auto" />
                       ) : (
                         <div className="rounded-[6px] border border-dashed border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-6 text-center text-[12px] text-muted-foreground">
-                          This note is hidden. Use the eye action to show its content again.
+                          This note is hidden. Use the visibility action to show its content again.
                         </div>
                       )}
                     </div>
@@ -345,6 +414,17 @@ export function ProjectDetailNotes({
         value={newProjectNote}
         onValueChange={onNewProjectNoteChange}
         onSubmit={handleSubmitNewNote}
+        isSaving={isSavingNotes}
+      />
+
+      <ProjectNoteDialog
+        mode="edit"
+        open={Boolean(editingNoteId)}
+        onOpenChange={closeEditDialog}
+        projectName={selectedProject.name}
+        value={editingDraft}
+        onValueChange={(field, value) => setEditingDraft((current) => ({ ...current, [field]: value }))}
+        onSubmit={handleSubmitEditNote}
         isSaving={isSavingNotes}
       />
     </div>

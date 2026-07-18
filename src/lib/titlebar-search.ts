@@ -94,7 +94,7 @@ export function buildTitlebarSearchCollections({
       kind: "note",
       projectId: project.id,
       noteId: note.id,
-      title: noteTitle(note.content, "Untitled note"),
+      title: noteTitle(note, "Untitled note"),
       subtitle: project.name,
       projectName: project.name,
       excerpt: noteExcerpt(note.content),

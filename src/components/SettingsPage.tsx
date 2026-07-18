@@ -1,16 +1,19 @@
 import type { AppInfo } from "../lib/api";
-import type { AccentColor } from "../lib/theme";
+import type { AccentColor, ThemePreference } from "../lib/theme";
 import type { MotionLevel } from "../lib/motion";
+import type { DateFormatPreference } from "../lib/date-time";
 import { AppearanceSettingsPanel, SystemSettingsPanel, TerminalSettingsPanel } from "./settings-panels";
 
 export type SettingsSectionId = "appearance" | "terminal" | "system";
 
 export interface SettingsPageProps {
   appInfo?: AppInfo;
-  theme: "light" | "dark";
-  setTheme: (theme: "light" | "dark") => void;
+  theme: ThemePreference;
+  setTheme: (theme: ThemePreference) => void;
   accent: AccentColor;
   setAccent: (accent: AccentColor) => void;
+  dateFormat: DateFormatPreference;
+  setDateFormat: (format: DateFormatPreference) => void;
   terminalFontSize: string;
   setTerminalFontSize: (size: string) => void;
   terminalFontFamily: string;
@@ -26,6 +29,8 @@ export interface SettingsPageProps {
   projectCount: number;
   commandCount: number;
   onResetCache: () => void;
+  isCheckingUpdates: boolean;
+  onCheckUpdates: () => void;
   activeSection?: SettingsSectionId;
 }
 
@@ -35,6 +40,8 @@ export function SettingsPage({
   setTheme,
   accent,
   setAccent,
+  dateFormat,
+  setDateFormat,
   terminalFontSize,
   setTerminalFontSize,
   terminalFontFamily,
@@ -48,6 +55,8 @@ export function SettingsPage({
   motionLevel,
   setMotionLevel,
   onResetCache,
+  isCheckingUpdates,
+  onCheckUpdates,
   activeSection,
 }: SettingsPageProps) {
   const currentSection = activeSection ?? "appearance";
@@ -59,6 +68,8 @@ export function SettingsPage({
         setTheme={setTheme}
         accent={accent}
         setAccent={setAccent}
+        dateFormat={dateFormat}
+        setDateFormat={setDateFormat}
         motionLevel={motionLevel}
         setMotionLevel={setMotionLevel}
       />
@@ -79,6 +90,8 @@ export function SettingsPage({
       <SystemSettingsPanel
         appInfo={appInfo}
         onResetCache={onResetCache}
+        isCheckingUpdates={isCheckingUpdates}
+        onCheckUpdates={onCheckUpdates}
       />
     );
 

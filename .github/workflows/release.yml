@@ -135,11 +135,17 @@ jobs:
       - build
     runs-on: ubuntu-22.04
     steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
       - name: Download built artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
           merge-multiple: true
+
+      - name: Create SHA-256 checksums
+        run: node ./scripts/create-release-checksums.mjs release-artifacts
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -156,3 +162,4 @@ jobs:
             release-artifacts/**/*.AppImage
             release-artifacts/**/*.deb
             release-artifacts/**/*.dmg
+            release-artifacts/SHA256SUMS.txt

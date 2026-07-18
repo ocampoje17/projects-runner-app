@@ -16,6 +16,7 @@ import {
   type RunStartedPayload,
 } from "../lib/api";
 import { commandPorts } from "../lib/command-utils";
+import { formatTime } from "../lib/date-time";
 import type { InteractiveTerminalKind } from "../lib/interactive-terminal";
 import type { LogLine, RunState } from "../components/project-runtime";
 
@@ -68,6 +69,7 @@ export function useCommandRuntime({
   onError: (error: unknown) => void;
 }) {
   const onErrorRef = useRef(onError);
+  const interactiveSessionsByCommandIdRef = useRef<Record<number, InteractiveSession>>({});
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
@@ -87,6 +89,10 @@ export function useCommandRuntime({
   const [portProcesses, setPortProcesses] = useState<PortProcess[]>([]);
   const [killPortsDialogOpen, setKillPortsDialogOpen] = useState(false);
   const [killingPorts, setKillingPorts] = useState(false);
+
+  useEffect(() => {
+    interactiveSessionsByCommandIdRef.current = interactiveSessionsByCommandId;
+  }, [interactiveSessionsByCommandId]);
 
   function formatHeadlessTerminalLine(stream: "stdout" | "stderr", line: string, timestamp: string) {
     const prefix = [
@@ -161,7 +167,7 @@ export function useCommandRuntime({
       }),
       listen<RunOutputPayload>("command://stdout", (event) => {
         const cleanedLine = cleanTerminalLine(event.payload.line);
-        const timestamp = new Date().toLocaleTimeString();
+        const timestamp = formatTime(new Date());
         setLogs((current) => [
           ...current,
           {
@@ -180,7 +186,7 @@ export function useCommandRuntime({
       }),
       listen<RunOutputPayload>("command://stderr", (event) => {
         const cleanedLine = cleanTerminalLine(event.payload.line);
-        const timestamp = new Date().toLocaleTimeString();
+        const timestamp = formatTime(new Date());
         setLogs((current) => [
           ...current,
           {
@@ -262,6 +268,9 @@ export function useCommandRuntime({
         });
       }),
       listen<InteractiveSessionErrorPayload>("pty://error", (event) => {
+        if (!interactiveSessionsByCommandIdRef.current[event.payload.command_id]) {
+          return;
+        }
         onErrorRef.current(new Error(event.payload.error));
       }),
     ];

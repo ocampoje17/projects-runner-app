@@ -148,7 +148,7 @@ export function CommandCard({
           </Tooltip>
           <Tooltip content="Delete command">
             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onDelete} aria-label="Delete command">
-              <Trash2 size={14} />
+              <Trash2 size={14} className="text-[var(--vscode-danger)]" />
             </Button>
           </Tooltip>
         </div>

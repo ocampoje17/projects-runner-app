@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   FilePenLine,
+  FileUp,
   FolderKanban,
   FolderOpen,
   LayoutGrid,
@@ -20,7 +21,6 @@ import {
   Search,
   Square,
   Settings2,
-  Share2,
   Trash2,
   TerminalSquare,
   Play,
@@ -34,7 +34,7 @@ import type { SettingsPageProps, SettingsSectionId } from "./SettingsPage";
 import { SettingsPage } from "./SettingsPage";
 import { EntityAvatar } from "./entity-avatar";
 import { Tooltip } from "./motion/tooltip";
-import { ProjectDetailNotes } from "./project-detail-notes";
+import { ProjectDetailNotes, ProjectNoteDialog } from "./project-detail-notes";
 import type { CommandSection, ProjectNote } from "./project-detail-types";
 import { CommandCard, LogPanel, type RunState } from "./project-runtime";
 import { Badge } from "./ui/badge";
@@ -42,10 +42,12 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { commandPorts, normalizeCommandScript, runtimeModeLabel } from "@/lib/command-utils";
+import { formatDateTime } from "@/lib/date-time";
 import { noteExcerpt, noteTitle, projectNoteVisibilityKey } from "@/lib/project-notes";
 import { cn } from "@/lib/utils";
 import type { Project, ProjectCommand } from "../lib/api";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
+import type { UpdateStatus } from "../hooks/use-app-updater";
 
 type SidebarView = "explorer" | "notes" | "terminal" | "settings";
 
@@ -308,7 +310,7 @@ function OverviewNoteRow({
 }) {
   return (
     <div className="flex w-full items-center gap-3 border-b border-[var(--vscode-border)] px-1 py-3 last:border-b-0">
-      <Tooltip content={`Updated ${new Date(note.updatedAt).toLocaleString()}`} wrapperClassName="flex min-w-0 flex-1">
+      <Tooltip content={`Updated ${formatDateTime(note.updatedAt)}`} wrapperClassName="flex min-w-0 flex-1">
         <button
           type="button"
           className="flex w-full min-w-0 flex-1 items-center gap-3 rounded-[8px] border border-transparent px-3 py-2 text-left transition-[background-color,border-color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] active:bg-[var(--vscode-list-active)]"
@@ -319,11 +321,11 @@ function OverviewNoteRow({
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-[12.5px] font-semibold text-foreground">{noteTitle(note.content)}</span>
+              <span className="truncate text-[12.5px] font-semibold text-foreground">{noteTitle(note)}</span>
               {note.pinned ? <Badge variant="muted">Pinned</Badge> : null}
             </div>
             <div className="mt-1 line-clamp-2 text-[11.5px] leading-5 text-[var(--vscode-foreground)]/64">
-              {noteExcerpt(note.content)}
+              {noteExcerpt(note)}
             </div>
           </div>
         </button>
@@ -570,7 +572,7 @@ function EmptyEditorState({
             Add a local project
           </Button>
           <Button variant="secondary" className="justify-start" onClick={onImportProject}>
-            <Share2 size={16} />
+            <FileUp size={16} />
             Import a `.prd` workspace
           </Button>
         </div>
@@ -680,7 +682,7 @@ function ProjectOverviewPane({
                 External terminal
               </Button>
               <Button variant="secondary" onClick={onShareProject}>
-                <Share2 size={15} />
+                <FileUp size={15} />
                 Export
               </Button>
               <Button variant="secondary" onClick={onEditProject}>
@@ -1041,7 +1043,7 @@ function CommandDetailPane({
                 Edit
               </Button>
               <Button variant="danger" onClick={() => onDeleteCommand(command)}>
-                <Trash2 size={14} />
+                <Trash2 size={14} className="text-[var(--vscode-danger)]" />
                 Delete
               </Button>
             </div>
@@ -1093,8 +1095,8 @@ function CommandDetailPane({
                 <div className="flex items-center justify-between gap-3"><span>Run count</span><span className="text-foreground">{formatRunCountLabel(command.run_count)}</span></div>
                 <div className="flex items-center justify-between gap-3"><span>Mode</span><span className="text-foreground">{runtimeModeLabel(command.runtime_mode)}</span></div>
                 <div className="flex items-center justify-between gap-3"><span>External terminal</span><span className="text-foreground">{command.run_in_external_terminal ? "Yes" : "No"}</span></div>
-                <div className="flex items-center justify-between gap-3"><span>Created</span><span className="text-foreground">{new Date(command.created_at).toLocaleString()}</span></div>
-                <div className="flex items-center justify-between gap-3"><span>Updated</span><span className="text-foreground">{new Date(command.updated_at).toLocaleString()}</span></div>
+                <div className="flex items-center justify-between gap-3"><span>Created</span><span className="text-foreground">{formatDateTime(command.created_at)}</span></div>
+                <div className="flex items-center justify-between gap-3"><span>Updated</span><span className="text-foreground">{formatDateTime(command.updated_at)}</span></div>
               </div>
             </section>
             <section className="py-1">
@@ -1119,6 +1121,7 @@ function NoteDetailPane({
   note,
   isVisible,
   onDelete,
+  onEdit,
   onTogglePinned,
   onToggleVisibility,
 }: {
@@ -1126,11 +1129,18 @@ function NoteDetailPane({
   note: ProjectNote;
   isVisible: boolean;
   onDelete: (noteId: string) => void;
+  onEdit: (noteId: string, title: string, content: string) => void;
   onTogglePinned: (noteId: string) => void;
   onToggleVisibility: () => void;
 }) {
-  const title = noteTitle(note.content);
-  const createdTooltip = `Created ${new Date(note.createdAt).toLocaleString()}`;
+  const title = noteTitle(note);
+  const createdTooltip = `Created ${formatDateTime(note.createdAt)}`;
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editDraft, setEditDraft] = useState({ title: note.title, content: note.content });
+
+  useEffect(() => {
+    setEditDraft({ title: note.title, content: note.content });
+  }, [note.content, note.id, note.title]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
@@ -1145,7 +1155,10 @@ function NoteDetailPane({
                 {!isVisible ? <Badge variant="muted">Hidden</Badge> : null}
               </div>
               <p className="mt-1 text-[12px] text-[var(--vscode-foreground)]/68">
-                Updated {new Date(note.updatedAt).toLocaleString()}
+                Created {formatDateTime(note.createdAt)}
+              </p>
+              <p className="mt-1 text-[12px] text-[var(--vscode-foreground)]/68">
+                Updated {formatDateTime(note.updatedAt)}
               </p>
             </div>
             <div className="flex flex-wrap gap-2 py-4">
@@ -1153,12 +1166,20 @@ function NoteDetailPane({
                 {note.pinned ? <PinOff size={14} /> : <Pin size={14} />}
                 {note.pinned ? "Unpin" : "Pin"}
               </Button>
+              <Button variant="secondary" onClick={() => setIsEditDialogOpen(true)}>
+                <Pencil size={14} />
+                Edit
+              </Button>
               <Button variant="secondary" onClick={onToggleVisibility}>
                 {isVisible ? <EyeOff size={14} /> : <Eye size={14} />}
                 {isVisible ? "Hide content" : "Show content"}
               </Button>
+              <Button variant="secondary" onClick={() => void navigator.clipboard.writeText(note.content)}>
+                <CopyPlus size={14} />
+                Copy content
+              </Button>
               <Button variant="danger" onClick={() => onDelete(note.id)}>
-                <Trash2 size={14} />
+                <Trash2 size={14} className="text-[var(--vscode-danger)]" />
                 Delete
               </Button>
             </div>
@@ -1167,7 +1188,20 @@ function NoteDetailPane({
 
         <div className="my-5 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
 
-        <div className="grid gap-6">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <section className="py-1">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">Source</div>
+                <h3 className="mt-1 text-[14px] font-semibold text-foreground">Original text</h3>
+              </div>
+            </div>
+            <div className="mb-4 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+            <div className="min-h-[420px] overflow-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] p-4 font-mono text-[11.5px] leading-6 text-[var(--script-preview-color)] whitespace-pre-wrap">
+              {note.content || "_Empty note_"}
+            </div>
+          </section>
+
           <section className="py-1">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
@@ -1190,6 +1224,24 @@ function NoteDetailPane({
             </Tooltip>
           </section>
         </div>
+
+        <ProjectNoteDialog
+          mode="edit"
+          open={isEditDialogOpen}
+          onOpenChange={setIsEditDialogOpen}
+          projectName={project.name}
+          value={editDraft}
+          onValueChange={(field, value) => setEditDraft((current) => ({ ...current, [field]: value }))}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!editDraft.title.trim() || !editDraft.content.trim()) {
+              return;
+            }
+            onEdit(note.id, editDraft.title, editDraft.content);
+            setIsEditDialogOpen(false);
+          }}
+          isSaving={false}
+        />
       </div>
     </div>
   );
@@ -1203,11 +1255,15 @@ type VSCodeShellProps = {
   commandsByProjectId: Record<number, ProjectCommand[]>;
   commandSectionsByProjectId: Record<number, CommandSection[]>;
   settingsProps: SettingsPageProps;
+  updateStatus: UpdateStatus;
+  updateVersion: string | null;
+  onOpenUpdate: () => void;
   sortedProjectNotesByProjectId: Record<number, ProjectNote[]>;
   noteVisibility: Record<string, boolean>;
-  newProjectNotesByProjectId: Record<number, string>;
-  onNewProjectNoteChange: (projectId: number, value: string) => void;
+  newProjectNotesByProjectId: Record<number, { title: string; content: string }>;
+  onNewProjectNoteChange: (projectId: number, field: "title" | "content", value: string) => void;
   onAddProjectNote: (projectId: number) => void;
+  onEditProjectNote: (projectId: number, noteId: string, title: string, content: string) => void;
   onTogglePinnedProjectNote: (projectId: number, noteId: string) => void;
   onToggleProjectNoteVisibility: (projectId: number, noteId: string) => void;
   onDeleteProjectNote: (projectId: number, noteId: string) => void;
@@ -1259,11 +1315,15 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   commandsByProjectId,
   commandSectionsByProjectId,
   settingsProps,
+  updateStatus,
+  updateVersion,
+  onOpenUpdate,
   sortedProjectNotesByProjectId,
   noteVisibility,
   newProjectNotesByProjectId,
   onNewProjectNoteChange,
   onAddProjectNote,
+  onEditProjectNote,
   onTogglePinnedProjectNote,
   onToggleProjectNoteVisibility,
   onDeleteProjectNote,
@@ -1476,7 +1536,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     openTab({
       id: `note:${note.id}`,
       kind: "note",
-      title: note.content.split(/\r?\n/, 1)[0]?.replace(/^#+\s*/, "").trim() || "Project Note",
+      title: noteTitle(note),
       projectId: project.id,
       noteId: note.id,
     });
@@ -1546,7 +1606,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       },
       {
         label: "Export project",
-        icon: <Share2 size={13} />,
+        icon: <FileUp size={13} />,
         onSelect: () => onShareProject(project),
       },
       {
@@ -1611,7 +1671,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       },
       {
         label: "Delete command",
-        icon: <Trash2 size={13} />,
+        icon: <Trash2 size={13} className="text-[var(--vscode-danger)]" />,
         onSelect: () => onDeleteCommand(command),
         tone: "danger" as const,
       },
@@ -1654,7 +1714,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       },
       {
         label: "Delete note",
-        icon: <Trash2 size={13} />,
+        icon: <Trash2 size={13} className="text-[var(--vscode-danger)]" />,
         onSelect: () => onDeleteProjectNote(project.id, note.id),
         tone: "danger" as const,
       },
@@ -1767,9 +1827,13 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
               selectedProject={tabProject}
               sortedProjectNotes={tabProjectNotes}
               noteVisibility={noteVisibility}
-              newProjectNote={newProjectNotesByProjectId[tabProject.id] ?? ""}
-              onNewProjectNoteChange={(value) => onNewProjectNoteChange(tabProject.id, value)}
+              newProjectNote={newProjectNotesByProjectId[tabProject.id] ?? { title: "", content: "" }}
+              onNewProjectNoteChange={(field, value) => onNewProjectNoteChange(tabProject.id, field, value)}
               onAddProjectNote={() => onAddProjectNote(tabProject.id)}
+              onEditProjectNote={(noteId, title, content) => onEditProjectNote(tabProject.id, noteId, title, content)}
+              onTogglePinnedProjectNote={(noteId) => onTogglePinnedProjectNote(tabProject.id, noteId)}
+              onToggleProjectNoteVisibility={(noteId) => onToggleProjectNoteVisibility(tabProject.id, noteId)}
+              onDeleteProjectNote={(noteId) => onDeleteProjectNote(tabProject.id, noteId)}
               onOpenProjectNote={(noteId) => {
                 const note = findNoteById(tabProjectNotes, noteId);
                 if (note) {
@@ -1816,6 +1880,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
           note={note}
           isVisible={noteVisibility[projectNoteVisibilityKey(tabProject.id, note.id)] ?? true}
           onDelete={(noteId) => onDeleteProjectNote(tabProject.id, noteId)}
+          onEdit={(noteId, title, content) => onEditProjectNote(tabProject.id, noteId, title, content)}
           onTogglePinned={(noteId) => onTogglePinnedProjectNote(tabProject.id, noteId)}
           onToggleVisibility={() => onToggleProjectNoteVisibility(tabProject.id, note.id)}
         />
@@ -1905,7 +1970,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                 <TreeItem
                   key={note.id}
                   level={1}
-                  title={noteTitle(note.content)}
+                  title={noteTitle(note)}
                   active={activeTab.kind === "note" && activeTab.noteId === note.id}
                   trailing={note.pinned ? "pin" : undefined}
                   onClick={() => activeContextProject && handleOpenNoteTab(activeContextProject, note)}
@@ -1941,7 +2006,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                 onClick={onImportProject}
                 className="rounded-[6px] border border-transparent p-1 text-[var(--vscode-icon)] transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]"
               >
-                <Share2 size={14} />
+                <FileUp size={14} />
               </button>
             </Tooltip>
           </div>
@@ -2055,7 +2120,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                           <TreeItem
                             key={note.id}
                             level={2}
-                            title={noteTitle(note.content)}
+                            title={noteTitle(note)}
                             active={activeTab.kind === "note" && activeTab.noteId === note.id}
                             trailing={note.pinned ? "pin" : undefined}
                             onClick={() => handleOpenNoteTab(project, note)}
@@ -2197,19 +2262,22 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
               </div>
             )}
 
-            {activeTab.kind === "settings" ? null : (
-              <footer className="flex h-6 shrink-0 items-center justify-between gap-3 border-t border-[var(--vscode-status-border)] bg-[var(--vscode-status)] px-3 text-[11px] text-[var(--vscode-status-foreground)]">
-                <div className="flex min-w-0 items-center gap-4 overflow-hidden">
-                  <span className="truncate">{activeContextProject ? activeContextProject.name : "No project selected"}</span>
-                  <span>{selectedProjectCommands.length} commands</span>
-                  <span>{runningCount} running</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span>{theme} theme</span>
-                  <span>{openLogCommandIds.length} terminal tabs</span>
-                </div>
-              </footer>
-            )}
+            <footer className="flex h-6 shrink-0 items-center justify-between gap-3 border-t border-[var(--vscode-status-border)] bg-[var(--vscode-status)] px-3 text-[11px] text-[var(--vscode-status-foreground)]">
+              <div className="flex min-w-0 items-center gap-4 overflow-hidden">
+                <span className="truncate">{activeContextProject ? activeContextProject.name : "No project selected"}</span>
+                <span>{selectedProjectCommands.length} commands</span>
+                <span>{runningCount} running</span>
+              </div>
+              <div className="flex items-center gap-4">
+                {updateVersion && (updateStatus === "available" || updateStatus === "downloading" || updateStatus === "downloaded") ? (
+                  <button type="button" onClick={onOpenUpdate} className="rounded px-1 text-[var(--vscode-status-foreground)] hover:bg-white/12 hover:text-white">
+                    {updateStatus === "downloading" ? "Downloading update" : updateStatus === "downloaded" ? `Update v${updateVersion} ready` : "Update available"}
+                  </button>
+                ) : null}
+                <span>{theme} theme</span>
+                <span>{openLogCommandIds.length} terminal tabs</span>
+              </div>
+            </footer>
           </section>
         </Panel>
       </Group>
