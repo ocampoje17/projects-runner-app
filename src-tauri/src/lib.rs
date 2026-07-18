@@ -19,6 +19,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
@@ -26,6 +27,17 @@ use uuid::Uuid;
 const RUNTIME_MODE_INTERNAL_HEADLESS: &str = "internal_headless";
 const RUNTIME_MODE_INTERNAL_INTERACTIVE: &str = "internal_interactive";
 const RUNTIME_MODE_EXTERNAL_TERMINAL: &str = "external_terminal";
+const EXTERNAL_TERMINAL_KIND_DEFAULT: &str = "default";
+const EXTERNAL_TERMINAL_KIND_WINDOWS_TERMINAL: &str = "windows_terminal";
+const EXTERNAL_TERMINAL_KIND_POWERSHELL: &str = "powershell";
+const EXTERNAL_TERMINAL_KIND_COMMAND_PROMPT: &str = "command_prompt";
+const INTERACTIVE_TERMINAL_KIND_CMD: &str = "cmd";
+const INTERACTIVE_TERMINAL_KIND_BASH: &str = "bash";
+const INTERACTIVE_TERMINAL_KIND_POWERSHELL: &str = "powershell";
+const INTERACTIVE_TERMINAL_KIND_WSL2: &str = "wsl2";
+const INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE: &str = "powershellcore";
+#[cfg(target_os = "macos")]
+const EXTERNAL_TERMINAL_KIND_TERMINAL_APP: &str = "terminal_app";
 
 #[derive(Clone)]
 struct AppPaths {
@@ -102,6 +114,12 @@ struct ProjectCommand {
     runtime_mode: String,
     #[diesel(sql_type = Integer)]
     run_in_external_terminal: i32,
+    #[diesel(sql_type = Text)]
+    external_terminal_kind: String,
+    #[diesel(sql_type = Text)]
+    interactive_terminal_kind: String,
+    #[diesel(sql_type = Integer)]
+    run_count: i32,
 }
 
 #[derive(Debug, Serialize, QueryableByName)]
@@ -199,7 +217,18 @@ struct CommandInput {
     order_index: Option<i32>,
     runtime_mode: Option<String>,
     run_in_external_terminal: Option<bool>,
+    external_terminal_kind: Option<String>,
+    interactive_terminal_kind: Option<String>,
 }
+
+#[derive(Debug, Serialize)]
+struct InteractiveTerminalOption {
+    id: String,
+    label: String,
+    description: String,
+}
+
+static NEXT_AD_HOC_RUN_ID: AtomicI64 = AtomicI64::new(-1);
 
 #[derive(Debug, Serialize)]
 struct AppInfo {
@@ -520,6 +549,9 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
             order_index INTEGER NOT NULL DEFAULT 0,
             runtime_mode TEXT NOT NULL DEFAULT 'internal_headless',
             run_in_external_terminal INTEGER NOT NULL DEFAULT 0,
+            external_terminal_kind TEXT NOT NULL DEFAULT 'default',
+            interactive_terminal_kind TEXT NOT NULL DEFAULT 'powershell',
+            run_count INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -562,6 +594,24 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
         "run_in_external_terminal",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+    ensure_column(
+        &mut conn,
+        "commands",
+        "external_terminal_kind",
+        "TEXT NOT NULL DEFAULT 'default'",
+    )?;
+    ensure_column(
+        &mut conn,
+        "commands",
+        "interactive_terminal_kind",
+        "TEXT NOT NULL DEFAULT 'powershell'",
+    )?;
+    ensure_column(
+        &mut conn,
+        "commands",
+        "run_count",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
 
     sql_query(format!(
         "UPDATE commands SET runtime_mode = '{}' WHERE runtime_mode IS NULL OR TRIM(runtime_mode) = ''",
@@ -573,6 +623,20 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     sql_query(format!(
         "UPDATE commands SET runtime_mode = '{}' WHERE run_in_external_terminal = 1",
         RUNTIME_MODE_EXTERNAL_TERMINAL
+    ))
+    .execute(&mut conn)
+    .map_err(|error| error.to_string())?;
+
+    sql_query(format!(
+        "UPDATE commands SET external_terminal_kind = '{}' WHERE external_terminal_kind IS NULL OR TRIM(external_terminal_kind) = ''",
+        EXTERNAL_TERMINAL_KIND_DEFAULT
+    ))
+    .execute(&mut conn)
+    .map_err(|error| error.to_string())?;
+
+    sql_query(format!(
+        "UPDATE commands SET interactive_terminal_kind = '{}' WHERE interactive_terminal_kind IS NULL OR TRIM(interactive_terminal_kind) = ''",
+        INTERACTIVE_TERMINAL_KIND_POWERSHELL
     ))
     .execute(&mut conn)
     .map_err(|error| error.to_string())?;
@@ -666,13 +730,229 @@ fn normalize_runtime_mode(
     }
 }
 
+fn normalize_external_terminal_kind(external_terminal_kind: Option<&str>) -> String {
+    match external_terminal_kind.map(str::trim) {
+        #[cfg(target_os = "windows")]
+        Some(EXTERNAL_TERMINAL_KIND_WINDOWS_TERMINAL) => {
+            EXTERNAL_TERMINAL_KIND_WINDOWS_TERMINAL.to_string()
+        }
+        #[cfg(target_os = "windows")]
+        Some(EXTERNAL_TERMINAL_KIND_POWERSHELL) => EXTERNAL_TERMINAL_KIND_POWERSHELL.to_string(),
+        #[cfg(target_os = "windows")]
+        Some(EXTERNAL_TERMINAL_KIND_COMMAND_PROMPT) => {
+            EXTERNAL_TERMINAL_KIND_COMMAND_PROMPT.to_string()
+        }
+        #[cfg(target_os = "macos")]
+        Some(EXTERNAL_TERMINAL_KIND_TERMINAL_APP) => EXTERNAL_TERMINAL_KIND_TERMINAL_APP.to_string(),
+        Some(EXTERNAL_TERMINAL_KIND_DEFAULT) | Some(_) | None => {
+            EXTERNAL_TERMINAL_KIND_DEFAULT.to_string()
+        }
+    }
+}
+
+fn normalize_interactive_terminal_kind(interactive_terminal_kind: Option<&str>) -> String {
+    match interactive_terminal_kind.map(str::trim) {
+        Some(INTERACTIVE_TERMINAL_KIND_CMD) => INTERACTIVE_TERMINAL_KIND_CMD.to_string(),
+        Some(INTERACTIVE_TERMINAL_KIND_BASH) => INTERACTIVE_TERMINAL_KIND_BASH.to_string(),
+        Some(INTERACTIVE_TERMINAL_KIND_POWERSHELL) => {
+            INTERACTIVE_TERMINAL_KIND_POWERSHELL.to_string()
+        }
+        Some(INTERACTIVE_TERMINAL_KIND_WSL2) => INTERACTIVE_TERMINAL_KIND_WSL2.to_string(),
+        Some(INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE) => {
+            INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE.to_string()
+        }
+        Some(_) | None => INTERACTIVE_TERMINAL_KIND_POWERSHELL.to_string(),
+    }
+}
+
 fn runtime_mode_uses_external_terminal(runtime_mode: &str) -> bool {
     runtime_mode == RUNTIME_MODE_EXTERNAL_TERMINAL
 }
 
-#[cfg(not(target_os = "windows"))]
 fn executable_exists(program: &str) -> bool {
     which::which(program).is_ok()
+}
+
+#[cfg(target_os = "windows")]
+fn windows_path_to_wsl(path: &Path) -> Result<String, String> {
+    let raw = path.to_string_lossy().replace('\\', "/");
+    let mut parts = raw.splitn(2, ':');
+    let drive = parts
+        .next()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Invalid Windows path".to_string())?;
+    let remainder = parts
+        .next()
+        .ok_or_else(|| "Invalid Windows path".to_string())?
+        .trim_start_matches('/');
+    Ok(format!("/mnt/{}/{}", drive.to_ascii_lowercase(), remainder))
+}
+
+#[cfg(target_os = "windows")]
+fn bash_single_quote(value: &str) -> String {
+    value.replace('\'', "'\"'\"'")
+}
+
+#[cfg(target_os = "windows")]
+fn write_interactive_script(
+    scripts_dir: &Path,
+    script: &str,
+    interactive_terminal_kind: &str,
+) -> Result<PathBuf, String> {
+    let (extension, content) = match interactive_terminal_kind {
+        INTERACTIVE_TERMINAL_KIND_CMD => (
+            "cmd",
+            format!("@echo off\r\nchcp 65001>nul\r\n{}\r\n", script),
+        ),
+        INTERACTIVE_TERMINAL_KIND_BASH | INTERACTIVE_TERMINAL_KIND_WSL2 => (
+            "sh",
+            format!("#!/usr/bin/env bash\nset -e\n{}\n", script),
+        ),
+        INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE | INTERACTIVE_TERMINAL_KIND_POWERSHELL | _ => (
+            "ps1",
+            format!(
+                "$ErrorActionPreference = 'Stop'\r\n[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()\r\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()\r\n$OutputEncoding = [System.Text.UTF8Encoding]::new()\r\n{}\r\n",
+                script
+            ),
+        ),
+    };
+
+    let script_path = scripts_dir.join(format!("interactive-{}.{}", Uuid::new_v4(), extension));
+    fs::write(&script_path, content).map_err(|error| error.to_string())?;
+    Ok(script_path)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn write_interactive_script(
+    scripts_dir: &Path,
+    script: &str,
+    _interactive_terminal_kind: &str,
+) -> Result<PathBuf, String> {
+    let script_path = scripts_dir.join(format!("interactive-{}.sh", Uuid::new_v4()));
+    let content = format!("#!/usr/bin/env sh\nset -e\n{}\n", script);
+    fs::write(&script_path, content).map_err(|error| error.to_string())?;
+    Ok(script_path)
+}
+
+#[cfg(target_os = "windows")]
+fn build_interactive_pty_command(
+    script_path: &Path,
+    project_path: &Path,
+    interactive_terminal_kind: &str,
+) -> Result<PtyCommandBuilder, String> {
+    let cmd = match interactive_terminal_kind {
+        INTERACTIVE_TERMINAL_KIND_CMD => {
+            let mut cmd = PtyCommandBuilder::new("cmd.exe");
+            cmd.arg("/Q");
+            cmd.arg("/C");
+            cmd.arg(script_path);
+            cmd
+        }
+        INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE => {
+            let mut cmd = PtyCommandBuilder::new("pwsh.exe");
+            cmd.arg("-NoLogo");
+            cmd.arg("-NoProfile");
+            cmd.arg("-ExecutionPolicy");
+            cmd.arg("Bypass");
+            cmd.arg("-File");
+            cmd.arg(script_path);
+            cmd
+        }
+        INTERACTIVE_TERMINAL_KIND_BASH => {
+            let mut cmd = PtyCommandBuilder::new("bash.exe");
+            cmd.arg(script_path);
+            cmd
+        }
+        INTERACTIVE_TERMINAL_KIND_WSL2 => {
+            let project_path_wsl = windows_path_to_wsl(project_path)?;
+            let script_path_wsl = windows_path_to_wsl(script_path)?;
+            let mut cmd = PtyCommandBuilder::new("wsl.exe");
+            cmd.arg("--cd");
+            cmd.arg(project_path_wsl);
+            cmd.arg("bash");
+            cmd.arg("-lc");
+            cmd.arg(format!("source '{}'", bash_single_quote(&script_path_wsl)));
+            cmd
+        }
+        INTERACTIVE_TERMINAL_KIND_POWERSHELL | _ => build_pty_command(script_path),
+    };
+
+    Ok(cmd)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn build_interactive_pty_command(
+    script_path: &Path,
+    _project_path: &Path,
+    _interactive_terminal_kind: &str,
+) -> Result<PtyCommandBuilder, String> {
+    Ok(build_pty_command(script_path))
+}
+
+#[tauri::command]
+fn list_interactive_terminal_options() -> Result<Vec<InteractiveTerminalOption>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut items = Vec::new();
+        for (id, label, description, available) in [
+            (
+                INTERACTIVE_TERMINAL_KIND_CMD,
+                "cmd",
+                "Classic Windows Command Prompt.",
+                executable_exists("cmd.exe"),
+            ),
+            (
+                INTERACTIVE_TERMINAL_KIND_BASH,
+                "bash",
+                "Bash shell detected from your Windows environment.",
+                executable_exists("bash.exe"),
+            ),
+            (
+                INTERACTIVE_TERMINAL_KIND_POWERSHELL,
+                "powershell",
+                "Windows PowerShell with the app's interactive terminal.",
+                executable_exists("powershell.exe"),
+            ),
+            (
+                INTERACTIVE_TERMINAL_KIND_WSL2,
+                "wsl2",
+                "Run the command inside the default WSL distribution.",
+                executable_exists("wsl.exe"),
+            ),
+            (
+                INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE,
+                "powershellcore",
+                "PowerShell Core (`pwsh`) if installed.",
+                executable_exists("pwsh.exe"),
+            ),
+        ] {
+            if available {
+                items.push(InteractiveTerminalOption {
+                    id: id.to_string(),
+                    label: label.to_string(),
+                    description: description.to_string(),
+                });
+            }
+        }
+        if items.is_empty() {
+            items.push(InteractiveTerminalOption {
+                id: INTERACTIVE_TERMINAL_KIND_POWERSHELL.to_string(),
+                label: "powershell".to_string(),
+                description: "Windows PowerShell with the app's interactive terminal."
+                    .to_string(),
+            });
+        }
+        return Ok(items);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(vec![InteractiveTerminalOption {
+            id: INTERACTIVE_TERMINAL_KIND_BASH.to_string(),
+            label: "bash".to_string(),
+            description: "Default interactive shell on this system.".to_string(),
+        }])
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -1830,6 +2110,8 @@ fn import_prd_as_new_project(
                 order_index: Some(command.order_index),
                 runtime_mode: Some(command.runtime_mode.clone()),
                 run_in_external_terminal: Some(command.run_in_external_terminal),
+                external_terminal_kind: Some(EXTERNAL_TERMINAL_KIND_DEFAULT.to_string()),
+                interactive_terminal_kind: None,
             },
             state.clone(),
         )?;
@@ -2053,6 +2335,8 @@ fn apply_prd_import(
                                 order_index: Some(incoming.order_index),
                                 runtime_mode: Some(incoming.runtime_mode.clone()),
                                 run_in_external_terminal: Some(incoming.run_in_external_terminal),
+                                external_terminal_kind: Some(EXTERNAL_TERMINAL_KIND_DEFAULT.to_string()),
+                                interactive_terminal_kind: None,
                             },
                             state.clone(),
                         )?;
@@ -2069,18 +2353,20 @@ fn apply_prd_import(
                             let _ = update_command(
                                 command_id,
                                 CommandInput {
-                                    project_id: target_project_id,
-                                    name: incoming.name.clone(),
-                                    script: incoming.script.clone(),
-                                    avatar_path,
-                                    ports: Some(incoming.ports.clone()),
-                                    section: Some(incoming.section.clone()),
-                                    order_index: Some(incoming.order_index),
-                                    runtime_mode: Some(incoming.runtime_mode.clone()),
-                                    run_in_external_terminal: Some(incoming.run_in_external_terminal),
-                                },
-                                state.clone(),
-                            )?;
+                                project_id: target_project_id,
+                                name: incoming.name.clone(),
+                                script: incoming.script.clone(),
+                                avatar_path,
+                                ports: Some(incoming.ports.clone()),
+                                section: Some(incoming.section.clone()),
+                                order_index: Some(incoming.order_index),
+                                runtime_mode: Some(incoming.runtime_mode.clone()),
+                                run_in_external_terminal: Some(incoming.run_in_external_terminal),
+                                external_terminal_kind: Some(EXTERNAL_TERMINAL_KIND_DEFAULT.to_string()),
+                                interactive_terminal_kind: None,
+                            },
+                            state.clone(),
+                        )?;
                         }
                     }
                 }
@@ -2357,14 +2643,18 @@ fn create_command(input: CommandInput, state: State<AppState>) -> Result<Project
         input.runtime_mode.as_deref(),
         input.run_in_external_terminal,
     );
+    let external_terminal_kind =
+        normalize_external_terminal_kind(input.external_terminal_kind.as_deref());
+    let interactive_terminal_kind =
+        normalize_interactive_terminal_kind(input.interactive_terminal_kind.as_deref());
     let run_in_external_terminal = if runtime_mode_uses_external_terminal(&runtime_mode) {
         1
     } else {
         0
     };
     sql_query(format!(
-        "INSERT INTO commands (project_id, name, script, avatar_path, ports, section, order_index, runtime_mode, run_in_external_terminal, created_at, updated_at)
-         VALUES ({}, '{}', '{}', {}, '{}', '{}', {}, '{}', {}, '{}', '{}')",
+        "INSERT INTO commands (project_id, name, script, avatar_path, ports, section, order_index, runtime_mode, run_in_external_terminal, external_terminal_kind, interactive_terminal_kind, created_at, updated_at)
+         VALUES ({}, '{}', '{}', {}, '{}', '{}', {}, '{}', {}, '{}', '{}', '{}', '{}')",
         input.project_id,
         quote_sql(&input.name),
         quote_sql(&input.script),
@@ -2374,6 +2664,8 @@ fn create_command(input: CommandInput, state: State<AppState>) -> Result<Project
         order_index,
         quote_sql(&runtime_mode),
         run_in_external_terminal,
+        quote_sql(&external_terminal_kind),
+        quote_sql(&interactive_terminal_kind),
         timestamp,
         timestamp
     ))
@@ -2399,13 +2691,17 @@ fn update_command(
         input.runtime_mode.as_deref(),
         input.run_in_external_terminal,
     );
+    let external_terminal_kind =
+        normalize_external_terminal_kind(input.external_terminal_kind.as_deref());
+    let interactive_terminal_kind =
+        normalize_interactive_terminal_kind(input.interactive_terminal_kind.as_deref());
     let run_in_external_terminal = if runtime_mode_uses_external_terminal(&runtime_mode) {
         1
     } else {
         0
     };
     sql_query(format!(
-        "UPDATE commands SET project_id = {}, name = '{}', script = '{}', avatar_path = {}, ports = '{}', section = '{}', order_index = {}, runtime_mode = '{}', run_in_external_terminal = {}, updated_at = '{}' WHERE id = {}",
+        "UPDATE commands SET project_id = {}, name = '{}', script = '{}', avatar_path = {}, ports = '{}', section = '{}', order_index = {}, runtime_mode = '{}', run_in_external_terminal = {}, external_terminal_kind = '{}', interactive_terminal_kind = '{}', updated_at = '{}' WHERE id = {}",
         input.project_id,
         quote_sql(&input.name),
         quote_sql(&input.script),
@@ -2415,6 +2711,8 @@ fn update_command(
         order_index,
         quote_sql(&runtime_mode),
         run_in_external_terminal,
+        quote_sql(&external_terminal_kind),
+        quote_sql(&interactive_terminal_kind),
         now(),
         id
     ))
@@ -2591,6 +2889,12 @@ fn start_non_interactive_command(
     let script_path = write_script(&state.paths.scripts_dir, &command.script)?;
     let started_at = now();
     sql_query(format!(
+        "UPDATE commands SET run_count = COALESCE(run_count, 0) + 1, updated_at = '{}' WHERE id = {}",
+        started_at, command_id
+    ))
+    .execute(&mut conn)
+    .map_err(|error| error.to_string())?;
+    sql_query(format!(
         "INSERT INTO command_runs (command_id, status, started_at) VALUES ({}, 'running', '{}')",
         command_id, started_at
     ))
@@ -2600,7 +2904,12 @@ fn start_non_interactive_command(
         .get_result::<CommandRun>(&mut conn)
         .map_err(|error| error.to_string())?;
     let run_in_external_terminal = runtime_mode_uses_external_terminal(&command.runtime_mode);
-    let mut child = match build_process(&script_path, &project_path, run_in_external_terminal) {
+    let mut child = match build_process(
+        &script_path,
+        &project_path,
+        run_in_external_terminal,
+        &command.external_terminal_kind,
+    ) {
         Ok(child) => child,
         Err(error) => {
             let ended_at = now();
@@ -2898,8 +3207,20 @@ fn start_interactive_command(
     }
 
     fs::create_dir_all(&state.paths.scripts_dir).map_err(|error| error.to_string())?;
-    let script_path = write_script(&state.paths.scripts_dir, &command.script)?;
+    let interactive_terminal_kind =
+        normalize_interactive_terminal_kind(Some(&command.interactive_terminal_kind));
+    let script_path = write_interactive_script(
+        &state.paths.scripts_dir,
+        &command.script,
+        &interactive_terminal_kind,
+    )?;
     let started_at = now();
+    sql_query(format!(
+        "UPDATE commands SET run_count = COALESCE(run_count, 0) + 1, updated_at = '{}' WHERE id = {}",
+        started_at, command_id
+    ))
+    .execute(&mut conn)
+    .map_err(|error| error.to_string())?;
     sql_query(format!(
         "INSERT INTO command_runs (command_id, status, started_at) VALUES ({}, 'running', '{}')",
         command_id, started_at
@@ -2914,7 +3235,8 @@ fn start_interactive_command(
     let pair = pty_system
         .openpty(pty_size(cols, rows))
         .map_err(|error| error.to_string())?;
-    let mut pty_command = build_pty_command(&script_path);
+    let mut pty_command =
+        build_interactive_pty_command(&script_path, &project_path, &interactive_terminal_kind)?;
     pty_command.cwd(project_path);
 
     let mut child = match pair.slave.spawn_command(pty_command) {
@@ -3073,6 +3395,194 @@ fn start_interactive_command(
             RunFinishedPayload {
                 run_id: run.id,
                 command_id,
+                status: final_status.to_string(),
+                exit_code,
+                ended_at,
+            },
+        );
+    });
+
+    Ok(started_payload)
+}
+
+#[tauri::command]
+fn start_project_interactive_terminal(
+    project_path: String,
+    terminal_id: i64,
+    terminal_kind: String,
+    cols: u16,
+    rows: u16,
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<InteractiveSessionInfo, String> {
+    let project_path = PathBuf::from(project_path);
+    if !project_path.exists() {
+        return Err("Project path does not exist".to_string());
+    }
+
+    fs::create_dir_all(&state.paths.scripts_dir).map_err(|error| error.to_string())?;
+    let interactive_terminal_kind =
+        normalize_interactive_terminal_kind(Some(&terminal_kind));
+    let shell_script = match interactive_terminal_kind.as_str() {
+        INTERACTIVE_TERMINAL_KIND_CMD => "@echo off\r\nchcp 65001>nul\r\ncmd /Q /K\r\n".to_string(),
+        INTERACTIVE_TERMINAL_KIND_BASH | INTERACTIVE_TERMINAL_KIND_WSL2 => "exec bash\n".to_string(),
+        INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE => "pwsh.exe -NoLogo\n".to_string(),
+        _ => "powershell.exe -NoLogo\n".to_string(),
+    };
+    let script_path = write_interactive_script(
+        &state.paths.scripts_dir,
+        &shell_script,
+        &interactive_terminal_kind,
+    )?;
+
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(pty_size(cols, rows))
+        .map_err(|error| error.to_string())?;
+    let mut pty_command =
+        build_interactive_pty_command(&script_path, &project_path, &interactive_terminal_kind)?;
+    pty_command.cwd(project_path.clone());
+
+    let mut child = match pair.slave.spawn_command(pty_command) {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = fs::remove_file(&script_path);
+            return Err(error.to_string());
+        }
+    };
+
+    let mut reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|error| error.to_string())?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|error| error.to_string())?;
+    let killer = child.clone_killer();
+    let session_id = Uuid::new_v4().to_string();
+    let run_id = NEXT_AD_HOC_RUN_ID.fetch_sub(1, Ordering::SeqCst);
+    let started_at = now();
+    let session = Arc::new(InteractiveSession {
+        run_id,
+        killer: Mutex::new(killer),
+        master: Mutex::new(pair.master),
+        writer: Mutex::new(writer),
+    });
+
+    state
+        .interactive_sessions
+        .lock()
+        .map_err(|_| "Interactive session registry lock poisoned".to_string())?
+        .insert(session_id.clone(), session.clone());
+    state
+        .interactive_sessions_by_command
+        .lock()
+        .map_err(|_| "Interactive command registry lock poisoned".to_string())?
+        .insert(terminal_id, session_id.clone());
+    state
+        .interactive_sessions_by_run
+        .lock()
+        .map_err(|_| "Interactive run registry lock poisoned".to_string())?
+        .insert(run_id, session_id.clone());
+
+    let started_payload = InteractiveSessionInfo {
+        session_id: session_id.clone(),
+        run_id,
+        command_id: terminal_id,
+        cols: cols.max(20),
+        rows: rows.max(1),
+        started_at: started_at.clone(),
+    };
+    let _ = app.emit("pty://started", started_payload.clone());
+    let _ = app.emit(
+        "command://started",
+        RunStartedPayload {
+            run_id,
+            command_id: terminal_id,
+            started_at: started_at.clone(),
+        },
+    );
+
+    let app_for_reader = app.clone();
+    let session_id_for_reader = session_id.clone();
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(length) => {
+                    let chunk = String::from_utf8_lossy(&buffer[..length]).to_string();
+                    let _ = app_for_reader.emit(
+                        "pty://data",
+                        InteractiveDataPayload {
+                            session_id: session_id_for_reader.clone(),
+                            run_id,
+                            command_id: terminal_id,
+                            data: chunk,
+                        },
+                    );
+                }
+                Err(error) => {
+                    let _ = app_for_reader.emit(
+                        "pty://error",
+                        InteractiveErrorPayload {
+                            session_id: session_id_for_reader.clone(),
+                            run_id,
+                            command_id: terminal_id,
+                            error: error.to_string(),
+                        },
+                    );
+                    break;
+                }
+            }
+        }
+    });
+
+    let app_for_wait = app.clone();
+    std::thread::spawn(move || {
+        let wait_result = child.wait();
+        let exit_code = wait_result.ok().and_then(interactive_exit_code);
+        let was_stopped = app_for_wait
+            .try_state::<AppState>()
+            .and_then(|state| {
+                state
+                    .stopped_runs
+                    .lock()
+                    .ok()
+                    .map(|mut stopped_runs| stopped_runs.remove(&run_id))
+            })
+            .unwrap_or(false);
+        let final_status = if was_stopped {
+            "stopped"
+        } else if exit_code == Some(0) {
+            "exited"
+        } else {
+            "failed"
+        };
+        let ended_at = now();
+
+        if let Some(state) = app_for_wait.try_state::<AppState>() {
+            remove_interactive_session(&state, &session_id, run_id, terminal_id);
+        }
+
+        let _ = fs::remove_file(&script_path);
+        let _ = app_for_wait.emit(
+            "pty://exit",
+            InteractiveExitPayload {
+                session_id: session_id.clone(),
+                run_id,
+                command_id: terminal_id,
+                exit_code,
+                ended_at: ended_at.clone(),
+                status: final_status.to_string(),
+            },
+        );
+        let _ = app_for_wait.emit(
+            "command://finished",
+            RunFinishedPayload {
+                run_id,
+                command_id: terminal_id,
                 status: final_status.to_string(),
                 exit_code,
                 ended_at,
@@ -3590,18 +4100,63 @@ fn build_process(
     script_path: &Path,
     project_path: &Path,
     run_in_external_terminal: bool,
+    external_terminal_kind: &str,
 ) -> Result<Child, String> {
     #[cfg(target_os = "windows")]
     let mut command = {
         if run_in_external_terminal {
-            let mut cmd = Command::new("cmd.exe");
-            cmd.arg("/c")
-                .arg("start")
-                .arg("/wait")
-                .arg("powershell.exe")
-                .arg("-NoExit")
-                .arg("-File")
-                .arg(script_path);
+            let cmd = match external_terminal_kind {
+                EXTERNAL_TERMINAL_KIND_WINDOWS_TERMINAL => {
+                    let mut wt = Command::new("wt.exe");
+                    wt.arg("powershell.exe")
+                        .arg("-NoExit")
+                        .arg("-File")
+                        .arg(script_path);
+                    wt
+                }
+                EXTERNAL_TERMINAL_KIND_COMMAND_PROMPT => {
+                    let mut prompt = Command::new("cmd.exe");
+                    prompt
+                        .arg("/c")
+                        .arg("start")
+                        .arg("/wait")
+                        .arg("cmd.exe")
+                        .arg("/k")
+                        .arg(format!(
+                            "powershell.exe -NoExit -ExecutionPolicy Bypass -File \"{}\"",
+                            script_path.to_string_lossy()
+                        ));
+                    prompt
+                }
+                EXTERNAL_TERMINAL_KIND_POWERSHELL | EXTERNAL_TERMINAL_KIND_DEFAULT => {
+                    let mut shell = Command::new("cmd.exe");
+                    shell
+                        .arg("/c")
+                        .arg("start")
+                        .arg("/wait")
+                        .arg("powershell.exe")
+                        .arg("-NoExit")
+                        .arg("-ExecutionPolicy")
+                        .arg("Bypass")
+                        .arg("-File")
+                        .arg(script_path);
+                    shell
+                }
+                _ => {
+                    let mut shell = Command::new("cmd.exe");
+                    shell
+                        .arg("/c")
+                        .arg("start")
+                        .arg("/wait")
+                        .arg("powershell.exe")
+                        .arg("-NoExit")
+                        .arg("-ExecutionPolicy")
+                        .arg("Bypass")
+                        .arg("-File")
+                        .arg(script_path);
+                    shell
+                }
+            };
             cmd
         } else {
             let mut cmd = Command::new("powershell.exe");
@@ -3619,9 +4174,14 @@ fn build_process(
     #[cfg(target_os = "macos")]
     let mut command = {
         if run_in_external_terminal {
+            let app_name = match external_terminal_kind {
+                EXTERNAL_TERMINAL_KIND_TERMINAL_APP | EXTERNAL_TERMINAL_KIND_DEFAULT => "Terminal",
+                _ => "Terminal",
+            };
             let mut cmd = Command::new("osascript");
             let script = format!(
-                "tell application \"Terminal\" to do script \"cd '{}' && '{}'; exit\"",
+                "tell application \"{}\" to do script \"cd '{}' && '{}'; exit\"",
+                app_name,
                 project_path.to_string_lossy(),
                 script_path.to_string_lossy()
             );
@@ -3738,6 +4298,8 @@ pub fn run() {
             restart_command,
             stop_command,
             start_interactive_command,
+            start_project_interactive_terminal,
+            list_interactive_terminal_options,
             write_interactive_terminal,
             resize_interactive_terminal,
             stop_interactive_command,

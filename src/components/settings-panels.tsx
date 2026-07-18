@@ -8,9 +8,10 @@ import {
   Terminal,
   Trash2,
 } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import appIcon from "../assets/app-icon.png";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import {
   Select,
@@ -43,12 +44,12 @@ function SettingsSection({
   tone?: "default" | "danger";
 }) {
   return (
-    <section className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
+    <section className="border-b border-[var(--vscode-border)] pb-6 last:border-b-0 last:pb-0">
+      <div className="flex items-start justify-between gap-3 pb-3">
         <div className="flex min-w-0 items-start gap-2.5">
           <div
             className={cn(
-              "mt-0.5 shrink-0 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-2",
+              "mt-0.5 shrink-0 text-[var(--vscode-icon)]",
               tone === "danger" ? "text-destructive" : "text-primary",
             )}
           >
@@ -61,9 +62,7 @@ function SettingsSection({
         </div>
         {action}
       </div>
-      <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3.5">
-        <div className="space-y-2.5">{children}</div>
-      </div>
+      <div className="space-y-px">{children}</div>
     </section>
   );
 }
@@ -82,7 +81,7 @@ function SettingsRow({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-3 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-3.5 py-3",
+        "flex items-center justify-between gap-4 border-b border-[var(--vscode-border)] py-3 last:border-b-0",
         className,
       )}
     >
@@ -109,14 +108,14 @@ export function AppearanceSettingsPanel({
   setMotionLevel: (level: MotionLevel) => void;
 }) {
   return (
-    <div className="fade-in mx-auto flex w-full max-w-[1120px] flex-col gap-6">
+    <div className="flex w-full flex-col gap-4">
       <SettingsSection
         icon={<Palette size={16} />}
         title="Theme mode"
         description="Switch between light and dark interface styles"
-        action={<ThemeToggle theme={theme} onThemeChange={setTheme} variant="circle" start="center" />}
+        action={<ThemeToggle theme={theme} onThemeChange={setTheme} variant="rectangle" start="center" />}
       >
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3">
           {(
             [
               { id: "light", label: "Light", Icon: Sun },
@@ -130,14 +129,14 @@ export function AppearanceSettingsPanel({
                 type="button"
                 variant="ghost"
                 className={cn(
-                  "h-auto flex-col items-stretch gap-2 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3 text-left hover:border-border-strong hover:bg-[var(--vscode-list-hover)]",
-                  active && "border-primary/50 bg-[var(--vscode-list-active)] text-foreground",
+                  "h-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2.5 text-left hover:border-border-strong hover:bg-[var(--vscode-list-hover)]",
+                  active && "border-primary/40 bg-[var(--vscode-list-selected)] text-foreground",
                 )}
                 onClick={() => setTheme(option.id)}
               >
                 <div
                   className={cn(
-                    "flex h-[78px] w-full flex-col gap-2 overflow-hidden rounded-[6px] border border-[var(--vscode-border)] p-2.5",
+                    "flex h-[52px] w-full flex-col gap-1.5 overflow-hidden rounded-[6px] border border-[var(--vscode-border)] p-2",
                     option.id === "light" ? "bg-[#fafafa]" : "bg-[#151515]",
                   )}
                 >
@@ -153,10 +152,10 @@ export function AppearanceSettingsPanel({
                     )}
                   />
                 </div>
-                <div className="flex w-full items-center gap-2 px-1 text-[12.5px] font-semibold text-foreground">
+                <div className="flex w-full items-center gap-2 px-1 pt-2 text-[12.5px] font-semibold text-foreground">
                   <option.Icon size={15} />
                   <span>{option.label}</span>
-                  {active ? <Check className="ml-auto rounded-full bg-primary/10 p-0.5 text-primary" size={14} /> : null}
+                  {active ? <Check className="ml-auto text-primary" size={14} /> : null}
                 </div>
               </Button>
             );
@@ -169,38 +168,40 @@ export function AppearanceSettingsPanel({
         title="Accent color"
         description="Primary highlights, focus rings, and gradients"
       >
-        <div className="flex flex-wrap gap-2">
-          {(["mono", "blue"] as AccentColor[]).map((col) => {
-            const active = accent === col;
-            return (
-              <Button
-                key={col}
-                type="button"
-                variant="ghost"
-                className={cn(
-                  "h-auto rounded-[999px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-3 py-2 text-[12.5px] font-medium text-muted-foreground hover:border-border-strong hover:bg-[var(--vscode-list-hover)] hover:text-foreground",
-                  active && "border-primary bg-[var(--vscode-list-active)] text-foreground",
-                )}
-                style={{ ["--accent-color-color" as string]: ACCENT_THEMES[col].primary } as CSSProperties}
-                onClick={() => setAccent(col)}
-                title={col.charAt(0).toUpperCase() + col.slice(1)}
-              >
-                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: ACCENT_THEMES[col].primary }} />
-                <span>{col.charAt(0).toUpperCase() + col.slice(1)}</span>
-                {active ? <Check size={14} className="text-primary" /> : null}
-              </Button>
-            );
-          })}
-        </div>
-      </SettingsSection>
-
-      <SettingsSection
-        icon={<Check size={16} />}
-        title="Motion"
-        description="Interface motion is disabled so the app behaves like a static VS Code-style shell"
-      >
-        <div className="rounded-[8px] border border-primary/35 bg-[var(--vscode-list-active)] px-3.5 py-3 text-[12.5px] text-foreground">
-          Motion has been turned off globally. Hover, focus, active, and selected states now use static color and border changes only.
+        <div className="max-w-[260px] py-1">
+          <Select value={accent} onValueChange={(value) => setAccent(value as AccentColor)}>
+            <SelectTrigger aria-label="Accent color">
+              <SelectValue placeholder="Select an accent color">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full border border-[var(--vscode-border)]"
+                    style={{ backgroundColor: ACCENT_THEMES[accent].primary }}
+                  />
+                  <span>{accent === "mono" ? "Mono" : "Blue"}</span>
+                </div>
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="mono">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full border border-[var(--vscode-border)]"
+                    style={{ backgroundColor: ACCENT_THEMES.mono.primary }}
+                  />
+                  <span>Mono</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="blue">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full border border-[var(--vscode-border)]"
+                    style={{ backgroundColor: ACCENT_THEMES.blue.primary }}
+                  />
+                  <span>Blue</span>
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </SettingsSection>
     </div>
@@ -240,13 +241,13 @@ export function TerminalSettingsPanel({
           : "monospace";
 
   return (
-    <div className="fade-in mx-auto flex w-full max-w-[1120px] flex-col gap-6">
+    <div className="flex w-full flex-col gap-4">
       <SettingsSection
         icon={<Terminal size={16} />}
         title="Typography"
         description="Font family and size used by the logs terminal"
       >
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid gap-4 py-1 lg:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor="terminal-font">Font family</Label>
             <Select value={terminalFontFamily} onValueChange={setTerminalFontFamily}>
@@ -262,24 +263,20 @@ export function TerminalSettingsPanel({
             </Select>
           </div>
           <div className="flex flex-col gap-2">
-            <Label>Font size</Label>
-            <div className="flex flex-wrap gap-1.5">
-              {["12px", "13px", "14px", "15px", "16px"].map((size) => {
-                const active = terminalFontSize === size;
-                return (
-                  <Button
-                    key={size}
-                    type="button"
-                    size="sm"
-                    variant={active ? "primary" : "secondary"}
-                    className={cn("min-w-12", !active && "border-[var(--vscode-border)] bg-[var(--vscode-editor)] hover:bg-[var(--vscode-list-hover)]")}
-                    onClick={() => setTerminalFontSize(size)}
-                  >
-                    {size.replace("px", "")}
-                  </Button>
-                );
-              })}
-            </div>
+            <Label htmlFor="terminal-font-size">Font size</Label>
+            <Input
+              id="terminal-font-size"
+              list="terminal-font-size-options"
+              inputMode="numeric"
+              placeholder="14px"
+              value={terminalFontSize}
+              onChange={(event) => setTerminalFontSize(event.target.value)}
+            />
+            <datalist id="terminal-font-size-options">
+              {["12px", "13px", "14px", "15px", "16px", "18px"].map((size) => (
+                <option key={size} value={size} />
+              ))}
+            </datalist>
           </div>
         </div>
       </SettingsSection>
@@ -321,7 +318,7 @@ export function TerminalSettingsPanel({
         description="Live preview of the selected terminal styles"
       >
         <div
-          className="overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[var(--terminal-bg)] p-3 font-mono text-[var(--terminal-fg)]"
+          className="overflow-hidden rounded-[6px] border border-[var(--vscode-border)] bg-[var(--terminal-bg)] px-4 py-3 font-mono text-[var(--terminal-fg)]"
           style={{ fontSize: terminalFontSize, fontFamily: previewFontFamily }}
         >
           <div className="text-slate-400">$ npm run dev</div>
@@ -343,23 +340,19 @@ export function TerminalSettingsPanel({
 
 export function SystemSettingsPanel({
   appInfo,
-  projectCount,
-  commandCount,
   onResetCache,
 }: {
   appInfo?: AppInfo;
-  projectCount: number;
-  commandCount: number;
   onResetCache: () => void;
 }) {
   return (
-    <div className="fade-in mx-auto flex w-full max-w-[1120px] flex-col gap-6">
+    <div className="flex w-full flex-col gap-4">
       <SettingsSection
         icon={<Info size={16} />}
         title="About"
         description="App identity and workspace inventory"
       >
-        <div className="flex items-start gap-3 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3.5">
+        <div className="flex items-start gap-3 py-1">
           <img className="h-12 w-12 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] object-cover" src={appIcon} alt="" />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -369,21 +362,29 @@ export function SystemSettingsPanel({
             <p className="mt-1 text-[12px] text-muted-foreground">
               Developer dashboard companion to organize, configure and run repeated project command lines.
             </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-              Projects
-            </span>
-            <strong className="mt-1 block text-[20px] text-foreground">{projectCount}</strong>
-          </div>
-          <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-              Commands
-            </span>
-            <strong className="mt-1 block text-[20px] text-foreground">{commandCount}</strong>
+            <div className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
+              <p>
+                Homepage:{" "}
+                <a
+                  className="text-primary underline-offset-2 hover:underline"
+                  href="https://projects-runner.laychu.com/"
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  projects-runner.laychu.com
+                </a>
+              </p>
+              <p>
+                Email:{" "}
+                <a
+                  className="text-primary underline-offset-2 hover:underline"
+                  href="mailto:namqhong@gmail.com"
+                >
+                  namqhong@gmail.com
+                </a>
+              </p>
+              <p>Telegram: @namhnz</p>
+            </div>
           </div>
         </div>
       </SettingsSection>

@@ -1,11 +1,20 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ChevronDown, ChevronRight, Eye, EyeOff, Pencil, Pin, PinOff, Plus, Save, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, Plus, Save, Search } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import type { Project } from "../lib/api";
-import { noteExcerpt, noteTitle, projectNoteVisibilityKey } from "../lib/project-notes";
+import {
+  buildProjectNoteMeta,
+  compareProjectNoteMeta,
+  noteTitle,
+  projectNoteVisibilityKey,
+  type ProjectNoteSortDirection,
+  type ProjectNoteSortField,
+} from "../lib/project-notes";
+import { Tooltip } from "./motion/tooltip";
 import type { ProjectNote } from "./project-detail-types";
+import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -16,18 +25,30 @@ import {
 } from "./ui/dialog";
 import { DialogField, DialogFooter, DialogForm } from "./ui/dialog-form";
 import { Label } from "./ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { StatefulButton } from "./ui/stateful-button";
 import { Textarea } from "./ui/textarea";
 
-function MarkdownNote({ content }: { content: string }) {
+function MarkdownNote({ content, className }: { content: string; className?: string }) {
   return (
-    <div className="markdown-note max-h-[280px] overflow-y-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2.5 text-[12px] leading-6 text-foreground">
+    <div className={`markdown-note rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2.5 text-[12px] leading-6 text-foreground ${className ?? ""}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
     </div>
   );
 }
 
 type NoteDialogMode = "create" | "edit";
+const SORT_FIELD_OPTIONS: { value: ProjectNoteSortField; label: string }[] = [
+  { value: "updatedAt", label: "Updated time" },
+  { value: "createdAt", label: "Created time" },
+  { value: "title", label: "Title" },
+  { value: "length", label: "Length" },
+  { value: "visibility", label: "Visibility" },
+];
+const SORT_DIRECTION_OPTIONS: { value: ProjectNoteSortDirection; label: string }[] = [
+  { value: "desc", label: "Descending" },
+  { value: "asc", label: "Ascending" },
+];
 
 function ProjectNoteDialog({
   mode,
@@ -103,7 +124,7 @@ function ProjectNoteDialog({
             <DialogField>
               <button
                 type="button"
-                className="flex w-full items-center justify-between rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-[var(--vscode-list-hover)]"
+                className="flex w-full items-center justify-between rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-[var(--vscode-list-hover)] active:bg-[var(--vscode-list-active)]"
                 onClick={() => setIsPreviewExpanded((current) => !current)}
                 aria-expanded={isPreviewExpanded}
               >
@@ -146,10 +167,7 @@ export function ProjectDetailNotes({
   newProjectNote,
   onNewProjectNoteChange,
   onAddProjectNote,
-  onSaveProjectNote,
-  onTogglePinnedProjectNote,
-  onToggleProjectNoteVisibility,
-  onDeleteProjectNote,
+  onOpenProjectNote,
   isSavingNotes,
 }: {
   selectedProject: Project;
@@ -158,33 +176,24 @@ export function ProjectDetailNotes({
   newProjectNote: string;
   onNewProjectNoteChange: (value: string) => void;
   onAddProjectNote: () => void;
-  onSaveProjectNote: (noteId: string, content: string) => void;
-  onTogglePinnedProjectNote: (noteId: string) => void;
-  onToggleProjectNoteVisibility: (projectId: number, noteId: string) => void;
-  onDeleteProjectNote: (noteId: string) => void;
+  onOpenProjectNote: (noteId: string) => void;
   isSavingNotes: boolean;
 }) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [editingDraft, setEditingDraft] = useState("");
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortField, setSortField] = useState<ProjectNoteSortField>("updatedAt");
+  const [sortDirection, setSortDirection] = useState<ProjectNoteSortDirection>("desc");
+  const visibleNotes = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
 
-  const editingNote = useMemo(
-    () => sortedProjectNotes.find((note) => note.id === editingNoteId) ?? null,
-    [editingNoteId, sortedProjectNotes],
-  );
-  const selectedNote = useMemo(
-    () => sortedProjectNotes.find((note) => note.id === selectedNoteId) ?? sortedProjectNotes[0] ?? null,
-    [selectedNoteId, sortedProjectNotes],
-  );
-  const selectedNoteVisibilityKey = selectedNote ? projectNoteVisibilityKey(selectedProject.id, selectedNote.id) : null;
-  const isSelectedNoteVisible = selectedNoteVisibilityKey ? (noteVisibility[selectedNoteVisibilityKey] ?? true) : true;
-
-  useEffect(() => {
-    if (!sortedProjectNotes.some((note) => note.id === selectedNoteId)) {
-      setSelectedNoteId(sortedProjectNotes[0]?.id ?? null);
-    }
-  }, [selectedNoteId, sortedProjectNotes]);
+    return sortedProjectNotes
+      .map((note) => ({
+        note,
+        meta: buildProjectNoteMeta(note, noteVisibility[projectNoteVisibilityKey(selectedProject.id, note.id)] ?? true),
+      }))
+      .filter(({ meta }) => (normalizedSearch ? meta.searchText.includes(normalizedSearch) : true))
+      .sort((left, right) => compareProjectNoteMeta(left.meta, right.meta, sortField, sortDirection));
+  }, [noteVisibility, searchQuery, selectedProject.id, sortDirection, sortField, sortedProjectNotes]);
 
   function openAddDialog() {
     setIsAddDialogOpen(true);
@@ -197,13 +206,6 @@ export function ProjectDetailNotes({
     }
   }
 
-  function closeEditDialog(open: boolean) {
-    if (!open) {
-      setEditingNoteId(null);
-      setEditingDraft("");
-    }
-  }
-
   function handleSubmitNewNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!newProjectNote.trim()) {
@@ -212,22 +214,6 @@ export function ProjectDetailNotes({
 
     onAddProjectNote();
     setIsAddDialogOpen(false);
-  }
-
-  function startEditingNote(note: ProjectNote) {
-    setSelectedNoteId(note.id);
-    setEditingNoteId(note.id);
-    setEditingDraft(note.content);
-  }
-
-  function handleSubmitEditedNote(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editingNoteId || !editingDraft.trim()) {
-      return;
-    }
-
-    onSaveProjectNote(editingNoteId, editingDraft);
-    closeEditDialog(false);
   }
 
   return (
@@ -243,136 +229,112 @@ export function ProjectDetailNotes({
         </Button>
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
-          <div className="border-b border-[var(--vscode-border)] px-3 py-2">
+      <div className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div className="mb-4 flex flex-col gap-3">
+          <div className="flex items-center gap-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               Project notes
             </div>
+            <div className="h-px flex-1 bg-[var(--vscode-border)]" aria-hidden="true" />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            {sortedProjectNotes.length > 0 ? (
-              <div className="space-y-1.5">
-                {sortedProjectNotes.map((note) => {
-                  const title = noteTitle(note.content, "Untitled note");
-                  const excerpt = noteExcerpt(note.content);
-                  const isActive = selectedNote?.id === note.id;
-                  return (
-                    <button
-                      key={note.id}
-                      type="button"
-                      onClick={() => setSelectedNoteId(note.id)}
-                      className={`flex w-full flex-col gap-1 rounded-[6px] border px-3 py-2 text-left transition-colors ${
-                        isActive
-                          ? "border-[var(--vscode-border)] bg-[var(--vscode-list-active)]"
-                          : "border-transparent bg-transparent hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)]"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-[12px] font-medium text-foreground">{title}</span>
-                        {note.pinned ? <Pin size={12} className="shrink-0 text-primary" /> : null}
-                      </div>
-                      <span className="line-clamp-2 text-[11px] leading-5 text-muted-foreground">{excerpt || "No preview available."}</span>
-                      <span className="text-[10.5px] text-muted-foreground">{new Date(note.updatedAt).toLocaleString()}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-[8px] border border-dashed border-[var(--vscode-border)] px-3 py-8 text-center">
-                <p className="text-[12px] text-muted-foreground">
-                  No notes exist for this project yet. Add the first one to capture checklists, test accounts, or local run steps.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
-          {selectedNote ? (
-            <>
-              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--vscode-border)] px-4 py-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="truncate text-[13px] font-semibold text-foreground">
-                      {noteTitle(selectedNote.content)}
-                    </h4>
-                    {selectedNote.pinned ? (
-                      <span className="inline-flex items-center gap-1 rounded-[6px] border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10.5px] font-medium text-primary">
-                        <Pin size={11} />
-                        Pinned
-                      </span>
-                    ) : null}
-                    {!isSelectedNoteVisible ? (
-                      <span className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
-                        <EyeOff size={11} />
-                        Hidden
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Updated {new Date(selectedNote.updatedAt).toLocaleString()}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <Button size="sm" variant="secondary" onClick={() => onToggleProjectNoteVisibility(selectedProject.id, selectedNote.id)}>
-                    {isSelectedNoteVisible ? <EyeOff size={13} /> : <Eye size={13} />}
-                    {isSelectedNoteVisible ? "Hide" : "Show"}
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => onTogglePinnedProjectNote(selectedNote.id)}>
-                    {selectedNote.pinned ? <PinOff size={13} /> : <Pin size={13} />}
-                    {selectedNote.pinned ? "Unpin" : "Pin"}
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => startEditingNote(selectedNote)}>
-                    <Pencil size={13} />
-                    Edit
-                  </Button>
-                  <Button size="sm" variant="danger" onClick={() => onDeleteProjectNote(selectedNote.id)}>
-                    <Trash2 size={13} />
-                    Delete
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid min-h-0 flex-1 gap-0 xl:grid-cols-2">
-                <div className="min-h-0 border-b border-[var(--vscode-border)] bg-[var(--vscode-editor)] xl:border-b-0 xl:border-r">
-                  {isSelectedNoteVisible ? (
-                    <div className="h-full overflow-y-auto p-4">
-                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        Preview
-                      </div>
-                      <MarkdownNote content={selectedNote.content} />
-                    </div>
-                  ) : (
-                    <div className="flex h-full min-h-[260px] items-center justify-center px-4 text-center text-[12px] text-muted-foreground">
-                      This note is hidden right now. Use the "Show" button to reveal it again.
-                    </div>
-                  )}
-                </div>
-                <div className="min-h-0 overflow-y-auto bg-[var(--vscode-panel)] p-4">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                    Raw markdown
-                  </div>
-                  <pre className="min-h-full whitespace-pre-wrap break-words rounded-[6px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] p-3 font-mono text-[11.5px] leading-6 text-[var(--script-preview-color)]">
-                    {selectedNote.content}
-                  </pre>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="flex h-full min-h-[300px] items-center justify-center px-6 text-center">
-              <div>
-                <p className="text-[12.5px] text-muted-foreground">Select a note from the list on the left to inspect its content.</p>
-                <div className="mt-3 flex justify-center">
-                  <Button size="sm" onClick={openAddDialog}>
-                    <Plus size={14} />
-                    Add note
-                  </Button>
-                </div>
-              </div>
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_220px_180px]">
+            <div className="relative">
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search by title or content"
+                className="pl-9"
+                aria-label="Search project notes"
+              />
             </div>
-          )}
-        </section>
+            <Select value={sortField} onValueChange={(value) => setSortField(value as ProjectNoteSortField)}>
+              <SelectTrigger aria-label="Sort notes by">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_FIELD_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={sortDirection} onValueChange={(value) => setSortDirection(value as ProjectNoteSortDirection)}>
+              <SelectTrigger aria-label="Sort direction">
+                <SelectValue placeholder="Direction" />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_DIRECTION_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            {visibleNotes.length} / {sortedProjectNotes.length} notes
+          </div>
+        </div>
+
+        {visibleNotes.length > 0 ? (
+          <div className="columns-1 gap-4 md:columns-2 2xl:columns-3">
+            {visibleNotes.map(({ note, meta }) => {
+              const title = noteTitle(note.content, "Untitled note");
+              const isVisible = meta.isVisible;
+              const createdTooltip = `Created ${new Date(note.createdAt).toLocaleString()}`;
+
+              return (
+                <Tooltip key={note.id} content={createdTooltip}>
+                  <article className="mb-4 break-inside-avoid rounded-[10px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-3 shadow-none transition-colors hover:border-border-strong hover:bg-[var(--bg-card-hover)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <h4 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">{title}</h4>
+
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Tooltip content="View note">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            onClick={() => onOpenProjectNote(note.id)}
+                            aria-label={`View ${title}`}
+                          >
+                            <Eye size={14} />
+                          </Button>
+                        </Tooltip>
+                      </div>
+                    </div>
+
+                    <div className="my-3 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+
+                    <div className="mt-3">
+                      {isVisible ? (
+                        <MarkdownNote content={note.content} className="max-h-[360px] overflow-y-auto" />
+                      ) : (
+                        <div className="rounded-[6px] border border-dashed border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-6 text-center text-[12px] text-muted-foreground">
+                          This note is hidden. Use the eye action to show its content again.
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                </Tooltip>
+              );
+            })}
+          </div>
+        ) : sortedProjectNotes.length > 0 ? (
+          <div className="rounded-[8px] border border-dashed border-[var(--vscode-border)] px-3 py-8 text-center">
+            <p className="text-[12px] text-muted-foreground">
+              No notes match the current search or sort context.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-[8px] border border-dashed border-[var(--vscode-border)] px-3 py-8 text-center">
+            <p className="text-[12px] text-muted-foreground">
+              No notes exist for this project yet. Add the first one to capture checklists, test accounts, or local run steps.
+            </p>
+          </div>
+        )}
       </div>
 
       <ProjectNoteDialog
@@ -383,17 +345,6 @@ export function ProjectDetailNotes({
         value={newProjectNote}
         onValueChange={onNewProjectNoteChange}
         onSubmit={handleSubmitNewNote}
-        isSaving={isSavingNotes}
-      />
-
-      <ProjectNoteDialog
-        mode="edit"
-        open={Boolean(editingNote)}
-        onOpenChange={closeEditDialog}
-        projectName={selectedProject.name}
-        value={editingDraft}
-        onValueChange={setEditingDraft}
-        onSubmit={handleSubmitEditedNote}
         isSaving={isSavingNotes}
       />
     </div>

@@ -125,8 +125,10 @@ export function TabsTrigger({
         data-state={active ? "active" : "inactive"}
         onClick={() => setValue(value)}
         className={cn(
-            "tabs-trigger relative isolate inline-flex items-center rounded-t-[6px] px-2.5 pb-2 pt-1 text-[12px] font-medium outline-none transition-[background-color,color] app-focus-ring",
-          active ? "bg-[var(--vscode-list-active)] text-foreground" : "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground",
+          "tabs-trigger relative isolate inline-flex items-center rounded-t-[6px] px-2.5 pb-2 pt-1 text-[12px] font-medium outline-none transition-[background-color,border-color,color,box-shadow] app-focus-ring",
+          active
+            ? "bg-[color-mix(in_srgb,var(--vscode-list-selected)_78%,var(--vscode-editor))] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+            : "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
           className,
         )}
       >
@@ -134,9 +136,11 @@ export function TabsTrigger({
         {active && allowRichMotion ? (
           <motion.span
             layoutId={layoutId}
-            className={cn("absolute -bottom-px left-0 right-0 h-px bg-primary", indicatorClassName)}
+            className={cn("absolute inset-x-1 bottom-0 h-[3px] rounded-t-full bg-primary", indicatorClassName)}
           />
-        ) : active ? <span className={cn("absolute -bottom-px left-0 right-0 h-px bg-primary", indicatorClassName)} /> : null}
+        ) : active ? (
+          <span className={cn("absolute inset-x-1 bottom-0 h-[3px] rounded-t-full bg-primary", indicatorClassName)} />
+        ) : null}
       </button>
     );
   }
@@ -161,19 +165,19 @@ export function TabsTrigger({
         aria-selected={active}
         data-state={active ? "active" : "inactive"}
         onClick={() => setValue(value)}
-        className={cn(
-          "tabs-trigger relative z-10 inline-flex h-7 items-center justify-center whitespace-nowrap bg-transparent px-3 text-[12px] font-medium outline-none app-focus-ring",
-          usesDefaultIndicator ? "transition-[background-color,color,transform]" : "transition-[background-color,color,transform]",
-          usesDefaultIndicator
-            ? active
-              ? "text-foreground"
-              : "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:scale-[0.985]"
-            : active
-              ? "text-foreground"
-              : "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:scale-[0.985]",
-          radius,
-          className,
-        )}
+          className={cn(
+            "tabs-trigger relative z-10 inline-flex h-7 items-center justify-center whitespace-nowrap bg-transparent px-3 text-[12px] font-medium outline-none app-focus-ring",
+            usesDefaultIndicator ? "transition-[background-color,color,transform]" : "transition-[background-color,color,transform]",
+            usesDefaultIndicator
+              ? active
+                ? "text-foreground"
+                : "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:scale-[0.985] active:bg-[var(--vscode-list-active)]"
+              : active
+                ? "text-foreground"
+                : "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:scale-[0.985] active:bg-[var(--vscode-list-active)]",
+            radius,
+            className,
+          )}
       >
         {children}
       </button>

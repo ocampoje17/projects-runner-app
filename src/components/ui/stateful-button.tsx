@@ -53,7 +53,7 @@ const ICON_VARIANTS: Variants = {
   initial: { opacity: 0, width: 0, scale: 0.7, filter: ROLL_BLUR },
   animate: {
     opacity: 1,
-    width: "1.5rem",
+    width: "0.875rem",
     scale: 1,
     filter: "blur(0px)",
     transition: SPRING_SWAP,
@@ -77,7 +77,7 @@ function IconSlot({ keyId, children }: { keyId: string; children: ReactNode }) {
       animate={allowRichMotion ? "animate" : { opacity: 1 }}
       exit={allowRichMotion ? "exit" : { opacity: 0 }}
       transition={allowRichMotion ? undefined : { duration: 0.15 }}
-      className="inline-grid shrink-0 place-items-center overflow-hidden"
+      className="inline-grid shrink-0 place-items-center overflow-hidden leading-none"
     >
       {children}
     </motion.span>
@@ -196,7 +196,7 @@ export const StatefulButton = forwardRef<HTMLButtonElement, StatefulButtonProps>
         className={cn(className)}
         {...rest}
       >
-        <span className="inline-flex items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 leading-none">
           {richMotion ? (
             <>
               <AnimatePresence mode="popLayout" initial={false}>
@@ -206,7 +206,7 @@ export const StatefulButton = forwardRef<HTMLButtonElement, StatefulButtonProps>
             </>
           ) : (
             <>
-              {statusIcon ? <span className="inline-grid shrink-0 place-items-center">{statusIcon}</span> : null}
+              {statusIcon ? <span className="inline-grid shrink-0 place-items-center leading-none">{statusIcon}</span> : null}
               <span>{content}</span>
             </>
           )}

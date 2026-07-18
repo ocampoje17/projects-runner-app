@@ -25,7 +25,9 @@
         "created_at": "2026-07-02T07:10:00.000Z",
         "updated_at": "2026-07-16T09:10:00.000Z",
         "runtime_mode": "internal_interactive",
-        "run_in_external_terminal": false
+        "run_in_external_terminal": false,
+        "external_terminal_kind": "default",
+        "run_count": 24
       },
       {
         "id": 2002,
@@ -39,7 +41,9 @@
         "created_at": "2026-07-02T07:20:00.000Z",
         "updated_at": "2026-07-16T09:22:00.000Z",
         "runtime_mode": "internal_headless",
-        "run_in_external_terminal": false
+        "run_in_external_terminal": false,
+        "external_terminal_kind": "default",
+        "run_count": 12
       },
       {
         "id": 2003,
@@ -53,7 +57,9 @@
         "created_at": "2026-07-03T10:00:00.000Z",
         "updated_at": "2026-07-15T11:30:00.000Z",
         "runtime_mode": "external_terminal",
-        "run_in_external_terminal": true
+        "run_in_external_terminal": true,
+        "external_terminal_kind": "default",
+        "run_count": 5
       }
     ]
   }

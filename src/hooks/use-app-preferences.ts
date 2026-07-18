@@ -9,6 +9,16 @@ function isAccentColor(value: string | null): value is AccentColor {
   return ACCENT_VALUES.includes(value as AccentColor);
 }
 
+export function resolveTerminalFontFamilyValue(terminalFontFamily: string) {
+  return terminalFontFamily === "System Mono" || terminalFontFamily === "JetBrains Mono" || terminalFontFamily === "Fira Code"
+    ? SYSTEM_MONO_FAMILY
+    : terminalFontFamily === "Consolas"
+      ? '"Consolas", "Cascadia Mono", monospace'
+      : terminalFontFamily === "SF Mono"
+        ? '"SF Mono", Menlo, Monaco, monospace'
+        : "monospace";
+}
+
 export function useAppPreferences() {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const saved = localStorage.getItem("theme");
@@ -29,7 +39,7 @@ export function useAppPreferences() {
       return saved;
     }
 
-    return "System Mono";
+    return "Consolas";
   });
 
   const [autoClearLogs, setAutoClearLogs] = useState(() => {
@@ -75,14 +85,7 @@ export function useAppPreferences() {
 
   useEffect(() => {
     localStorage.setItem("terminalFontFamily", terminalFontFamily);
-    const fontValue =
-      terminalFontFamily === "System Mono" || terminalFontFamily === "JetBrains Mono" || terminalFontFamily === "Fira Code"
-        ? SYSTEM_MONO_FAMILY
-        : terminalFontFamily === "Consolas"
-          ? '"Consolas", "Cascadia Mono", monospace'
-          : terminalFontFamily === "SF Mono"
-            ? '"SF Mono", Menlo, Monaco, monospace'
-            : "monospace";
+    const fontValue = resolveTerminalFontFamilyValue(terminalFontFamily);
     document.documentElement.style.setProperty("--terminal-font-family", fontValue);
   }, [terminalFontFamily]);
 

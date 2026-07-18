@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   BookOpenText,
   ChevronDown,
@@ -11,11 +11,13 @@ import {
   FolderOpen,
   LayoutGrid,
   ListTree,
-  MoreHorizontal,
   Pencil,
   Pin,
+  PinOff,
   Plus,
+  PowerOff,
   RotateCcw,
+  Search,
   Square,
   Settings2,
   Share2,
@@ -28,7 +30,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import type { SettingsPageProps } from "./SettingsPage";
+import type { SettingsPageProps, SettingsSectionId } from "./SettingsPage";
 import { SettingsPage } from "./SettingsPage";
 import { EntityAvatar } from "./entity-avatar";
 import { Tooltip } from "./motion/tooltip";
@@ -37,14 +39,21 @@ import type { CommandSection, ProjectNote } from "./project-detail-types";
 import { CommandCard, LogPanel, type RunState } from "./project-runtime";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { StatefulButton } from "./ui/stateful-button";
-import { Textarea } from "./ui/textarea";
+import { Input } from "./ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { commandPorts, normalizeCommandScript, runtimeModeLabel } from "@/lib/command-utils";
 import { noteExcerpt, noteTitle, projectNoteVisibilityKey } from "@/lib/project-notes";
 import { cn } from "@/lib/utils";
 import type { Project, ProjectCommand } from "../lib/api";
+import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 
 type SidebarView = "explorer" | "notes" | "terminal" | "settings";
+
+export type VSCodeShellHandle = {
+  openProject: (projectId: number) => void;
+  openCommand: (projectId: number, commandId: number) => void;
+  openNote: (projectId: number, noteId: string) => void;
+};
 
 type EditorTab =
   | { id: string; kind: "welcome"; title: string }
@@ -147,6 +156,80 @@ function findNoteById(notes: ProjectNote[], noteId?: string) {
   return notes.find((note) => note.id === noteId) ?? null;
 }
 
+type CommandSortField = "runCount" | "updatedAt" | "createdAt" | "name";
+type CommandSortDirection = "desc" | "asc";
+
+const COMMAND_SORT_FIELD_OPTIONS: { value: CommandSortField; label: string }[] = [
+  { value: "runCount", label: "Run count" },
+  { value: "updatedAt", label: "Updated time" },
+  { value: "createdAt", label: "Created time" },
+  { value: "name", label: "Name" },
+];
+
+const COMMAND_SORT_DIRECTION_OPTIONS: { value: CommandSortDirection; label: string }[] = [
+  { value: "desc", label: "Descending" },
+  { value: "asc", label: "Ascending" },
+];
+
+type CommandOverviewMeta = {
+  id: number;
+  searchText: string;
+  section: string;
+  runCount: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+  name: string;
+};
+
+function buildCommandOverviewMeta(command: ProjectCommand): CommandOverviewMeta {
+  return {
+    id: command.id,
+    searchText: `${command.name}\n${command.section}\n${normalizeCommandScript(command.script)}`.toLocaleLowerCase(),
+    section: command.section,
+    runCount: command.run_count,
+    createdAtMs: new Date(command.created_at).getTime(),
+    updatedAtMs: new Date(command.updated_at).getTime(),
+    name: command.name,
+  };
+}
+
+function compareCommandOverviewMeta(
+  left: CommandOverviewMeta,
+  right: CommandOverviewMeta,
+  sortField: CommandSortField,
+  sortDirection: CommandSortDirection,
+) {
+  let result = 0;
+
+  switch (sortField) {
+    case "runCount":
+      result = left.runCount - right.runCount;
+      break;
+    case "createdAt":
+      result = left.createdAtMs - right.createdAtMs;
+      break;
+    case "updatedAt":
+      result = left.updatedAtMs - right.updatedAtMs;
+      break;
+    case "name":
+      result = left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true });
+      break;
+  }
+
+  if (result === 0) {
+    result = left.updatedAtMs - right.updatedAtMs;
+  }
+  if (result === 0) {
+    result = left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true });
+  }
+
+  return sortDirection === "asc" ? result : -result;
+}
+
+function formatRunCountLabel(runCount: number) {
+  return `${runCount} run${runCount === 1 ? "" : "s"}`;
+}
+
 function MarkdownPreview({ content, className }: { content: string; className?: string }) {
   return (
     <div
@@ -156,6 +239,101 @@ function MarkdownPreview({ content, className }: { content: string; className?: 
       )}
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    </div>
+  );
+}
+
+function OverviewCommandRow({
+  command,
+  run,
+  onOpenDetail,
+  onRun,
+  onStop,
+}: {
+  command: ProjectCommand;
+  run?: RunState;
+  onOpenDetail: () => void;
+  onRun: () => void;
+  onStop: () => void;
+}) {
+  const isRunning = run?.status === "running";
+
+  return (
+    <div className="flex items-center gap-3 border-b border-[var(--vscode-border)] px-1 py-3 last:border-b-0">
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-[8px] border border-transparent px-3 py-2 text-left transition-[background-color,border-color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] active:bg-[var(--vscode-list-active)]"
+        onClick={onOpenDetail}
+      >
+        <EntityAvatar name={command.name} path={command.avatar_path} />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-[12.5px] font-semibold text-foreground">{command.name}</span>
+            <Badge variant="muted" className="shrink-0">
+              {command.section}
+            </Badge>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[var(--vscode-foreground)]/58">
+            <span>{formatRunCountLabel(command.run_count)}</span>
+            <span aria-hidden="true">•</span>
+            <span>{runtimeModeLabel(command.runtime_mode)}</span>
+          </div>
+        </div>
+      </button>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button size="sm" variant="ghost" className="h-8 px-2.5 text-[11.5px]" onClick={onOpenDetail}>
+          <Eye size={13} />
+          View
+        </Button>
+        <Button
+          size="sm"
+          variant={isRunning ? "outline" : "primary"}
+          className={cn("h-8 px-2.5", isRunning && "border-destructive text-destructive hover:bg-destructive/10")}
+          onClick={isRunning ? onStop : onRun}
+        >
+          {isRunning ? <Square size={13} /> : <Play size={13} />}
+          {isRunning ? "Stop" : "Run"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function OverviewNoteRow({
+  note,
+  onOpenNote,
+}: {
+  note: ProjectNote;
+  onOpenNote: () => void;
+}) {
+  return (
+    <div className="flex w-full items-center gap-3 border-b border-[var(--vscode-border)] px-1 py-3 last:border-b-0">
+      <Tooltip content={`Updated ${new Date(note.updatedAt).toLocaleString()}`} wrapperClassName="flex min-w-0 flex-1">
+        <button
+          type="button"
+          className="flex w-full min-w-0 flex-1 items-center gap-3 rounded-[8px] border border-transparent px-3 py-2 text-left transition-[background-color,border-color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] active:bg-[var(--vscode-list-active)]"
+          onClick={onOpenNote}
+        >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] text-[var(--vscode-foreground)]/72">
+            <BookOpenText size={15} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-[12.5px] font-semibold text-foreground">{noteTitle(note.content)}</span>
+              {note.pinned ? <Badge variant="muted">Pinned</Badge> : null}
+            </div>
+            <div className="mt-1 line-clamp-2 text-[11.5px] leading-5 text-[var(--vscode-foreground)]/64">
+              {noteExcerpt(note.content)}
+            </div>
+          </div>
+        </button>
+      </Tooltip>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button size="sm" variant="ghost" className="h-8 px-2.5 text-[11.5px]" onClick={onOpenNote}>
+          <Eye size={13} />
+          View
+        </Button>
+      </div>
     </div>
   );
 }
@@ -178,11 +356,25 @@ function SidebarIconButton({
         onClick={onClick}
         aria-label={label}
         className={cn(
-          "relative flex h-12 w-12 items-center justify-center border-l-2 border-transparent text-[var(--vscode-icon)] transition-[background-color,color,border-color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
-          active && "border-primary bg-[var(--vscode-list-selected)] text-foreground",
+          "group relative flex h-12 w-12 items-center justify-center overflow-hidden border-l border-transparent text-[var(--vscode-icon)] transition-[background-color,color,border-color,box-shadow] hover:border-[var(--vscode-border)] hover:bg-[color-mix(in_srgb,var(--vscode-list-hover)_78%,transparent)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
+          active && "border-[color-mix(in_srgb,var(--primary-color)_35%,var(--vscode-border))] bg-[color-mix(in_srgb,var(--vscode-list-selected)_82%,var(--vscode-activity))] text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary-color)_18%,transparent)]",
         )}
       >
-        {children}
+        <span
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-full bg-primary opacity-0 transition-opacity duration-150",
+            active && "opacity-100",
+          )}
+        />
+        <span
+          className={cn(
+            "relative z-[1] transition-transform duration-150 group-hover:scale-[1.04] group-active:scale-[0.96]",
+            active && "text-primary",
+          )}
+        >
+          {children}
+        </span>
       </button>
     </Tooltip>
   );
@@ -288,7 +480,7 @@ function TreeItem({
     >
       <div
         className={cn(
-          "relative flex h-7 w-full items-center gap-1 rounded-[6px] border border-transparent pr-1 text-[12px] text-[var(--vscode-foreground)]/84 transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground",
+          "relative flex h-7 w-full items-center gap-1 rounded-[6px] border border-transparent pr-1 text-[12px] text-[var(--vscode-foreground)]/84 transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
           active && "border-primary/35 bg-[var(--vscode-list-selected)] text-foreground",
           menuOpen && "border-[var(--vscode-border)] bg-[var(--vscode-list-hover)] text-foreground",
         )}
@@ -297,30 +489,13 @@ function TreeItem({
         <button
           type="button"
           onClick={onClick}
-          className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-[6px] px-2 text-left hover:bg-[var(--vscode-list-hover)] active:bg-[var(--vscode-list-active)]"
+          className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-[6px] px-2 text-left"
           style={{ paddingLeft: `${8 + level * 14}px` } as CSSProperties}
         >
           {icon ? <span className={cn("shrink-0 text-[var(--vscode-icon)]", active && "text-primary")}>{icon}</span> : null}
           <span className="truncate">{title}</span>
           {trailing ? <span className={cn("ml-auto shrink-0 text-[11px] text-muted-foreground", active && "text-foreground/80")}>{trailing}</span> : null}
         </button>
-        {hasMenu ? (
-          <button
-            type="button"
-            aria-label={`${title} actions`}
-            aria-expanded={menuOpen}
-            onClick={(event) => {
-              event.stopPropagation();
-              setMenuState((current) => (current?.mode === "anchor" ? null : { mode: "anchor" }));
-            }}
-            className={cn(
-              "flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] border border-transparent text-[var(--vscode-icon)] transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
-              active || menuOpen ? "opacity-100" : "opacity-0 group-hover/item:opacity-100 group-focus-within/item:opacity-100",
-            )}
-          >
-            <MoreHorizontal size={13} />
-          </button>
-        ) : null}
       </div>
       {hasMenu && menuOpen ? (
         <div
@@ -426,15 +601,10 @@ function ProjectOverviewPane({
   runs,
   onOpenCommand,
   onOpenNote,
+  onOpenCommandsOverview,
   onOpenNotesOverview,
   onRunCommand,
   onStopCommand,
-  onForceStopCommand,
-  onRestartCommand,
-  onEditCommand,
-  onDeleteCommand,
-  onKillPorts,
-  onOpenLogs,
   onAddCommand,
   onOpenExplorer,
   onOpenTerminal,
@@ -447,15 +617,10 @@ function ProjectOverviewPane({
   runs: Record<number, RunState>;
   onOpenCommand: (command: ProjectCommand) => void;
   onOpenNote: (note: ProjectNote) => void;
+  onOpenCommandsOverview: () => void;
   onOpenNotesOverview: () => void;
   onRunCommand: (command: ProjectCommand) => void;
   onStopCommand: (command: ProjectCommand) => void;
-  onForceStopCommand: (command: ProjectCommand) => void;
-  onRestartCommand: (command: ProjectCommand) => void;
-  onEditCommand: (command: ProjectCommand) => void;
-  onDeleteCommand: (command: ProjectCommand) => void;
-  onKillPorts: (command: ProjectCommand) => void;
-  onOpenLogs: (commandId: number) => void;
   onAddCommand: () => void;
   onOpenExplorer: () => void;
   onOpenTerminal: () => void;
@@ -464,32 +629,48 @@ function ProjectOverviewPane({
 }) {
   const runningCommands = commands.filter((command) => runs[command.id]?.status === "running");
   const pinnedNotes = notes.filter((note) => note.pinned);
-  const recentCommands = commands.slice(0, 5);
-  const recentNotes = notes.slice(0, 5);
+  const topCommands = useMemo(
+    () =>
+      [...commands]
+        .sort((left, right) => {
+          if (right.run_count !== left.run_count) {
+            return right.run_count - left.run_count;
+          }
+          const updatedAtDiff = new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+          if (updatedAtDiff !== 0) {
+            return updatedAtDiff;
+          }
+          return left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true });
+        })
+        .slice(0, 6),
+    [commands],
+  );
+  const recentNotes = notes.slice(0, 6);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
-      <div className="mx-auto flex w-full max-w-[1260px] flex-col gap-5">
-        <section className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex min-w-0 flex-1 items-start gap-3 px-4 py-4">
-              <EntityAvatar name={project.name} path={project.avatar_path} />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
+      <div className="mx-auto flex w-full max-w-[1260px] flex-col">
+        <section className="py-1">
+          <div className="space-y-4">
+            <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(320px,1.1fr)] xl:items-start">
+              <div className="flex min-w-0 items-start gap-3">
+                <EntityAvatar name={project.name} path={project.avatar_path} />
+                <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                   <h2 className="truncate text-[22px] font-semibold tracking-[-0.02em] text-foreground">{project.name}</h2>
-                  <Badge variant="muted">Workspace</Badge>
+                  <Badge variant="muted" className="shrink-0">Workspace</Badge>
                 </div>
-                <p className="mt-1 truncate font-mono text-[11px] text-[var(--vscode-foreground)]/68">{project.path}</p>
-                {project.description ? (
-                  <p className="mt-2 max-w-[760px] text-[12.5px] leading-6 text-[var(--vscode-foreground)]/78">{project.description}</p>
-                ) : (
-                  <p className="mt-2 text-[12.5px] text-[var(--vscode-foreground)]/58">
-                    Add a short description so teammates know what this workspace is for.
-                  </p>
-                )}
+              </div>
+              <div className="min-w-0 xl:justify-self-end xl:text-right">
+                <p className="truncate font-mono text-[11px] text-[var(--vscode-foreground)]/68">{project.path}</p>
+                <p className="mt-1 truncate text-[12.5px] text-[var(--vscode-foreground)]/78">
+                  {project.description || "Add a short description so teammates know what this workspace is for."}
+                </p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2 border-l border-[var(--vscode-border)] px-4 py-4">
+
+            <div className="h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+
+            <div className="flex flex-wrap gap-2">
               <Button variant="secondary" onClick={onOpenExplorer}>
                 <FolderOpen size={15} />
                 Reveal
@@ -511,26 +692,29 @@ function ProjectOverviewPane({
                 Add command
               </Button>
             </div>
-          </div>
 
-          <div className="grid border-t border-[var(--vscode-border)] sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              { label: "Commands", value: commands.length },
-              { label: "Running", value: runningCommands.length },
-              { label: "Notes", value: notes.length },
-              { label: "Pinned", value: pinnedNotes.length },
-            ].map((item) => (
-              <div key={item.label} className="border-r border-[var(--vscode-border)] px-4 py-3 last:border-r-0">
-                <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">{item.label}</div>
-                <div className="mt-1 text-[20px] font-semibold text-foreground">{item.value}</div>
-              </div>
-            ))}
+            <div className="h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+
+            <div className="grid sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                { label: "Commands", value: commands.length },
+                { label: "Running", value: runningCommands.length },
+                { label: "Notes", value: notes.length },
+                { label: "Pinned", value: pinnedNotes.length },
+              ].map((item) => (
+                <div key={item.label} className="border-r border-[var(--vscode-border)] px-4 py-3 last:border-r-0">
+                  <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">{item.label}</div>
+                  <div className="mt-1 text-[20px] font-semibold text-foreground">{item.value}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(360px,0.9fr)]">
-          <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--vscode-border)] px-4 py-3">
+        <div className="my-5 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+
+        <section className="py-1">
+          <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/78">Command workspace</h3>
                 <p className="text-[11.5px] text-[var(--vscode-foreground)]/60">Frequently used run targets for this project.</p>
@@ -540,35 +724,37 @@ function ProjectOverviewPane({
                 New command
               </Button>
             </div>
+            <div className="mt-3 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
             {commands.length > 0 ? (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3 p-4">
-                {recentCommands.map((command) => (
-                  <div key={command.id} className="space-y-2">
-                    <CommandCard
-                      command={command}
-                      run={runs[command.id]}
-                      onDelete={() => onDeleteCommand(command)}
-                      onEdit={() => onEditCommand(command)}
-                      onKillPorts={() => onKillPorts(command)}
-                      onOpenDetail={() => onOpenCommand(command)}
-                      onRestart={() => onRestartCommand(command)}
-                      onRun={() => onRunCommand(command)}
-                      onStop={() => onStopCommand(command)}
-                      onForceStop={() => onForceStopCommand(command)}
-                      onOpenLogs={() => onOpenLogs(command.id)}
-                    />
-                  </div>
+              <div className="pt-2">
+                {topCommands.map((command) => (
+                  <OverviewCommandRow
+                    key={command.id}
+                    command={command}
+                    run={runs[command.id]}
+                    onOpenDetail={() => onOpenCommand(command)}
+                    onRun={() => onRunCommand(command)}
+                    onStop={() => onStopCommand(command)}
+                  />
                 ))}
+                <div className="pt-4">
+                  <Button variant="secondary" onClick={onOpenCommandsOverview}>
+                    <LayoutGrid size={14} />
+                    View all
+                  </Button>
+                </div>
               </div>
             ) : (
-              <div className="m-4 rounded-[8px] border border-dashed border-[var(--vscode-border)] px-4 py-8 text-center text-[13px] text-[var(--vscode-foreground)]/68">
+              <div className="mt-4 rounded-[8px] border border-dashed border-[var(--vscode-border)] px-4 py-8 text-center text-[13px] text-[var(--vscode-foreground)]/68">
                 No commands yet. Add your first reusable script for this project.
               </div>
             )}
-          </div>
+        </section>
 
-          <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--vscode-border)] px-4 py-3">
+        <div className="my-5 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+
+        <section className="py-1">
+          <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/78">Project notes</h3>
                 <p className="text-[11.5px] text-[var(--vscode-foreground)]/60">Setup details, onboarding steps, and checklists.</p>
@@ -577,32 +763,26 @@ function ProjectOverviewPane({
                 <BookOpenText size={14} />
                 Open notes
               </Button>
-            </div>
-            <div className="divide-y divide-[var(--vscode-border)]">
+          </div>
+          <div className="mt-3 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+          <div className="pt-2">
               {recentNotes.map((note) => (
-                <button
-                  key={note.id}
-                  type="button"
-                  className="flex w-full flex-col gap-1 border border-transparent px-4 py-3 text-left transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)]"
-                  onClick={() => onOpenNote(note)}
-                >
-                  <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--vscode-foreground)]/52">
-                    <span className="truncate">{noteTitle(note.content)}</span>
-                    {note.pinned ? <Badge variant="muted">Pinned</Badge> : null}
-                  </div>
-                  <span className="line-clamp-2 text-[11.5px] leading-5 text-[var(--vscode-foreground)]/64">
-                    {noteExcerpt(note.content)}
-                  </span>
-                  <span className="font-mono text-[10.5px] text-[var(--vscode-foreground)]/46">{new Date(note.updatedAt).toLocaleString()}</span>
-                </button>
+                <OverviewNoteRow key={note.id} note={note} onOpenNote={() => onOpenNote(note)} />
               ))}
               {notes.length === 0 ? (
-                <div className="m-4 rounded-[8px] border border-dashed border-[var(--vscode-border)] px-4 py-8 text-center text-[13px] text-[var(--vscode-foreground)]/68">
+                <div className="mt-4 rounded-[8px] border border-dashed border-[var(--vscode-border)] px-4 py-8 text-center text-[13px] text-[var(--vscode-foreground)]/68">
                   No notes yet. Capture setup docs and test credentials here.
                 </div>
               ) : null}
-            </div>
           </div>
+          {notes.length > 0 ? (
+            <div className="pt-4">
+              <Button variant="secondary" onClick={onOpenNotesOverview}>
+                <BookOpenText size={14} />
+                View all
+              </Button>
+            </div>
+          ) : null}
         </section>
       </div>
     </div>
@@ -611,6 +791,7 @@ function ProjectOverviewPane({
 
 function CommandsOverviewPane({
   project,
+  commands,
   commandSections,
   runs,
   onOpenCommand,
@@ -625,6 +806,7 @@ function CommandsOverviewPane({
   onAddCommand,
 }: {
   project: Project;
+  commands: ProjectCommand[];
   commandSections: CommandSection[];
   runs: Record<number, RunState>;
   onOpenCommand: (command: ProjectCommand) => void;
@@ -638,9 +820,37 @@ function CommandsOverviewPane({
   onOpenLogs: (commandId: number) => void;
   onAddCommand: () => void;
 }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortField, setSortField] = useState<CommandSortField>("runCount");
+  const [sortDirection, setSortDirection] = useState<CommandSortDirection>("desc");
+  const [sectionFilter, setSectionFilter] = useState("all");
+  const sectionOptions = useMemo(
+    () => ["all", ...commandSections.map((section) => section.section)],
+    [commandSections],
+  );
+  const visibleSections = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+
+    return commandSections
+      .filter(({ section }) => sectionFilter === "all" || section === sectionFilter)
+      .map(({ section, commands }) => ({
+        section,
+        commands: commands
+          .map((command) => ({ command, meta: buildCommandOverviewMeta(command) }))
+          .filter(({ meta }) => (normalizedSearch ? meta.searchText.includes(normalizedSearch) : true))
+          .sort((left, right) => compareCommandOverviewMeta(left.meta, right.meta, sortField, sortDirection))
+          .map(({ command }) => command),
+      }))
+      .filter(({ commands }) => commands.length > 0);
+  }, [commandSections, searchQuery, sectionFilter, sortDirection, sortField]);
+  const visibleCommandCount = useMemo(
+    () => visibleSections.reduce((total, section) => total + section.commands.length, 0),
+    [visibleSections],
+  );
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
-      <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-5">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
+      <div className="mx-auto flex w-full max-w-[1320px] flex-col">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--vscode-border)] pb-3">
           <div>
             <h2 className="text-[20px] font-semibold text-foreground">{project.name} Commands</h2>
@@ -652,15 +862,71 @@ function CommandsOverviewPane({
           </Button>
         </div>
 
-        {commandSections.map(({ section, commands }) => (
-          <section key={section} className="overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--vscode-border)] px-4 py-2.5">
+        <div className="py-4">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_220px_180px_220px]">
+            <div className="relative">
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search by name, section, or script"
+                className="pl-9"
+                aria-label="Search project commands"
+              />
+            </div>
+            <Select value={sortField} onValueChange={(value) => setSortField(value as CommandSortField)}>
+              <SelectTrigger aria-label="Sort commands by">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                {COMMAND_SORT_FIELD_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={sortDirection} onValueChange={(value) => setSortDirection(value as CommandSortDirection)}>
+              <SelectTrigger aria-label="Sort direction">
+                <SelectValue placeholder="Direction" />
+              </SelectTrigger>
+              <SelectContent>
+                {COMMAND_SORT_DIRECTION_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={sectionFilter} onValueChange={setSectionFilter}>
+              <SelectTrigger aria-label="Filter commands by section">
+                <SelectValue placeholder="Filter section" />
+              </SelectTrigger>
+              <SelectContent>
+                {sectionOptions.map((section) => (
+                  <SelectItem key={section} value={section}>
+                    {section === "all" ? "All sections" : section}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="mt-3 text-[11px] text-muted-foreground">
+            {visibleCommandCount} / {commands.length} commands
+          </div>
+        </div>
+
+        {visibleSections.map(({ section, commands }, index) => (
+          <section key={section} className="py-5">
+            {index > 0 ? <div className="mb-5 h-px bg-[var(--vscode-border)]" aria-hidden="true" /> : null}
+            <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/82">{section}</h3>
                 <Badge variant="muted">{commands.length}</Badge>
               </div>
             </div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3 p-4">
+            <div className="mt-3 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3 pt-4">
               {commands.map((command) => (
                 <div key={command.id} className="space-y-2">
                   <CommandCard
@@ -678,14 +944,14 @@ function CommandsOverviewPane({
                   />
                 </div>
               ))}
-              {commands.length === 0 ? (
-                <div className="col-span-full rounded-[8px] border border-dashed border-[var(--vscode-border)] px-4 py-8 text-center text-[13px] text-[var(--vscode-foreground)]/68">
-                  This section does not have commands yet.
-                </div>
-              ) : null}
             </div>
           </section>
         ))}
+        {visibleCommandCount === 0 ? (
+          <div className="mt-4 rounded-[8px] border border-dashed border-[var(--vscode-border)] px-4 py-10 text-center text-[13px] text-[var(--vscode-foreground)]/68">
+            No commands match the current search or filter.
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -722,11 +988,11 @@ function CommandDetailPane({
   const lineCount = normalizedScript.split(/\r?\n/).length;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
-      <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-5">
-        <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
+      <div className="mx-auto flex w-full max-w-[1100px] flex-col">
+        <section className="py-1">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex items-center gap-3 px-4 py-4">
+            <div className="flex items-center gap-3 py-4">
               <EntityAvatar name={command.name} path={command.avatar_path} />
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -734,43 +1000,56 @@ function CommandDetailPane({
                   <Badge variant={statusVariant}>{run?.status ?? "ready"}</Badge>
                   <Badge variant="muted">{command.section}</Badge>
                   <Badge variant="muted">{runtimeModeLabel(command.runtime_mode)}</Badge>
+                  <Badge variant="muted">{formatRunCountLabel(command.run_count)}</Badge>
                   <Badge variant="muted">{lineCount} lines</Badge>
                 </div>
                 <p className="mt-1 text-[12px] text-[var(--vscode-foreground)]/68">{project.name}</p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2 border-l border-[var(--vscode-border)] px-4 py-4">
+            <div className="flex flex-wrap gap-2 py-4">
               {run?.status === "running" ? (
                 <>
                   <Button variant="outline" onClick={() => onStopCommand(command)}>
+                    <Square size={14} />
                     Stop
                   </Button>
                   <Button variant="outline" onClick={() => onForceStopCommand(command)}>
+                    <X size={14} />
                     Force stop
                   </Button>
                   <Button variant="secondary" onClick={() => onRestartCommand(command)}>
+                    <RotateCcw size={14} />
                     Restart
                   </Button>
                 </>
               ) : (
-                <Button onClick={() => onRunCommand(command)}>Run</Button>
+                <Button onClick={() => onRunCommand(command)}>
+                  <Play size={14} />
+                  Run
+                </Button>
               )}
               <Button variant="secondary" onClick={() => onOpenLogs(command.id)}>
+                <TerminalSquare size={14} />
                 Terminal
               </Button>
               <Button variant="secondary" onClick={() => onKillPorts(command)}>
+                <PowerOff size={14} />
                 Kill ports
               </Button>
               <Button variant="secondary" onClick={() => onEditCommand(command)}>
+                <Pencil size={14} />
                 Edit
               </Button>
               <Button variant="danger" onClick={() => onDeleteCommand(command)}>
+                <Trash2 size={14} />
                 Delete
               </Button>
             </div>
           </div>
 
-          <div className="grid border-t border-[var(--vscode-border)] sm:grid-cols-3">
+          <div className="h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+
+          <div className="grid sm:grid-cols-3">
             <div className="border-r border-[var(--vscode-border)] px-4 py-3">
               <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">Section</div>
               <div className="mt-1 text-[12px] text-foreground">{command.section}</div>
@@ -784,44 +1063,50 @@ function CommandDetailPane({
               <div className="mt-1 text-[12px] text-foreground">{ports.length > 0 ? ports.map((port) => `:${port}`).join(", ") : "No tracked ports"}</div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_300px]">
-          <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-4">
-            <div className="mb-3 flex items-center justify-between gap-3 border-b border-[var(--vscode-border)] pb-3">
+        <div className="my-5 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_300px]">
+          <section className="py-1">
+            <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">Script</div>
                 <h3 className="mt-1 text-[14px] font-semibold text-foreground">Command source</h3>
               </div>
               <Badge variant="muted">{lineCount} lines</Badge>
             </div>
+            <div className="mb-4 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
             <pre className="overflow-x-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--script-preview-bg)] p-3.5 font-mono text-[11.5px] leading-6 text-[var(--script-preview-color)]">
               {normalizedScript}
             </pre>
-          </div>
-          <div className="space-y-4">
-            <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-4">
-              <div className="mb-3 border-b border-[var(--vscode-border)] pb-3">
+          </section>
+          <div className="space-y-5">
+            <section className="py-1">
+              <div className="mb-3">
                 <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">Metadata</div>
                 <h3 className="mt-1 text-[14px] font-semibold text-foreground">Runtime details</h3>
               </div>
+              <div className="mb-4 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
               <div className="space-y-2 text-[12px] text-[var(--vscode-foreground)]/74">
                 <div className="flex items-center justify-between gap-3"><span>Section</span><span className="text-foreground">{command.section}</span></div>
+                <div className="flex items-center justify-between gap-3"><span>Run count</span><span className="text-foreground">{formatRunCountLabel(command.run_count)}</span></div>
                 <div className="flex items-center justify-between gap-3"><span>Mode</span><span className="text-foreground">{runtimeModeLabel(command.runtime_mode)}</span></div>
                 <div className="flex items-center justify-between gap-3"><span>External terminal</span><span className="text-foreground">{command.run_in_external_terminal ? "Yes" : "No"}</span></div>
                 <div className="flex items-center justify-between gap-3"><span>Created</span><span className="text-foreground">{new Date(command.created_at).toLocaleString()}</span></div>
                 <div className="flex items-center justify-between gap-3"><span>Updated</span><span className="text-foreground">{new Date(command.updated_at).toLocaleString()}</span></div>
               </div>
-            </div>
-            <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-4">
-              <div className="mb-3 border-b border-[var(--vscode-border)] pb-3">
+            </section>
+            <section className="py-1">
+              <div className="mb-3">
                 <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">Ports</div>
                 <h3 className="mt-1 text-[14px] font-semibold text-foreground">Tracked listeners</h3>
               </div>
+              <div className="mb-4 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
               <div className="flex flex-wrap gap-2">
                 {ports.length > 0 ? ports.map((port) => <Badge key={port} variant="muted">:{port}</Badge>) : <span className="text-[12px] text-[var(--vscode-foreground)]/64">No tracked ports</span>}
               </div>
-            </div>
+            </section>
           </div>
         </div>
       </div>
@@ -833,8 +1118,6 @@ function NoteDetailPane({
   project,
   note,
   isVisible,
-  isSaving,
-  onSave,
   onDelete,
   onTogglePinned,
   onToggleVisibility,
@@ -842,25 +1125,19 @@ function NoteDetailPane({
   project: Project;
   note: ProjectNote;
   isVisible: boolean;
-  isSaving: boolean;
-  onSave: (noteId: string, content: string) => void;
   onDelete: (noteId: string) => void;
   onTogglePinned: (noteId: string) => void;
   onToggleVisibility: () => void;
 }) {
-  const [draft, setDraft] = useState(note.content);
   const title = noteTitle(note.content);
-
-  useEffect(() => {
-    setDraft(note.content);
-  }, [note.id, note.content]);
+  const createdTooltip = `Created ${new Date(note.createdAt).toLocaleString()}`;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5">
-        <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col">
+        <section className="py-1">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="px-4 py-4">
+            <div className="py-4">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-[22px] font-semibold text-foreground">{title}</h2>
                 {note.pinned ? <Badge variant="muted">Pinned</Badge> : null}
@@ -871,66 +1148,110 @@ function NoteDetailPane({
                 Updated {new Date(note.updatedAt).toLocaleString()}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2 border-l border-[var(--vscode-border)] px-4 py-4">
+            <div className="flex flex-wrap gap-2 py-4">
               <Button variant="secondary" onClick={() => onTogglePinned(note.id)}>
+                {note.pinned ? <PinOff size={14} /> : <Pin size={14} />}
                 {note.pinned ? "Unpin" : "Pin"}
               </Button>
               <Button variant="secondary" onClick={onToggleVisibility}>
+                {isVisible ? <EyeOff size={14} /> : <Eye size={14} />}
                 {isVisible ? "Hide content" : "Show content"}
               </Button>
               <Button variant="danger" onClick={() => onDelete(note.id)}>
+                <Trash2 size={14} />
                 Delete
               </Button>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-4">
-            <div className="mb-3 flex items-center justify-between gap-3 border-b border-[var(--vscode-border)] pb-3">
+        <div className="my-5 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+
+        <div className="grid gap-6">
+          <section className="py-1">
+            <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">Source</div>
-                <h3 className="mt-1 text-[14px] font-semibold text-foreground">Edit markdown</h3>
-              </div>
-              <StatefulButton
-                size="sm"
-                state={isSaving ? "loading" : "idle"}
-                onClick={() => onSave(note.id, draft)}
-                disabled={!draft.trim() || draft.trim() === note.content.trim()}
-                loadingText="Saving"
-              >
-                Save note
-              </StatefulButton>
-            </div>
-            <Textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              className="min-h-[420px] rounded-[6px] border-[var(--vscode-border)] bg-[var(--script-preview-bg)] font-mono text-[12px] leading-6 text-[var(--script-preview-color)]"
-            />
-          </div>
-          <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-4">
-            <div className="mb-3 flex items-center justify-between gap-3 border-b border-[var(--vscode-border)] pb-3">
-              <div>
-                <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">Preview</div>
+                <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">Content</div>
                 <h3 className="mt-1 text-[14px] font-semibold text-foreground">Rendered markdown</h3>
               </div>
               {!isVisible ? <Badge variant="muted">Hidden</Badge> : null}
             </div>
-            {isVisible ? (
-              <MarkdownPreview content={draft || "_Empty note_"} className="min-h-[420px] overflow-y-auto rounded-[6px] bg-[var(--vscode-editor)] text-[12px]" />
-            ) : (
-              <div className="flex min-h-[420px] items-center justify-center rounded-[6px] border border-dashed border-[var(--vscode-border)] text-[13px] text-[var(--vscode-foreground)]/64">
-                This note is currently hidden in the project workspace.
+            <div className="mb-4 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+            <Tooltip content={createdTooltip}>
+              <div>
+                {isVisible ? (
+                  <MarkdownPreview content={note.content || "_Empty note_"} className="min-h-[420px] overflow-y-auto rounded-[6px] bg-[var(--vscode-editor)] text-[12px]" />
+                ) : (
+                  <div className="flex min-h-[420px] items-center justify-center rounded-[6px] border border-dashed border-[var(--vscode-border)] text-[13px] text-[var(--vscode-foreground)]/64">
+                    This note is currently hidden in the project workspace.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </Tooltip>
+          </section>
         </div>
       </div>
     </div>
   );
 }
 
-export function VSCodeShell({
+type VSCodeShellProps = {
+  projects: Project[];
+  selectedProject: Project | null;
+  selectedProjectId: number | null;
+  commands: ProjectCommand[];
+  commandsByProjectId: Record<number, ProjectCommand[]>;
+  commandSectionsByProjectId: Record<number, CommandSection[]>;
+  settingsProps: SettingsPageProps;
+  sortedProjectNotesByProjectId: Record<number, ProjectNote[]>;
+  noteVisibility: Record<string, boolean>;
+  newProjectNotesByProjectId: Record<number, string>;
+  onNewProjectNoteChange: (projectId: number, value: string) => void;
+  onAddProjectNote: (projectId: number) => void;
+  onTogglePinnedProjectNote: (projectId: number, noteId: string) => void;
+  onToggleProjectNoteVisibility: (projectId: number, noteId: string) => void;
+  onDeleteProjectNote: (projectId: number, noteId: string) => void;
+  isSavingNotes: boolean;
+  runs: Record<number, RunState>;
+  terminalContentByCommandId: Record<number, string>;
+  openLogCommandIds: number[];
+  activeLogCommandId: number | null;
+  onActiveLogCommandChange: (commandId: number) => void;
+  onClearLogs: (commandId: number) => void;
+  onCloseLogTab: (commandId: number) => void;
+  onTerminalInput: (commandId: number, data: string) => void;
+  onTerminalResize: (commandId: number, cols: number, rows: number) => void;
+  terminalFontFamily: string;
+  terminalFontSize: string;
+  theme: "light" | "dark";
+  onAddProject: () => void;
+  onImportProject: () => void;
+  onSelectProject: (projectId: number) => void;
+  onOpenExplorer: (project: Project) => void;
+  onOpenTerminal: (project: Project) => void;
+  onShareProject: (project: Project) => void;
+  onEditProject: (project: Project) => void;
+  onAddCommand: (
+    projectId: number,
+    preset?: {
+      interactive_terminal_kind?: InteractiveTerminalKind | null;
+      runtime_mode?: "internal_interactive" | "internal_headless" | "external_terminal" | null;
+    } | null,
+  ) => void;
+  interactiveTerminalOptions: InteractiveTerminalOption[];
+  onRequestCloseAllLogTabs: (commandIds: number[]) => void;
+  onOpenAdHocInteractiveTerminal: (project: Project, terminalKind: InteractiveTerminalKind) => void;
+  onEditCommand: (command: ProjectCommand) => void;
+  onDeleteCommand: (command: ProjectCommand) => void;
+  onRunCommand: (command: ProjectCommand) => void;
+  onStopCommand: (command: ProjectCommand) => void;
+  onForceStopCommand: (command: ProjectCommand) => void;
+  onRestartCommand: (command: ProjectCommand) => void;
+  onKillPorts: (command: ProjectCommand) => void;
+  onOpenLogs: (commandId: number) => void;
+};
+
+export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(function VSCodeShell({
   projects,
   selectedProject,
   selectedProjectId,
@@ -943,7 +1264,6 @@ export function VSCodeShell({
   newProjectNotesByProjectId,
   onNewProjectNoteChange,
   onAddProjectNote,
-  onSaveProjectNote,
   onTogglePinnedProjectNote,
   onToggleProjectNoteVisibility,
   onDeleteProjectNote,
@@ -968,6 +1288,9 @@ export function VSCodeShell({
   onShareProject,
   onEditProject,
   onAddCommand,
+  interactiveTerminalOptions,
+  onRequestCloseAllLogTabs,
+  onOpenAdHocInteractiveTerminal,
   onEditCommand,
   onDeleteCommand,
   onRunCommand,
@@ -976,53 +1299,8 @@ export function VSCodeShell({
   onRestartCommand,
   onKillPorts,
   onOpenLogs,
-}: {
-  projects: Project[];
-  selectedProject: Project | null;
-  selectedProjectId: number | null;
-  commands: ProjectCommand[];
-  commandsByProjectId: Record<number, ProjectCommand[]>;
-  commandSectionsByProjectId: Record<number, CommandSection[]>;
-  settingsProps: SettingsPageProps;
-  sortedProjectNotesByProjectId: Record<number, ProjectNote[]>;
-  noteVisibility: Record<string, boolean>;
-  newProjectNotesByProjectId: Record<number, string>;
-  onNewProjectNoteChange: (projectId: number, value: string) => void;
-  onAddProjectNote: (projectId: number) => void;
-  onSaveProjectNote: (projectId: number, noteId: string, content: string) => void;
-  onTogglePinnedProjectNote: (projectId: number, noteId: string) => void;
-  onToggleProjectNoteVisibility: (projectId: number, noteId: string) => void;
-  onDeleteProjectNote: (projectId: number, noteId: string) => void;
-  isSavingNotes: boolean;
-  runs: Record<number, RunState>;
-  terminalContentByCommandId: Record<number, string>;
-  openLogCommandIds: number[];
-  activeLogCommandId: number | null;
-  onActiveLogCommandChange: (commandId: number) => void;
-  onClearLogs: (commandId: number) => void;
-  onCloseLogTab: (commandId: number) => void;
-  onTerminalInput: (commandId: number, data: string) => void;
-  onTerminalResize: (commandId: number, cols: number, rows: number) => void;
-  terminalFontFamily: string;
-  terminalFontSize: string;
-  theme: "light" | "dark";
-  onAddProject: () => void;
-  onImportProject: () => void;
-  onSelectProject: (projectId: number) => void;
-  onOpenExplorer: (project: Project) => void;
-  onOpenTerminal: (project: Project) => void;
-  onShareProject: (project: Project) => void;
-  onEditProject: (project: Project) => void;
-  onAddCommand: (projectId: number) => void;
-  onEditCommand: (command: ProjectCommand) => void;
-  onDeleteCommand: (command: ProjectCommand) => void;
-  onRunCommand: (command: ProjectCommand) => void;
-  onStopCommand: (command: ProjectCommand) => void;
-  onForceStopCommand: (command: ProjectCommand) => void;
-  onRestartCommand: (command: ProjectCommand) => void;
-  onKillPorts: (command: ProjectCommand) => void;
-  onOpenLogs: (commandId: number) => void;
-}) {
+}, ref) {
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("appearance");
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>(() => {
     if (typeof window === "undefined") {
       return "explorer";
@@ -1111,10 +1389,20 @@ export function VSCodeShell({
 
   function openTab(tab: EditorTab) {
     setTabs((current) => {
-      if (current.some((entry) => entry.id === tab.id)) {
-        return current;
+      const withoutTransient = current.filter((entry) => {
+        if (entry.id === "welcome") {
+          return false;
+        }
+        if (tab.kind !== "settings" && entry.kind === "settings") {
+          return false;
+        }
+        return true;
+      });
+
+      if (withoutTransient.some((entry) => entry.id === tab.id)) {
+        return withoutTransient;
       }
-      return [...current.filter((entry) => entry.id !== "welcome"), tab];
+      return [...withoutTransient, tab];
     });
     setActiveTabId(tab.id);
   }
@@ -1198,6 +1486,45 @@ export function VSCodeShell({
   function handleOpenLogs(commandId: number) {
     setActiveSidebarView("terminal");
     onOpenLogs(commandId);
+  }
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      openProject(projectId: number) {
+        handleSelectProject(projectId);
+      },
+      openCommand(projectId: number, commandId: number) {
+        const command = findCommandById(commandsByProjectId[projectId] ?? [], commandId);
+        if (!command) {
+          return;
+        }
+        handleOpenCommandTab(command);
+      },
+      openNote(projectId: number, noteId: string) {
+        const project = findProjectById(projects, projectId);
+        const note = findNoteById(sortedProjectNotesByProjectId[projectId] ?? [], noteId);
+        if (!project || !note) {
+          return;
+        }
+        handleOpenNoteTab(project, note);
+      },
+    }),
+    [commandsByProjectId, projects, sortedProjectNotesByProjectId],
+  );
+
+  function handleSwitchPrimarySidebar(view: Exclude<SidebarView, "settings">) {
+    if (activeTab.kind === "settings") {
+      if (view === "notes" && activeContextProject) {
+        handleOpenNotesOverviewForProject(activeContextProject);
+      } else if (view === "explorer" && activeContextProject) {
+        handleOpenProjectOverviewForProject(activeContextProject);
+      } else {
+        closeTab("settings");
+      }
+    }
+
+    setActiveSidebarView(view);
   }
 
   function getProjectMenuItems(project: Project) {
@@ -1358,7 +1685,10 @@ export function VSCodeShell({
     if (activeTab.kind === "settings") {
       return (
         <div className="min-h-0 flex-1 overflow-hidden bg-[var(--vscode-editor)]">
-          <SettingsPage {...settingsProps} />
+          <SettingsPage
+            {...settingsProps}
+            activeSection={activeSettingsSection}
+          />
         </div>
       );
     }
@@ -1379,18 +1709,16 @@ export function VSCodeShell({
           runs={runs}
           onOpenCommand={handleOpenCommandTab}
           onOpenNote={(note) => handleOpenNoteTab(tabProject, note)}
+          onOpenCommandsOverview={() => {
+            handleOpenCommandsOverviewForProject(tabProject);
+            setActiveSidebarView("explorer");
+          }}
           onOpenNotesOverview={() => {
             handleOpenNotesOverviewForProject(tabProject);
             setActiveSidebarView("notes");
           }}
           onRunCommand={onRunCommand}
           onStopCommand={onStopCommand}
-          onForceStopCommand={onForceStopCommand}
-          onRestartCommand={onRestartCommand}
-          onEditCommand={onEditCommand}
-          onDeleteCommand={onDeleteCommand}
-          onKillPorts={onKillPorts}
-          onOpenLogs={handleOpenLogs}
           onAddCommand={() => onAddCommand(tabProject.id)}
           onOpenExplorer={() => onOpenExplorer(tabProject)}
           onOpenTerminal={() => onOpenTerminal(tabProject)}
@@ -1401,10 +1729,12 @@ export function VSCodeShell({
     }
 
     if (activeTab.kind === "commands-overview") {
+      const tabProjectCommands = commandsByProjectId[tabProject.id] ?? [];
       const tabProjectCommandSections = commandSectionsByProjectId[tabProject.id] ?? [];
       return (
         <CommandsOverviewPane
           project={tabProject}
+          commands={tabProjectCommands}
           commandSections={tabProjectCommandSections}
           runs={runs}
           onOpenCommand={handleOpenCommandTab}
@@ -1425,13 +1755,14 @@ export function VSCodeShell({
       const tabProjectNotes = sortedProjectNotesByProjectId[tabProject.id] ?? [];
       return (
         <div className="min-h-0 flex-1 overflow-hidden bg-[var(--vscode-editor)] p-6">
-          <div className="mx-auto flex h-full max-w-[1220px] min-h-0 flex-col rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-5">
+          <div className="mx-auto flex h-full max-w-[1220px] min-h-0 flex-col">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-[20px] font-semibold text-foreground">{tabProject.name} Notes</h2>
                 <p className="text-[12px] text-[var(--vscode-foreground)]/64">Markdown notes stored with this project.</p>
               </div>
             </div>
+            <div className="mb-5 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
             <ProjectDetailNotes
               selectedProject={tabProject}
               sortedProjectNotes={tabProjectNotes}
@@ -1439,10 +1770,12 @@ export function VSCodeShell({
               newProjectNote={newProjectNotesByProjectId[tabProject.id] ?? ""}
               onNewProjectNoteChange={(value) => onNewProjectNoteChange(tabProject.id, value)}
               onAddProjectNote={() => onAddProjectNote(tabProject.id)}
-              onSaveProjectNote={(noteId, content) => onSaveProjectNote(tabProject.id, noteId, content)}
-              onTogglePinnedProjectNote={(noteId) => onTogglePinnedProjectNote(tabProject.id, noteId)}
-              onToggleProjectNoteVisibility={onToggleProjectNoteVisibility}
-              onDeleteProjectNote={(noteId) => onDeleteProjectNote(tabProject.id, noteId)}
+              onOpenProjectNote={(noteId) => {
+                const note = findNoteById(tabProjectNotes, noteId);
+                if (note) {
+                  handleOpenNoteTab(tabProject, note);
+                }
+              }}
               isSavingNotes={isSavingNotes}
             />
           </div>
@@ -1482,8 +1815,6 @@ export function VSCodeShell({
           project={tabProject}
           note={note}
           isVisible={noteVisibility[projectNoteVisibilityKey(tabProject.id, note.id)] ?? true}
-          isSaving={isSavingNotes}
-          onSave={(noteId, content) => onSaveProjectNote(tabProject.id, noteId, content)}
           onDelete={(noteId) => onDeleteProjectNote(tabProject.id, noteId)}
           onTogglePinned={(noteId) => onTogglePinnedProjectNote(tabProject.id, noteId)}
           onToggleVisibility={() => onToggleProjectNoteVisibility(tabProject.id, note.id)}
@@ -1499,9 +1830,25 @@ export function VSCodeShell({
       return (
         <div className="px-2 py-3">
           <div className="mb-2 px-2 text-[11px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/46">Preferences</div>
-          <TreeItem title="Settings" icon={<Settings2 size={14} />} active={activeTab.kind === "settings"} onClick={handleOpenSettings} />
-          <div className="mt-5 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2.5 text-[12px] text-[var(--vscode-foreground)]/68">
-            Theme: <span className="text-foreground">{settingsProps.theme}</span>
+          <div className="space-y-1">
+            {(
+              [
+                { id: "appearance", label: "Appearance", icon: <LayoutGrid size={14} /> },
+                { id: "terminal", label: "Terminal", icon: <TerminalSquare size={14} /> },
+                { id: "system", label: "System", icon: <Settings2 size={14} /> },
+              ] as const
+            ).map((item) => (
+              <TreeItem
+                key={item.id}
+                title={item.label}
+                icon={item.icon}
+                active={activeTab.kind === "settings" && activeSettingsSection === item.id}
+                onClick={() => {
+                  setActiveSettingsSection(item.id);
+                  handleOpenSettings();
+                }}
+              />
+            ))}
           </div>
         </div>
       );
@@ -1514,6 +1861,7 @@ export function VSCodeShell({
       return (
         <div className="px-2 py-3">
           <div className="mb-2 px-2 text-[11px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/46">Terminal sessions</div>
+          <div className="mx-2 mb-3 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
           {openCommands.length > 0 ? (
             <div className="space-y-1">
               {openCommands.map((command) => (
@@ -1531,7 +1879,7 @@ export function VSCodeShell({
               ))}
             </div>
           ) : (
-            <div className="rounded-[8px] border border-dashed border-[var(--vscode-border)] px-3 py-5 text-[12px] text-[var(--vscode-foreground)]/62">
+            <div className="px-2 py-2 text-[12px] text-[var(--vscode-foreground)]/62">
               Run a command to populate the integrated terminal panel.
             </div>
           )}
@@ -1735,13 +2083,13 @@ export function VSCodeShell({
     <main className="app-shell flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--vscode-shell)] text-foreground">
       <aside className="flex w-12 shrink-0 flex-col items-center justify-between border-r border-[var(--vscode-border)] bg-[var(--vscode-activity)]">
         <div className="flex w-full flex-col items-center pt-2">
-          <SidebarIconButton label="Explorer" active={activeSidebarView === "explorer"} onClick={() => setActiveSidebarView("explorer")}>
+          <SidebarIconButton label="Explorer" active={activeSidebarView === "explorer"} onClick={() => handleSwitchPrimarySidebar("explorer")}>
             <FolderKanban size={20} />
           </SidebarIconButton>
-          <SidebarIconButton label="Notes" active={activeSidebarView === "notes"} onClick={() => setActiveSidebarView("notes")}>
+          <SidebarIconButton label="Notes" active={activeSidebarView === "notes"} onClick={() => handleSwitchPrimarySidebar("notes")}>
             <BookOpenText size={20} />
           </SidebarIconButton>
-          <SidebarIconButton label="Terminal" active={activeSidebarView === "terminal"} onClick={() => setActiveSidebarView("terminal")}>
+          <SidebarIconButton label="Terminal" active={activeSidebarView === "terminal"} onClick={() => handleSwitchPrimarySidebar("terminal")}>
             <TerminalSquare size={20} />
           </SidebarIconButton>
         </div>
@@ -1790,72 +2138,81 @@ export function VSCodeShell({
 
         <Panel id="editor" minSize={EDITOR_MIN_SIZE} className="min-h-0 min-w-0">
           <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--vscode-editor)]">
-            <header className="flex min-h-9 shrink-0 items-center border-b border-[var(--vscode-border)] bg-[var(--vscode-tabs)]">
-              <div className="flex min-w-0 flex-1 overflow-x-auto">
-                {tabs.map((tab) => (
-                  <div
-                    key={tab.id}
-                    className={cn(
-                      "group flex h-9 min-w-[160px] max-w-[240px] items-center border-r border-[var(--vscode-border)] px-3 text-[12px] text-[var(--vscode-foreground)]/76 transition-[background-color,color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground",
-                      activeTabId === tab.id && "bg-[var(--vscode-editor)] text-foreground",
-                    )}
-                  >
-                    <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={() => setActiveTabId(tab.id)}>
-                      {tab.title}
-                    </button>
-                    {tab.kind !== "welcome" ? (
-                      <button
-                        type="button"
-                        className={cn(
-                          "ml-2 rounded-[4px] border border-transparent p-1 text-[var(--vscode-icon)] transition-[opacity,background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
-                          activeTabId === tab.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-                        )}
-                        onClick={() => closeTab(tab.id)}
-                        aria-label={`Close ${tab.title}`}
-                      >
-                        <X size={12} />
+            {activeTab.kind === "settings" ? null : (
+              <header className="flex min-h-9 shrink-0 items-center border-b border-[var(--vscode-border)] bg-[var(--vscode-tabs)]">
+                <div className="flex min-w-0 flex-1 overflow-x-auto">
+                  {tabs.map((tab) => (
+                    <div
+                      key={tab.id}
+                      className={cn(
+                        "group flex h-9 min-w-[160px] max-w-[240px] items-center border-r border-[var(--vscode-border)] px-3 text-[12px] text-[var(--vscode-foreground)]/76 transition-[background-color,color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
+                        activeTabId === tab.id && "bg-[var(--vscode-editor)] text-foreground",
+                      )}
+                    >
+                      <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={() => setActiveTabId(tab.id)}>
+                        {tab.title}
                       </button>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </header>
+                      {tab.kind !== "welcome" ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            "ml-2 rounded-[4px] border border-transparent p-1 text-[var(--vscode-icon)] transition-[opacity,background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
+                            activeTabId === tab.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                          )}
+                          onClick={() => closeTab(tab.id)}
+                          aria-label={`Close ${tab.title}`}
+                        >
+                          <X size={12} />
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </header>
+            )}
 
             <div className="min-h-0 flex-1 overflow-hidden">{editorBody}</div>
 
-            <div className="border-t border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
-              <LogPanel
-                activeCommandId={activeLogCommandId}
-                commands={commands}
-                projects={projects}
-                openCommandIds={openLogCommandIds}
-                onActiveCommandChange={onActiveLogCommandChange}
-                onClear={onClearLogs}
-                onCloseTab={onCloseLogTab}
-                onTerminalInput={onTerminalInput}
-                onTerminalResize={onTerminalResize}
-                runs={runs}
-                terminalContentByCommandId={terminalContentByCommandId}
-                terminalFontFamily={terminalFontFamily}
-                terminalFontSize={terminalFontSize}
-                theme={theme}
-              />
-            </div>
+            {activeTab.kind === "settings" ? null : (
+              <div className="border-t border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
+                <LogPanel
+                  activeCommandId={activeLogCommandId}
+                  commands={commands}
+                  projects={projects}
+                  openCommandIds={openLogCommandIds}
+                  onActiveCommandChange={onActiveLogCommandChange}
+                  onClear={onClearLogs}
+                  onCloseTab={onCloseLogTab}
+                  onTerminalInput={onTerminalInput}
+                  onTerminalResize={onTerminalResize}
+                  onOpenAdHocInteractiveTerminal={onOpenAdHocInteractiveTerminal}
+                  onRequestCloseAllTabs={onRequestCloseAllLogTabs}
+                  interactiveTerminalOptions={interactiveTerminalOptions}
+                  runs={runs}
+                  terminalContentByCommandId={terminalContentByCommandId}
+                  terminalFontFamily={terminalFontFamily}
+                  terminalFontSize={terminalFontSize}
+                  theme={theme}
+                />
+              </div>
+            )}
 
-            <footer className="flex h-6 shrink-0 items-center justify-between gap-3 border-t border-[var(--vscode-status-border)] bg-[var(--vscode-status)] px-3 text-[11px] text-[var(--vscode-status-foreground)]">
-              <div className="flex min-w-0 items-center gap-4 overflow-hidden">
-                <span className="truncate">{activeContextProject ? activeContextProject.name : "No project selected"}</span>
-                <span>{selectedProjectCommands.length} commands</span>
-                <span>{runningCount} running</span>
-              </div>
-              <div className="flex items-center gap-4">
-                <span>{theme} theme</span>
-                <span>{openLogCommandIds.length} terminal tabs</span>
-              </div>
-            </footer>
+            {activeTab.kind === "settings" ? null : (
+              <footer className="flex h-6 shrink-0 items-center justify-between gap-3 border-t border-[var(--vscode-status-border)] bg-[var(--vscode-status)] px-3 text-[11px] text-[var(--vscode-status-foreground)]">
+                <div className="flex min-w-0 items-center gap-4 overflow-hidden">
+                  <span className="truncate">{activeContextProject ? activeContextProject.name : "No project selected"}</span>
+                  <span>{selectedProjectCommands.length} commands</span>
+                  <span>{runningCount} running</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span>{theme} theme</span>
+                  <span>{openLogCommandIds.length} terminal tabs</span>
+                </div>
+              </footer>
+            )}
           </section>
         </Panel>
       </Group>
     </main>
   );
-}
+});

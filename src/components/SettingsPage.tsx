@@ -1,14 +1,9 @@
-import { useState } from "react";
-import { Info, Palette, Settings, Terminal } from "lucide-react";
 import type { AppInfo } from "../lib/api";
 import type { AccentColor } from "../lib/theme";
 import type { MotionLevel } from "../lib/motion";
-import {
-  AppearanceSettingsPanel,
-  SystemSettingsPanel,
-  TerminalSettingsPanel,
-} from "./settings-panels";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { AppearanceSettingsPanel, SystemSettingsPanel, TerminalSettingsPanel } from "./settings-panels";
+
+export type SettingsSectionId = "appearance" | "terminal" | "system";
 
 export interface SettingsPageProps {
   appInfo?: AppInfo;
@@ -31,6 +26,7 @@ export interface SettingsPageProps {
   projectCount: number;
   commandCount: number;
   onResetCache: () => void;
+  activeSection?: SettingsSectionId;
 }
 
 export function SettingsPage({
@@ -51,80 +47,46 @@ export function SettingsPage({
   setShowStreamName,
   motionLevel,
   setMotionLevel,
-  projectCount,
-  commandCount,
   onResetCache,
+  activeSection,
 }: SettingsPageProps) {
-  const [activeTab, setActiveTab] = useState<"appearance" | "terminal" | "system">("appearance");
+  const currentSection = activeSection ?? "appearance";
+
+  const panel =
+    currentSection === "appearance" ? (
+      <AppearanceSettingsPanel
+        theme={theme}
+        setTheme={setTheme}
+        accent={accent}
+        setAccent={setAccent}
+        motionLevel={motionLevel}
+        setMotionLevel={setMotionLevel}
+      />
+    ) : currentSection === "terminal" ? (
+      <TerminalSettingsPanel
+        terminalFontSize={terminalFontSize}
+        setTerminalFontSize={setTerminalFontSize}
+        terminalFontFamily={terminalFontFamily}
+        setTerminalFontFamily={setTerminalFontFamily}
+        autoClearLogs={autoClearLogs}
+        setAutoClearLogs={setAutoClearLogs}
+        showLogsTimestamp={showLogsTimestamp}
+        setShowLogsTimestamp={setShowLogsTimestamp}
+        showStreamName={showStreamName}
+        setShowStreamName={setShowStreamName}
+      />
+    ) : (
+      <SystemSettingsPanel
+        appInfo={appInfo}
+        onResetCache={onResetCache}
+      />
+    );
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4">
-      <header className="flex shrink-0 items-start gap-2.5">
-        <Settings className="h-9 w-9 rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-2 text-primary" size={20} />
-        <div className="min-w-0">
-          <h2 className="text-[18px] font-semibold tracking-[-0.02em] text-foreground">Settings</h2>
-          <p className="text-[12.5px] text-muted-foreground">
-            Workspace appearance, terminal preferences, and system info
-          </p>
-        </div>
-      </header>
-
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => setActiveTab(value as "appearance" | "terminal" | "system")}
-        className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
-        variant="underline"
-      >
-        <TabsList className="w-full shrink-0 justify-start gap-0 overflow-x-auto border-b border-[var(--vscode-border)] bg-[var(--vscode-tabs)] px-2 pt-2">
-          <TabsTrigger value="appearance" className="gap-1.5 border border-transparent border-b-0 px-3 py-2 data-[state=active]:border-[var(--vscode-border)] data-[state=active]:bg-[var(--vscode-editor)]">
-            <Palette size={14} />
-            Appearance
-          </TabsTrigger>
-          <TabsTrigger value="terminal" className="gap-1.5 border border-transparent border-b-0 px-3 py-2 data-[state=active]:border-[var(--vscode-border)] data-[state=active]:bg-[var(--vscode-editor)]">
-            <Terminal size={14} />
-            Terminal
-          </TabsTrigger>
-          <TabsTrigger value="system" className="gap-1.5 border border-transparent border-b-0 px-3 py-2 data-[state=active]:border-[var(--vscode-border)] data-[state=active]:bg-[var(--vscode-editor)]">
-            <Info size={14} />
-            System
-          </TabsTrigger>
-        </TabsList>
-
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-4">
-          <TabsContent value="appearance" className="block">
-            <AppearanceSettingsPanel
-              theme={theme}
-              setTheme={setTheme}
-              accent={accent}
-              setAccent={setAccent}
-              motionLevel={motionLevel}
-              setMotionLevel={setMotionLevel}
-            />
-          </TabsContent>
-          <TabsContent value="terminal" className="block">
-            <TerminalSettingsPanel
-              terminalFontSize={terminalFontSize}
-              setTerminalFontSize={setTerminalFontSize}
-              terminalFontFamily={terminalFontFamily}
-              setTerminalFontFamily={setTerminalFontFamily}
-              autoClearLogs={autoClearLogs}
-              setAutoClearLogs={setAutoClearLogs}
-              showLogsTimestamp={showLogsTimestamp}
-              setShowLogsTimestamp={setShowLogsTimestamp}
-              showStreamName={showStreamName}
-              setShowStreamName={setShowStreamName}
-            />
-          </TabsContent>
-          <TabsContent value="system" className="block">
-            <SystemSettingsPanel
-              appInfo={appInfo}
-              projectCount={projectCount}
-              commandCount={commandCount}
-              onResetCache={onResetCache}
-            />
-          </TabsContent>
-        </div>
-      </Tabs>
-    </div>
+    <section className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-[var(--vscode-editor)]">
+      <div className="mx-auto flex min-h-full w-full max-w-[1080px] flex-col px-6 py-5">
+        {panel}
+      </div>
+    </section>
   );
 }

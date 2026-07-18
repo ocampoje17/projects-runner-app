@@ -2,12 +2,13 @@ import { Tooltip } from "./motion/tooltip";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { EntityAvatar } from "./entity-avatar";
 import { XtermTerminal } from "./xterm-terminal";
 import { commandPorts, normalizeCommandScript, runtimeModeLabel } from "../lib/command-utils";
 import type { Project, ProjectCommand } from "../lib/api";
-import { BrushCleaning, FolderOpen, Keyboard, Loader2, Maximize2, Minimize2, Pencil, Play, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
+import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
+import { interactiveTerminalLabel } from "../lib/interactive-terminal";
+import { BrushCleaning, ChevronDown, FolderOpen, Keyboard, Loader2, Maximize2, Minimize2, Pencil, Play, Plus, PowerOff, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
 import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -30,12 +31,39 @@ export type LogLine = {
   timestamp: string;
 };
 
+type TerminalFilter = "all" | "internal_interactive" | "internal_headless" | "external_terminal";
+
 function runtimeModeBadgeLabel(command: ProjectCommand) {
   if (command.runtime_mode === "external_terminal") {
     return "External";
   }
   return null;
 }
+
+function formatRunCountLabel(runCount: number) {
+  return `${runCount} run${runCount === 1 ? "" : "s"}`;
+}
+
+function terminalFilterLabel(value: TerminalFilter) {
+  if (value === "internal_interactive") return "Interactive";
+  if (value === "internal_headless") return "Headless";
+  if (value === "external_terminal") return "External";
+  return "All terminals";
+}
+
+function matchesTerminalFilter(command: ProjectCommand, filter: TerminalFilter) {
+  if (filter === "all") return true;
+  return command.runtime_mode === filter;
+}
+
+const terminalDropdownTriggerClassName =
+  "h-7 rounded-[4px] border border-transparent bg-transparent px-2 text-left text-[11.5px] text-[var(--vscode-foreground)]/84 transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)] data-[state=open]:border-[var(--vscode-border)] data-[state=open]:bg-[var(--vscode-list-hover)] data-[state=open]:text-foreground";
+
+const terminalDropdownMenuClassName =
+  "absolute z-[70] min-w-[8rem] overflow-hidden rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-1.5 text-popover-foreground shadow-[0_10px_24px_rgba(0,0,0,0.24)]";
+
+const terminalDropdownItemClassName =
+  "relative flex min-h-8 w-full cursor-default items-center rounded-[4px] border border-transparent py-1.5 pl-3 pr-3 text-[12px] text-muted-foreground outline-none transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground";
 
 export function CommandCard({
   command,
@@ -95,6 +123,7 @@ export function CommandCard({
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <Badge variant={badgeVariant}>{run?.status ?? "ready"}</Badge>
               <Badge variant="muted">{command.section}</Badge>
+              <Badge variant="muted">{formatRunCountLabel(command.run_count)}</Badge>
               {runtimeModeBadgeLabel(command) && <Badge variant="muted">{runtimeModeBadgeLabel(command)}</Badge>}
               {command.runtime_mode === "internal_interactive" ? (
                 <Tooltip content="Interactive terminal">
@@ -197,7 +226,7 @@ export function CommandCard({
               aria-label="Kill ports"
               className="h-8 w-8 shrink-0"
             >
-              {isScanningPorts ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+              {isScanningPorts ? <Loader2 size={13} className="animate-spin" /> : <PowerOff size={13} />}
             </Button>
           </Tooltip>
           <Tooltip content="Logs">
@@ -227,6 +256,9 @@ export function LogPanel({
   onCloseTab,
   onTerminalInput,
   onTerminalResize,
+  onOpenAdHocInteractiveTerminal,
+  onRequestCloseAllTabs,
+  interactiveTerminalOptions,
   runs,
   terminalContentByCommandId,
   terminalFontFamily,
@@ -242,6 +274,9 @@ export function LogPanel({
   onCloseTab: (commandId: number) => void;
   onTerminalInput: (commandId: number, data: string) => void;
   onTerminalResize: (commandId: number, cols: number, rows: number) => void;
+  onOpenAdHocInteractiveTerminal: (project: Project, terminalKind: InteractiveTerminalKind) => void;
+  onRequestCloseAllTabs: (commandIds: number[]) => void;
+  interactiveTerminalOptions: InteractiveTerminalOption[];
   runs: Record<number, RunState>;
   terminalContentByCommandId: Record<number, string>;
   terminalFontFamily: string;
@@ -251,6 +286,12 @@ export function LogPanel({
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const previousVisibleCountRef = useRef(0);
   const [activePanelView, setActivePanelView] = useState<"terminal" | "environments">("terminal");
+  const [terminalFilter, setTerminalFilter] = useState<TerminalFilter>("all");
+  const [terminalFilterMenuOpen, setTerminalFilterMenuOpen] = useState(false);
+  const [selectedInteractiveTerminalKind, setSelectedInteractiveTerminalKind] = useState<InteractiveTerminalKind>(
+    interactiveTerminalOptions[0]?.id ?? "powershell",
+  );
+  const [interactiveTerminalMenuOpen, setInteractiveTerminalMenuOpen] = useState(false);
   const [panelHeight, setPanelHeight] = useState(() => {
     const saved = localStorage.getItem("logPanelHeight");
     if (saved) {
@@ -275,6 +316,48 @@ export function LogPanel({
   useEffect(() => {
     localStorage.setItem("logPanelCollapsed", String(isCollapsed));
   }, [isCollapsed]);
+
+  useEffect(() => {
+    if (interactiveTerminalOptions.some((option) => option.id === selectedInteractiveTerminalKind)) {
+      return;
+    }
+    setSelectedInteractiveTerminalKind(interactiveTerminalOptions[0]?.id ?? "powershell");
+  }, [interactiveTerminalOptions, selectedInteractiveTerminalKind]);
+
+  useEffect(() => {
+    if (!interactiveTerminalMenuOpen && !terminalFilterMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        setInteractiveTerminalMenuOpen(false);
+        setTerminalFilterMenuOpen(false);
+        return;
+      }
+      if (!target.closest("[data-interactive-terminal-menu]")) {
+        setInteractiveTerminalMenuOpen(false);
+      }
+      if (!target.closest("[data-terminal-filter-menu]")) {
+        setTerminalFilterMenuOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setInteractiveTerminalMenuOpen(false);
+        setTerminalFilterMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [interactiveTerminalMenuOpen, terminalFilterMenuOpen]);
 
   const startResize = (mouseDownEvent: React.MouseEvent) => {
     if (isCollapsed) return;
@@ -314,7 +397,12 @@ export function LogPanel({
     );
   }, [commands, openCommandIds, runs, terminalContentByCommandId]);
 
-  const selectedCommand = visibleCommands.find((command) => command.id === activeCommandId) ?? visibleCommands[0] ?? null;
+  const filteredVisibleCommands = useMemo(
+    () => visibleCommands.filter((command) => matchesTerminalFilter(command, terminalFilter)),
+    [terminalFilter, visibleCommands],
+  );
+
+  const selectedCommand = filteredVisibleCommands.find((command) => command.id === activeCommandId) ?? filteredVisibleCommands[0] ?? null;
   const selectedCommandId = selectedCommand?.id ?? null;
   const selectedProject = projects.find((project) => project.id === selectedCommand?.project_id) ?? null;
   const selectedTerminalContent = selectedCommandId ? terminalContentByCommandId[selectedCommandId] ?? "" : "";
@@ -348,7 +436,7 @@ export function LogPanel({
   // Auto-collapse when there are no terminal tabs; expand when the first tab appears.
   useEffect(() => {
     const previousCount = previousVisibleCountRef.current;
-    const nextCount = visibleCommands.length;
+    const nextCount = filteredVisibleCommands.length;
 
     if (nextCount === 0 && previousCount !== 0) {
       setIsCollapsed(true);
@@ -359,19 +447,180 @@ export function LogPanel({
     }
 
     previousVisibleCountRef.current = nextCount;
-  }, [visibleCommands.length]);
+  }, [filteredVisibleCommands.length]);
+
+  useEffect(() => {
+    if (selectedCommandId || terminalFilter === "all") {
+      return;
+    }
+
+    const hasMatchingVisibleCommand = visibleCommands.some((command) => matchesTerminalFilter(command, terminalFilter));
+    if (!hasMatchingVisibleCommand) {
+      setTerminalFilter("all");
+    }
+  }, [selectedCommandId, terminalFilter, visibleCommands]);
+
+  const handleAddInteractiveTerminal = useCallback(() => {
+    const project = projects.find((item) => item.id === selectedCommand?.project_id) ?? projects[0];
+    if (!project) {
+      return;
+    }
+
+    onOpenAdHocInteractiveTerminal(project, selectedInteractiveTerminalKind);
+    setInteractiveTerminalMenuOpen(false);
+  }, [onOpenAdHocInteractiveTerminal, projects, selectedCommand, selectedInteractiveTerminalKind]);
 
   const collapseToggle = (
     <Button
       type="button"
       size="icon"
       variant="ghost"
-      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+      className="h-7 w-7 rounded-[4px] border border-transparent p-0 text-[var(--vscode-icon)] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground"
       onClick={() => setIsCollapsed((prev) => !prev)}
       aria-label={isCollapsed ? "Restore terminal output" : "Minimize terminal output"}
     >
       {isCollapsed ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
     </Button>
+  );
+
+  const canCreateInteractiveTerminal = Boolean(selectedCommand?.project_id ?? projects[0]?.id);
+  const canCloseAllTerminals = visibleCommands.length > 0;
+  const headerControls = (
+    <div className="flex shrink-0 items-center gap-0.5 pr-1">
+      {activePanelView === "terminal" ? (
+        <>
+          <div className="relative" data-terminal-filter-menu="">
+            <Button
+              size="sm"
+              variant="ghost"
+              className={cn(
+                terminalDropdownTriggerClassName,
+                "min-w-[112px] justify-between",
+                terminalFilterMenuOpen && "border-[var(--vscode-border)] bg-[var(--vscode-list-hover)] text-foreground",
+              )}
+              onClick={() => setTerminalFilterMenuOpen((current) => !current)}
+              aria-label="Filter terminal type"
+              data-state={terminalFilterMenuOpen ? "open" : "closed"}
+            >
+              <span>{terminalFilterLabel(terminalFilter)}</span>
+              <ChevronDown size={13} />
+            </Button>
+            {terminalFilterMenuOpen ? (
+              <div className={cn(terminalDropdownMenuClassName, "left-0 top-[calc(100%+6px)] min-w-[150px]")}>
+                {[
+                  { value: "all", label: "All terminals" },
+                  { value: "internal_interactive", label: "Interactive" },
+                  { value: "internal_headless", label: "Headless" },
+                  { value: "external_terminal", label: "External" },
+                ].map((option) => {
+                  const selected = terminalFilter === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setTerminalFilter(option.value as TerminalFilter);
+                        setTerminalFilterMenuOpen(false);
+                      }}
+                      className={cn(
+                        terminalDropdownItemClassName,
+                        selected
+                          ? "border-primary/35 bg-[var(--vscode-list-active)] text-foreground"
+                          : "text-[var(--vscode-foreground)]",
+                      )}
+                    >
+                      <span>{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+          <div className="mx-1 h-4 w-px bg-[var(--vscode-border)]" aria-hidden="true" />
+          <div className="relative flex items-center" data-interactive-terminal-menu="">
+            <Button
+              size="sm"
+              variant="ghost"
+              className={cn(
+                terminalDropdownTriggerClassName,
+                "min-w-0 rounded-r-none border-r-0 px-1.5",
+                interactiveTerminalMenuOpen && "border-[var(--vscode-border)] bg-[var(--vscode-list-hover)] text-foreground",
+              )}
+              disabled={!canCreateInteractiveTerminal}
+              onClick={handleAddInteractiveTerminal}
+              aria-label="Open new interactive terminal"
+            >
+              <Plus size={13} />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className={cn(
+                terminalDropdownTriggerClassName,
+                "h-7 w-6 rounded-l-none px-0",
+                interactiveTerminalMenuOpen && "border-[var(--vscode-border)] bg-[var(--vscode-list-hover)] text-foreground",
+              )}
+              disabled={!canCreateInteractiveTerminal}
+              onClick={() => setInteractiveTerminalMenuOpen((current) => !current)}
+              aria-label="Choose interactive terminal kind"
+              data-state={interactiveTerminalMenuOpen ? "open" : "closed"}
+            >
+              <ChevronDown size={13} />
+            </Button>
+            {interactiveTerminalMenuOpen ? (
+              <div className={cn(terminalDropdownMenuClassName, "right-0 top-[calc(100%+6px)] min-w-[140px]")}>
+                {interactiveTerminalOptions.map((option) => {
+                  const selected = option.id === selectedInteractiveTerminalKind;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedInteractiveTerminalKind(option.id);
+                        setInteractiveTerminalMenuOpen(false);
+                      }}
+                      className={cn(
+                        terminalDropdownItemClassName,
+                        selected
+                          ? "border-primary/35 bg-[var(--vscode-list-active)] text-foreground"
+                          : "text-[var(--vscode-foreground)]",
+                      )}
+                    >
+                      <span>{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+          <Tooltip content={`Current interactive terminal: ${interactiveTerminalLabel(selectedInteractiveTerminalKind)}`}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 rounded-[4px] border border-transparent text-[var(--vscode-icon)] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground"
+              disabled={!selectedCommandId}
+              onClick={() => selectedCommandId && onClear(selectedCommandId)}
+              aria-label="Clear current terminal"
+            >
+              <BrushCleaning size={14} />
+            </Button>
+          </Tooltip>
+          <Tooltip content="Close all terminal tabs">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 rounded-[4px] border border-transparent text-[var(--vscode-icon)] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground"
+              disabled={!canCloseAllTerminals}
+              onClick={() => onRequestCloseAllTabs(visibleCommands.map((command) => command.id))}
+              aria-label="Close all terminal tabs"
+            >
+              <X size={14} />
+            </Button>
+          </Tooltip>
+        </>
+      ) : null}
+      {collapseToggle}
+    </div>
   );
 
   return (
@@ -397,9 +646,9 @@ export function LogPanel({
         />
       ) : null}
 
-      {visibleCommands.length === 0 ? (
+      {filteredVisibleCommands.length === 0 ? (
         <>
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--vscode-border)] bg-[var(--log-header-bg)] px-2.5 py-1">
+          <div className="flex min-h-9 items-center justify-between gap-3 border-b border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-2 py-0.5">
             <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
               {[
                 { id: "terminal", label: "Terminal" },
@@ -412,8 +661,8 @@ export function LogPanel({
                     type="button"
                     onClick={() => setActivePanelView(view.id as "terminal" | "environments")}
                     className={cn(
-                      "inline-flex h-8 items-center border border-transparent border-b-0 px-3 text-[12px] text-[var(--vscode-foreground)]/72 transition-[background-color,color,border-color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
-                      active && "bg-[var(--terminal-tabs-bg)] text-foreground border-[var(--vscode-border)]",
+                      "inline-flex h-8 items-center border-b border-transparent px-2.5 text-[11.5px] text-[var(--vscode-foreground)]/72 transition-[background-color,color,border-color] hover:text-foreground",
+                      active && "border-primary bg-transparent text-foreground",
                     )}
                   >
                     {view.label}
@@ -421,7 +670,7 @@ export function LogPanel({
                 );
               })}
             </div>
-            <div className="flex shrink-0 items-center gap-1.5 pr-1">{collapseToggle}</div>
+            {headerControls}
           </div>
           {!isCollapsed ? (
             activePanelView === "terminal" ? (
@@ -442,7 +691,7 @@ export function LogPanel({
         </>
       ) : (
         <div className={cn("flex min-h-0 flex-col", !isCollapsed && "flex-1")}>
-          <div className="flex min-w-0 items-center justify-between gap-3 border-b border-[var(--vscode-border)] bg-[var(--log-header-bg)] px-2.5 py-1">
+          <div className="flex min-h-9 min-w-0 items-center justify-between gap-3 border-b border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-2 py-0.5">
             <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
               {[
                 { id: "terminal", label: "Terminal" },
@@ -455,8 +704,8 @@ export function LogPanel({
                     type="button"
                     onClick={() => setActivePanelView(view.id as "terminal" | "environments")}
                     className={cn(
-                      "inline-flex h-8 items-center border border-transparent border-b-0 px-3 text-[12px] text-[var(--vscode-foreground)]/72 transition-[background-color,color,border-color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
-                      active && "bg-[var(--terminal-tabs-bg)] text-foreground border-[var(--vscode-border)]",
+                      "inline-flex h-8 items-center border-b border-transparent px-2.5 text-[11.5px] text-[var(--vscode-foreground)]/72 transition-[background-color,color,border-color] hover:text-foreground",
+                      active && "border-primary bg-transparent text-foreground",
                     )}
                   >
                     {view.label}
@@ -464,70 +713,13 @@ export function LogPanel({
                 );
               })}
             </div>
-            <div className="flex shrink-0 items-center gap-1.5 pr-1">
-              <Button
-                size="icon"
-                variant="secondary"
-                className="h-7 w-7"
-                disabled={!selectedCommandId || activePanelView !== "terminal"}
-                onClick={() => selectedCommandId && onClear(selectedCommandId)}
-                aria-label="Clear current terminal"
-              >
-                <BrushCleaning size={14} />
-              </Button>
-              {collapseToggle}
-            </div>
+            {headerControls}
           </div>
-
-          <Tabs
-            className={cn("flex min-h-0 flex-col border-b border-[var(--vscode-border)] bg-[var(--vscode-tabs)]", !isCollapsed && activePanelView === "terminal" && "shrink-0")}
-            value={String(selectedCommandId)}
-            onValueChange={(value) => onActiveCommandChange(Number(value))}
-            variant="underline"
-          >
-            <TabsList className="flex min-h-9 min-w-0 flex-1 items-center gap-0 overflow-x-auto overflow-y-hidden border-0 bg-transparent px-1 pt-1">
-              {visibleCommands.map((command) => (
-                <div
-                  className={cn(
-                    "terminal-tab-item inline-flex items-center gap-1 border border-transparent border-b-0 pr-1 transition-colors",
-                    selectedCommandId === command.id && "terminal-tab-item-active border-[var(--vscode-border)] bg-[var(--terminal-tabs-bg)]",
-                  )}
-                  key={command.id}
-                >
-                  <TabsTrigger
-                    className="terminal-tab-trigger max-w-[180px] gap-2 border-0 px-3 py-2 text-[12px] data-[state=active]:font-semibold data-[state=active]:text-foreground"
-                    value={String(command.id)}
-                  >
-                    <span className="truncate">{command.name}</span>
-                    {runs[command.id]?.status === "running" && <span className="terminal-tab-status" />}
-                  </TabsTrigger>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className={cn(
-                      "terminal-tab-close mr-0.5 h-6 w-6 rounded-[4px] p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
-                      selectedCommandId === command.id && "text-foreground/70 hover:text-destructive",
-                    )}
-                    onClick={() => onCloseTab(command.id)}
-                    aria-label={`Close ${command.name} log tab`}
-                  >
-                    <X size={12} />
-                  </Button>
-                </div>
-              ))}
-            </TabsList>
-          </Tabs>
 
           {!isCollapsed && selectedCommand ? (
             activePanelView === "terminal" ? (
-              <Tabs
-                className="flex min-h-0 flex-1 flex-col"
-                value={String(selectedCommandId)}
-                onValueChange={(value) => onActiveCommandChange(Number(value))}
-                variant="underline"
-              >
-                <TabsContent className="m-0 flex h-full min-h-0 flex-1 overflow-hidden" value={String(selectedCommand.id)}>
+              <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_240px] overflow-hidden bg-[var(--terminal-bg)]">
+                <div className="flex min-h-0 flex-1 border-r border-[var(--vscode-border)] bg-[var(--terminal-bg)]">
                   <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" key={selectedCommand.id} ref={terminalRef}>
                     <XtermTerminal
                       content={selectedTerminalContent || "Waiting for output...\r\n"}
@@ -539,8 +731,61 @@ export function LogPanel({
                       readOnly={selectedCommand.runtime_mode !== "internal_interactive"}
                     />
                   </div>
-                </TabsContent>
-              </Tabs>
+                </div>
+
+                <div className="flex min-h-0 flex-col overflow-hidden border-l-0 bg-[var(--vscode-panel)]">
+                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--vscode-panel)] py-0.5">
+                    {filteredVisibleCommands.map((command) => {
+                      const isActive = selectedCommandId === command.id;
+                      const project = projects.find((item) => item.id === command.project_id);
+                      const tabLabel = `${command.name} [${project?.name ?? "Unknown project"}]`;
+                      const tooltipLabel = `${tabLabel} | ${terminalFilterLabel(command.runtime_mode as TerminalFilter)}`;
+
+                      return (
+                        <Tooltip key={command.id} content={tooltipLabel} side="left" wrapperClassName="block">
+                          <button
+                            type="button"
+                            onClick={() => onActiveCommandChange(command.id)}
+                            className={cn(
+                              "terminal-side-item group relative flex w-full items-center gap-1.5 border-y border-transparent px-2 py-1 text-left text-[var(--vscode-foreground)]/84 transition-[background-color,border-color,color]",
+                              "hover:bg-[var(--vscode-list-hover)] hover:text-foreground",
+                              isActive && "border-[var(--vscode-border)] bg-[var(--vscode-list-selected)] text-foreground",
+                            )}
+                          >
+                            {isActive ? <span className="absolute inset-y-1 left-0 w-[2px] rounded-r-full bg-primary" /> : null}
+                            <div className="relative shrink-0">
+                              <EntityAvatar name={command.name} path={command.avatar_path} className="h-[18px] w-[18px] rounded-[4px]" iconSize={11.5} />
+                              <span
+                                className={cn(
+                                  "absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-[var(--vscode-panel)] bg-[var(--vscode-foreground)]/24",
+                                  runs[command.id]?.status === "running" && "bg-success",
+                                )}
+                              />
+                            </div>
+                            <span className="min-w-0 flex-1 truncate pr-1 text-[11px] leading-none">{tabLabel}</span>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className={cn(
+                                "terminal-side-close h-5 w-5 shrink-0 rounded-[4px] border border-transparent p-0 text-[var(--vscode-icon)] opacity-0 transition-[opacity,background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground",
+                                isActive ? "opacity-100 text-foreground/70" : "group-hover:opacity-100",
+                              )}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onCloseTab(command.id);
+                              }}
+                              aria-label={`Close ${command.name} log tab`}
+                            >
+                              <X size={12} />
+                            </Button>
+                          </button>
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--vscode-editor)] p-4">
                 <div className="grid gap-3 lg:grid-cols-2">

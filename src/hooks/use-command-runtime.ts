@@ -9,12 +9,14 @@ import {
   type InteractiveSessionErrorPayload,
   type InteractiveSessionExitedPayload,
   type PortProcess,
+  type Project,
   type ProjectCommand,
   type RunFinishedPayload,
   type RunOutputPayload,
   type RunStartedPayload,
 } from "../lib/api";
 import { commandPorts } from "../lib/command-utils";
+import type { InteractiveTerminalKind } from "../lib/interactive-terminal";
 import type { LogLine, RunState } from "../components/project-runtime";
 
 const ANSI_ESCAPE_PATTERN =
@@ -26,6 +28,33 @@ function cleanTerminalLine(line: string) {
 
 const DEFAULT_INTERACTIVE_COLS = 120;
 const DEFAULT_INTERACTIVE_ROWS = 32;
+let nextAdHocTerminalId = -1;
+
+function buildAdHocInteractiveCommand(project: Project, terminalKind: InteractiveTerminalKind): ProjectCommand {
+  const timestamp = new Date().toISOString();
+  const label =
+    terminalKind === "powershell" ? "pw" :
+    terminalKind === "powershellcore" ? "pwsh" :
+    terminalKind;
+
+  return {
+    id: nextAdHocTerminalId--,
+    project_id: project.id,
+    name: label,
+    script: "",
+    avatar_path: "lucide:terminal",
+    ports: "[]",
+    section: "Terminal",
+    order_index: 0,
+    created_at: timestamp,
+    updated_at: timestamp,
+    runtime_mode: "internal_interactive",
+    run_in_external_terminal: false,
+    external_terminal_kind: "default",
+    interactive_terminal_kind: terminalKind,
+    run_count: 0,
+  };
+}
 
 export function useCommandRuntime({
   autoClearLogs,
@@ -48,6 +77,7 @@ export function useCommandRuntime({
   const [terminalContentByCommandId, setTerminalContentByCommandId] = useState<Record<number, string>>({});
   const [interactiveSessionsByCommandId, setInteractiveSessionsByCommandId] = useState<Record<number, InteractiveSession>>({});
   const [interactiveSizesByCommandId, setInteractiveSizesByCommandId] = useState<Record<number, { cols: number; rows: number }>>({});
+  const [adHocInteractiveCommands, setAdHocInteractiveCommands] = useState<ProjectCommand[]>([]);
   const [openLogCommandIds, setOpenLogCommandIds] = useState<number[]>([]);
   const [activeLogCommandId, setActiveLogCommandId] = useState<number | null>(null);
   const [stoppingRunIds, setStoppingRunIds] = useState<Set<number>>(new Set());
@@ -246,6 +276,26 @@ export function useCommandRuntime({
     setActiveLogCommandId(commandId);
   }
 
+  async function openAdHocInteractiveTerminal(project: Project, terminalKind: InteractiveTerminalKind) {
+    const command = buildAdHocInteractiveCommand(project, terminalKind);
+    setAdHocInteractiveCommands((current) => [...current, command]);
+    openLogCommandTab(command.id);
+    setTerminalContentByCommandId((current) => ({ ...current, [command.id]: "" }));
+
+    try {
+      await api.startProjectInteractiveTerminal(project.path, command.id, terminalKind, DEFAULT_INTERACTIVE_COLS, DEFAULT_INTERACTIVE_ROWS);
+    } catch (error) {
+      setAdHocInteractiveCommands((current) => current.filter((item) => item.id !== command.id));
+      setOpenLogCommandIds((current) => current.filter((id) => id !== command.id));
+      setTerminalContentByCommandId((current) => {
+        const next = { ...current };
+        delete next[command.id];
+        return next;
+      });
+      onErrorRef.current(error);
+    }
+  }
+
   async function startCommandRun(command: ProjectCommand) {
     const run = runs[command.id];
     if (run?.status === "running" || (run && stoppingRunIds.has(run.runId))) {
@@ -421,6 +471,12 @@ export function useCommandRuntime({
       delete next[commandId];
       return next;
     });
+    setInteractiveSizesByCommandId((current) => {
+      const next = { ...current };
+      delete next[commandId];
+      return next;
+    });
+    setAdHocInteractiveCommands((current) => current.filter((command) => command.id !== commandId));
     setActiveLogCommandId((current) => (current === commandId ? nextActiveLogCommandId : current));
   }, [interactiveSessionsByCommandId, runs, stopMutation, stoppingRunIds]);
 
@@ -458,6 +514,7 @@ export function useCommandRuntime({
     runs,
     logs,
     terminalContentByCommandId,
+    adHocInteractiveCommands,
     interactiveSessionsByCommandId,
     openLogCommandIds,
     activeLogCommandId,
@@ -476,6 +533,7 @@ export function useCommandRuntime({
     handleKillProcesses,
     handleRefreshProcesses,
     openLogCommandTab,
+    openAdHocInteractiveTerminal,
     stopCommandByCommandId,
     forceStopCommandByCommandId,
     clearCommandLogs,

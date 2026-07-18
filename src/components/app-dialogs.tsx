@@ -6,6 +6,7 @@ import type {
   ProjectCommand,
   ProjectInput,
 } from "../lib/api";
+import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import type { ConfirmDialogState } from "./app-shell-types";
 import {
   CommandDialog,
@@ -33,7 +34,9 @@ export function AppDialogs({
   editingCommand,
   defaultSection,
   availableSections,
+  commandDialogPreset,
   commandDialogOpen,
+  interactiveTerminalOptions,
   onCommandDialogOpenChange,
   commandDialogPending,
   onCommandError,
@@ -79,7 +82,12 @@ export function AppDialogs({
   editingCommand: ProjectCommand | null;
   defaultSection: string | null;
   availableSections: string[];
+  commandDialogPreset: {
+    interactive_terminal_kind?: InteractiveTerminalKind | null;
+    runtime_mode?: CommandInput["runtime_mode"] | null;
+  } | null;
   commandDialogOpen: boolean;
+  interactiveTerminalOptions: InteractiveTerminalOption[];
   onCommandDialogOpenChange: (open: boolean) => void;
   commandDialogPending: boolean;
   onCommandError: (error: unknown) => void;
@@ -132,7 +140,9 @@ export function AppDialogs({
           command={editingCommand}
           defaultSection={defaultSection}
           availableSections={availableSections}
+          interactiveTerminalOptions={interactiveTerminalOptions}
           isPending={commandDialogPending}
+          preset={commandDialogPreset}
           open={commandDialogOpen}
           projectId={commandDialogProject.id}
           onError={onCommandError}

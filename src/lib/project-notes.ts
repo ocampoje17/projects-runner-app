@@ -6,6 +6,20 @@ export type ProjectNote = {
   updatedAt: string;
 };
 
+export type ProjectNoteSortField = "updatedAt" | "createdAt" | "title" | "length" | "visibility";
+export type ProjectNoteSortDirection = "desc" | "asc";
+
+export type ProjectNoteMeta = {
+  id: string;
+  title: string;
+  plainText: string;
+  searchText: string;
+  contentLength: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+  isVisible: boolean;
+};
+
 export function projectNoteVisibilityKey(projectId: number, noteId: string) {
   return `${projectId}:${noteId}`;
 }
@@ -15,20 +29,30 @@ export function noteTitle(content: string, fallback = "Project Note") {
 }
 
 export function noteExcerpt(content: string) {
-  const lines = content
+  const lines = notePlainText(content)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const excerptSource = lines.slice(1).join(" ").trim() || lines.join(" ").trim();
+  return excerptSource.replace(/\s{2,}/g, " ").trim();
+}
+
+export function notePlainText(content: string) {
+  return content
     .split(/\r?\n/)
     .map((line) =>
       line
         .replace(/^#+\s*/, "")
         .replace(/^\s*[-*+]\s+/, "")
+        .replace(/^\s*\d+\.\s+/, "")
         .replace(/`([^`]+)`/g, "$1")
         .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+        .replace(/[>*_~]/g, "")
         .trim(),
     )
-    .filter(Boolean);
-
-  const excerptSource = lines.slice(1).join(" ").trim() || lines.join(" ").trim();
-  return excerptSource.replace(/\s{2,}/g, " ").trim();
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function parseProjectNotes(value: string | null | undefined): ProjectNote[] {
@@ -101,4 +125,55 @@ export function sortProjectNotes(notes: ProjectNote[]) {
 
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
+}
+
+export function buildProjectNoteMeta(note: ProjectNote, isVisible: boolean): ProjectNoteMeta {
+  const title = noteTitle(note.content, "Untitled note");
+  const plainText = notePlainText(note.content);
+  return {
+    id: note.id,
+    title,
+    plainText,
+    searchText: `${title}\n${plainText}`.toLocaleLowerCase(),
+    contentLength: plainText.replace(/\s+/g, "").length,
+    createdAtMs: new Date(note.createdAt).getTime(),
+    updatedAtMs: new Date(note.updatedAt).getTime(),
+    isVisible,
+  };
+}
+
+export function compareProjectNoteMeta(
+  left: ProjectNoteMeta,
+  right: ProjectNoteMeta,
+  sortField: ProjectNoteSortField,
+  sortDirection: ProjectNoteSortDirection,
+) {
+  let result = 0;
+
+  switch (sortField) {
+    case "createdAt":
+      result = left.createdAtMs - right.createdAtMs;
+      break;
+    case "updatedAt":
+      result = left.updatedAtMs - right.updatedAtMs;
+      break;
+    case "title":
+      result = left.title.localeCompare(right.title, undefined, { sensitivity: "base", numeric: true });
+      break;
+    case "length":
+      result = left.contentLength - right.contentLength;
+      break;
+    case "visibility":
+      result = Number(left.isVisible) - Number(right.isVisible);
+      break;
+  }
+
+  if (result === 0) {
+    result = left.title.localeCompare(right.title, undefined, { sensitivity: "base", numeric: true });
+  }
+  if (result === 0) {
+    result = left.updatedAtMs - right.updatedAtMs;
+  }
+
+  return sortDirection === "asc" ? result : -result;
 }

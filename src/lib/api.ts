@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { normalizeCommandScript } from "./command-utils";
+import type { InteractiveTerminalKind, InteractiveTerminalOption } from "./interactive-terminal";
 import { parseProjectNotes, serializeProjectNotes } from "./project-notes";
 
 const BROWSER_PREVIEW_ONLY_MESSAGE = "This action is only available in the desktop app.";
@@ -39,6 +40,9 @@ function normalizeCommand(command: ProjectCommand): ProjectCommand {
   return {
     ...command,
     script: normalizeCommandScript(command.script),
+    external_terminal_kind: command.external_terminal_kind ?? "default",
+    interactive_terminal_kind: command.interactive_terminal_kind ?? "powershell",
+    run_count: Number.isFinite(command.run_count) ? command.run_count : 0,
   };
 }
 
@@ -186,6 +190,7 @@ export type Project = {
 };
 
 export type CommandRuntimeMode = "internal_headless" | "internal_interactive" | "external_terminal";
+export type ExternalTerminalKind = "default" | "windows_terminal" | "powershell" | "command_prompt" | "terminal_app";
 
 export type ProjectCommand = {
   id: number;
@@ -200,6 +205,9 @@ export type ProjectCommand = {
   updated_at: string;
   runtime_mode: CommandRuntimeMode;
   run_in_external_terminal: boolean;
+  external_terminal_kind: ExternalTerminalKind;
+  interactive_terminal_kind: InteractiveTerminalKind;
+  run_count: number;
 };
 
 export type CommandRun = {
@@ -229,6 +237,8 @@ export type CommandInput = {
   order_index?: number | null;
   runtime_mode?: CommandRuntimeMode;
   run_in_external_terminal?: boolean;
+  external_terminal_kind?: ExternalTerminalKind | null;
+  interactive_terminal_kind?: InteractiveTerminalKind | null;
 };
 
 export type AppInfo = {
@@ -419,6 +429,8 @@ export const api = {
   stopCommand: (runId: number) => invokeDesktop<StopCommandResult>("stop_command", { runId }),
   startInteractiveCommand: (commandId: number, cols: number, rows: number) =>
     invokeDesktop<InteractiveSession>("start_interactive_command", { commandId, cols, rows }),
+  startProjectInteractiveTerminal: (projectPath: string, terminalId: number, terminalKind: InteractiveTerminalKind, cols: number, rows: number) =>
+    invokeDesktop<InteractiveSession>("start_project_interactive_terminal", { projectPath, terminalId, terminalKind, cols, rows }),
   writeInteractiveTerminal: (sessionId: string, data: string) =>
     invokeDesktop<void>("write_interactive_terminal", { sessionId, data }),
   resizeInteractiveTerminal: (sessionId: string, cols: number, rows: number) =>
@@ -427,6 +439,8 @@ export const api = {
     invokeDesktop<void>("stop_interactive_command", { sessionId }),
   restartInteractiveCommand: (commandId: number, cols: number, rows: number) =>
     invokeDesktop<InteractiveSession>("restart_interactive_command", { commandId, cols, rows }),
+  listInteractiveTerminalOptions: () =>
+    invokeDesktop<InteractiveTerminalOption[]>("list_interactive_terminal_options"),
   killPorts: (ports: number[]) => invokeDesktop<void>("kill_ports", { ports }),
   getPortsProcesses: (ports: number[]) => invokeDesktop<PortProcess[]>("get_ports_processes", { ports }),
   killProcesses: (pids: number[]) => invokeDesktop<void>("kill_processes", { pids }),

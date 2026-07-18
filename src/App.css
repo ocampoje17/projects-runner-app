@@ -2,6 +2,8 @@
   /* Typography */
   --font-sans: "Segoe UI Variable", "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "Cascadia Mono", "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", ui-monospace, monospace;
+  --terminal-font-family: "Consolas", "Cascadia Mono", monospace;
+  --terminal-font-size: 13px;
 
   /* VS Code-inspired base palette (dark-first) */
   --background: #1e1e1e;
@@ -100,11 +102,16 @@
   --vscode-panel: #252526;
   --vscode-tabs: #2d2d30;
   --vscode-border: rgb(255 255 255 / 0.1);
+  --vscode-command-center-bg: color-mix(in oklab, var(--vscode-editor) 80%, var(--vscode-panel));
+  --vscode-command-center-border: color-mix(in oklab, var(--primary-color) 18%, var(--vscode-border));
+  --vscode-command-center-hover: color-mix(in oklab, var(--vscode-list-hover) 82%, var(--vscode-command-center-bg));
+  --vscode-command-center-active: color-mix(in oklab, var(--primary-color) 16%, var(--vscode-command-center-bg));
   --vscode-list-hover: rgb(255 255 255 / 0.14);
   --vscode-list-active: rgb(255 255 255 / 0.2);
   --vscode-list-selected: color-mix(in oklab, var(--primary-color) 22%, rgb(255 255 255 / 0.08));
   --vscode-foreground: #cccccc;
   --vscode-icon: #c5c5c5;
+  --vscode-danger: var(--danger);
   --vscode-status: #007acc;
   --vscode-status-border: #0062a3;
   --vscode-status-foreground: #ffffff;
@@ -200,11 +207,16 @@
   --vscode-panel: #f8f8f8;
   --vscode-tabs: #ececec;
   --vscode-border: rgb(0 0 0 / 0.1);
+  --vscode-command-center-bg: color-mix(in oklab, white 84%, var(--vscode-panel));
+  --vscode-command-center-border: color-mix(in oklab, var(--primary-color) 16%, var(--vscode-border));
+  --vscode-command-center-hover: color-mix(in oklab, var(--vscode-list-hover) 76%, var(--vscode-command-center-bg));
+  --vscode-command-center-active: color-mix(in oklab, var(--primary-color) 10%, var(--vscode-command-center-bg));
   --vscode-list-hover: rgb(0 0 0 / 0.1);
   --vscode-list-active: rgb(0 0 0 / 0.16);
   --vscode-list-selected: rgb(0 122 204 / 0.18);
   --vscode-foreground: #1f2328;
   --vscode-icon: #444b53;
+  --vscode-danger: var(--danger);
   --vscode-status: #007acc;
   --vscode-status-border: #0062a3;
   --vscode-status-foreground: #ffffff;
@@ -285,6 +297,10 @@
   --vscode-panel: #252526;
   --vscode-tabs: #2d2d30;
   --vscode-border: rgb(255 255 255 / 0.1);
+  --vscode-command-center-bg: color-mix(in oklab, var(--vscode-editor) 80%, var(--vscode-panel));
+  --vscode-command-center-border: color-mix(in oklab, var(--primary-color) 18%, var(--vscode-border));
+  --vscode-command-center-hover: color-mix(in oklab, var(--vscode-list-hover) 82%, var(--vscode-command-center-bg));
+  --vscode-command-center-active: color-mix(in oklab, var(--primary-color) 16%, var(--vscode-command-center-bg));
   --vscode-list-hover: rgb(255 255 255 / 0.14);
   --vscode-list-active: rgb(255 255 255 / 0.2);
   --vscode-list-selected: color-mix(in oklab, var(--primary-color) 24%, rgb(255 255 255 / 0.08));
@@ -370,8 +386,6 @@ textarea {
 }
 
 button {
-  border: 0;
-  background: transparent;
   outline: none;
 }
 
@@ -437,8 +451,31 @@ p {
   text-shadow: 0 0 0.01px currentColor;
 }
 
+.terminal-tab-close,
+.terminal-side-close {
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.terminal-tab-item:hover .terminal-tab-close,
+.terminal-tab-item:focus-within .terminal-tab-close,
+.terminal-side-item:hover .terminal-side-close,
+.terminal-side-item:focus-within .terminal-side-close,
+.terminal-tab-item-active .terminal-tab-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .terminal-tab-trigger[data-state="active"] + .terminal-tab-close {
   background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+.terminal-side-item .terminal-tab-status {
+  margin-top: 1px;
 }
 
 .log-terminal .xterm-host {
@@ -661,4 +698,16 @@ p {
 .markdown-note input[type="checkbox"] {
   margin-right: 0.4em;
   accent-color: var(--primary-color);
+}
+
+.titlebar-search-input {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03);
+}
+
+.titlebar-search-input::placeholder {
+  color: color-mix(in oklab, var(--vscode-foreground) 54%, transparent);
+}
+
+.titlebar-search-panel {
+  backdrop-filter: blur(16px);
 }

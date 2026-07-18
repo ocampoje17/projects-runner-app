@@ -478,7 +478,7 @@ const ToastItem = memo(function ToastItem({
                   type="button"
                   onClick={() => toast.action?.onClick(toast)}
                   className={cn(
-                    "mt-2 inline-flex h-7 items-center rounded-full bg-primary/[0.06] px-3 text-xs font-medium text-foreground transition-colors hover:bg-primary/[0.1]",
+                    "mt-2 inline-flex h-7 items-center rounded-full bg-primary/[0.06] px-3 text-xs font-medium text-foreground transition-colors hover:bg-[var(--vscode-list-hover)] active:bg-[var(--vscode-list-active)]",
                     classNames?.action,
                   )}
                 >
@@ -493,7 +493,7 @@ const ToastItem = memo(function ToastItem({
                 onClick={() => onDismiss?.(toast.id)}
                 aria-label="Dismiss toast"
                 className={cn(
-                  "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-primary/[0.06] hover:text-foreground",
+                  "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
                   classNames?.close,
                 )}
               >

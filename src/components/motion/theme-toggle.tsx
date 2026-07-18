@@ -139,7 +139,7 @@ export function ThemeToggle({
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
       onClick={toggle}
       className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] text-foreground transition-colors hover:border-border-strong hover:bg-[var(--vscode-list-hover)]",
+        "inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] text-foreground transition-colors hover:border-border-strong hover:bg-[var(--vscode-list-hover)] active:bg-[var(--vscode-list-active)]",
         className,
       )}
       {...rest}

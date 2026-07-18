@@ -142,17 +142,17 @@ const ICON_VARIANTS: Record<CoreAnimation, Variants> = {
 };
 
 const VARIANT_CLASS: Record<ActionSwapButtonVariant, string> = {
-  primary: "bg-primary text-primary-foreground hover:bg-primary/90",
+  primary: "bg-[var(--primary-color)] text-[var(--primary-foreground-color)] hover:bg-[color-mix(in_srgb,var(--primary-color)_90%,black)]",
   secondary: "border border-[var(--vscode-border)] bg-[var(--vscode-panel)] text-foreground hover:border-border-strong hover:bg-[var(--vscode-list-hover)]",
   outline: "border border-[var(--vscode-border)] bg-transparent text-foreground hover:border-border-strong hover:bg-[var(--vscode-list-hover)]",
   ghost: "text-muted-foreground hover:bg-[var(--vscode-list-hover)] hover:text-foreground",
 };
 
 const SIZE_CLASS: Record<ActionSwapButtonSize, string> = {
-  sm: "h-8 gap-1.5 rounded-full px-3 text-xs",
-  md: "h-10 gap-2 rounded-full px-4 text-sm",
-  lg: "h-12 gap-2.5 rounded-full px-5 text-base",
-  icon: "h-10 w-10 rounded-full",
+  sm: "h-6 gap-1.5 rounded-[4px] px-2 text-[11px]",
+  md: "h-7 gap-1.5 rounded-[4px] px-2.5 text-[11.5px]",
+  lg: "h-8 gap-2 rounded-[5px] px-3 text-[12px]",
+  icon: "h-7 w-7 rounded-[4px]",
 };
 
 export function ActionSwapText({
@@ -302,7 +302,7 @@ export function ActionSwapButton({
       whileTap={reduce || disabled ? undefined : { scale: 0.97 }}
       transition={SPRING_PRESS}
       className={cn(
-        "inline-flex items-center justify-center overflow-hidden font-medium transition-colors",
+        "inline-flex items-center justify-center overflow-hidden font-medium leading-none tracking-normal [font-family:var(--font-sans)] transition-colors [&_svg]:pointer-events-none [&_svg]:h-[13px] [&_svg]:w-[13px] [&_svg]:shrink-0",
         "disabled:pointer-events-none disabled:opacity-50",
         VARIANT_CLASS[variant],
         SIZE_CLASS[size],
@@ -318,7 +318,7 @@ export function ActionSwapButton({
       {...rest}
     >
       {hasIcon ? (
-        <ActionSwapIcon value={activeItem.id} animation={animation} className="h-4 w-4">
+        <ActionSwapIcon value={activeItem.id} animation={animation} className="h-[13px] w-[13px]">
           {activeItem.icon ?? null}
         </ActionSwapIcon>
       ) : null}
