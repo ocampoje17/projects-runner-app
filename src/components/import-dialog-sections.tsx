@@ -172,10 +172,10 @@ export function ImportWizardStepper({
 }) {
   return (
     <div className="mt-2.5 flex flex-wrap gap-2">
-      <Button type="button" variant="ghost" className={step === "commands" ? "min-h-8 rounded-[6px] border border-primary bg-[var(--vscode-list-active)] px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onBack}>
+      <Button type="button" variant="ghost" className={step === "commands" ? "min-h-8 rounded-[6px] border border-primary bg-[var(--vscode-list-active)] px-3 py-1.5 text-[12px] font-normal text-primary" : "min-h-8 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-1.5 text-[12px] font-normal text-muted-foreground"} onClick={onBack}>
         1. Commands
       </Button>
-      <Button type="button" variant="ghost" className={step === "notes" ? "min-h-8 rounded-[6px] border border-primary bg-[var(--vscode-list-active)] px-3 py-1.5 text-[12px] font-semibold text-primary" : "min-h-8 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-1.5 text-[12px] font-semibold text-muted-foreground"} onClick={onNext}>
+      <Button type="button" variant="ghost" className={step === "notes" ? "min-h-8 rounded-[6px] border border-primary bg-[var(--vscode-list-active)] px-3 py-1.5 text-[12px] font-normal text-primary" : "min-h-8 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-1.5 text-[12px] font-normal text-muted-foreground"} onClick={onNext}>
         2. Notes
       </Button>
     </div>

@@ -129,7 +129,7 @@ function ProjectNoteDialog({
                 aria-expanded={isPreviewExpanded}
               >
                 <span>
-                    <span className="block text-[12.5px] font-medium text-foreground">Preview</span>
+                    <span className="block text-[12.5px] font-normal text-foreground">Preview</span>
                     <span className="block text-[11.5px] text-muted-foreground">
                       Collapsed by default. Click to {isPreviewExpanded ? "hide" : "expand"} the markdown preview.
                     </span>

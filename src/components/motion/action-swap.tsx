@@ -302,8 +302,9 @@ export function ActionSwapButton({
       whileTap={reduce || disabled ? undefined : { scale: 0.97 }}
       transition={SPRING_PRESS}
       className={cn(
-        "inline-flex items-center justify-center overflow-hidden font-medium leading-none tracking-normal [font-family:var(--font-sans)] transition-colors [&_svg]:pointer-events-none [&_svg]:h-[13px] [&_svg]:w-[13px] [&_svg]:shrink-0",
+        "inline-flex items-center justify-center overflow-hidden font-normal leading-none tracking-normal [font-family:var(--font-sans)] transition-colors [&_svg]:pointer-events-none [&_svg]:h-[13px] [&_svg]:w-[13px] [&_svg]:shrink-0",
         "disabled:pointer-events-none disabled:opacity-50",
+        variant === "primary" && "font-semibold",
         VARIANT_CLASS[variant],
         SIZE_CLASS[size],
         className,

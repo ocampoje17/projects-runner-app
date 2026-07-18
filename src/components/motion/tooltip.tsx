@@ -4,12 +4,15 @@ import { AnimatePresence, motion, type Variants } from "motion/react";
 import {
   cloneElement,
   isValidElement,
+  useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { EASE_OUT } from "@/lib/ease";
 import { useHoverCapable } from "@/lib/hooks/use-hover-capable";
 import { useMotionPreferences } from "@/lib/motion";
@@ -28,19 +31,15 @@ export interface TooltipProps {
   wrapperClassName?: string;
 }
 
-const wrapperClasses: Record<Side, string> = {
-  top: "bottom-full left-1/2 mb-2 -translate-x-1/2",
-  bottom: "top-full left-1/2 mt-2 -translate-x-1/2",
-  left: "right-full top-1/2 mr-2 -translate-y-1/2",
-  right: "left-full top-1/2 ml-2 -translate-y-1/2",
-};
-
 const transformOrigin: Record<Side, string> = {
   top: "center bottom",
   bottom: "center top",
   left: "right center",
   right: "left center",
 };
+
+const GAP = 8;
+const VIEWPORT_MARGIN = 8;
 
 // Offset is in the direction *away* from the trigger — content originates near
 // the trigger and rises into resting position.
@@ -102,6 +101,10 @@ export function Tooltip({ content, children, side = "top", delay = 120, classNam
   const [open, setOpen] = useState(false);
   const id = useId();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const bubbleRef = useRef<HTMLSpanElement | null>(null);
+  const [portalReady, setPortalReady] = useState(false);
+  const [position, setPosition] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
   const canHover = useHoverCapable();
   const { allowBasicMotion, allowRichMotion } = useMotionPreferences();
 
@@ -120,9 +123,81 @@ export function Tooltip({ content, children, side = "top", delay = 120, classNam
     setOpen(false);
   };
 
+  useEffect(() => {
+    setPortalReady(true);
+    return () => {
+      if (timer.current) {
+        clearTimeout(timer.current);
+      }
+    };
+  }, []);
+
   if (!isValidElement(children)) return children;
 
+  const updatePosition = () => {
+    const trigger = triggerRef.current;
+    const bubble = bubbleRef.current;
+    if (!trigger || !bubble) {
+      return;
+    }
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const bubbleRect = bubble.getBoundingClientRect();
+    let left = 0;
+    let top = 0;
+
+    if (side === "top" || side === "bottom") {
+      left = triggerRect.left + (triggerRect.width - bubbleRect.width) / 2;
+      top = side === "top"
+        ? triggerRect.top - bubbleRect.height - GAP
+        : triggerRect.bottom + GAP;
+    } else {
+      left = side === "left"
+        ? triggerRect.left - bubbleRect.width - GAP
+        : triggerRect.right + GAP;
+      top = triggerRect.top + (triggerRect.height - bubbleRect.height) / 2;
+    }
+
+    left = Math.min(
+      Math.max(VIEWPORT_MARGIN, left),
+      window.innerWidth - bubbleRect.width - VIEWPORT_MARGIN,
+    );
+    top = Math.min(
+      Math.max(VIEWPORT_MARGIN, top),
+      window.innerHeight - bubbleRect.height - VIEWPORT_MARGIN,
+    );
+
+    setPosition((current) => (
+      current.left === left && current.top === top ? current : { left, top }
+    ));
+  };
+
+  useLayoutEffect(() => {
+    if (!open || !portalReady) {
+      return;
+    }
+
+    updatePosition();
+    const handleWindowChange = () => updatePosition();
+    window.addEventListener("scroll", handleWindowChange, true);
+    window.addEventListener("resize", handleWindowChange);
+
+    return () => {
+      window.removeEventListener("scroll", handleWindowChange, true);
+      window.removeEventListener("resize", handleWindowChange);
+    };
+  }, [open, portalReady, side, content]);
+
   const trigger = cloneElement(children as ReactElement<Record<string, unknown>>, {
+    ref: (node: HTMLElement | null) => {
+      triggerRef.current = node;
+      const originalRef = (children as { ref?: unknown }).ref;
+      if (typeof originalRef === "function") {
+        originalRef(node);
+      } else if (originalRef && typeof originalRef === "object" && "current" in originalRef) {
+        (originalRef as { current: HTMLElement | null }).current = node;
+      }
+    },
     onMouseEnter: show,
     onMouseLeave: hide,
     onFocus: show,
@@ -135,43 +210,53 @@ export function Tooltip({ content, children, side = "top", delay = 120, classNam
   return (
     <span className={cn("relative inline-flex align-middle", wrapperClassName)}>
       {trigger}
-      <AnimatePresence mode="wait">
-        {open ? (
-          <span className={cn("pointer-events-none absolute z-[1200]", wrapperClasses[side])}>
-            {allowBasicMotion ? (
-              <motion.span
-                id={id}
-                role="tooltip"
-                variants={variants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                style={{
-                  transformOrigin: transformOrigin[side],
-                  willChange: allowRichMotion ? "transform, opacity, filter" : "opacity",
-                }}
-                className={cn(
-                  "block whitespace-nowrap rounded-[4px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-2 py-1 text-[11px] font-medium leading-none text-[var(--vscode-foreground)] shadow-[0_8px_18px_rgba(0,0,0,0.18)]",
-                  className,
-                )}
-              >
-                {content}
-              </motion.span>
-            ) : (
-              <span
-                id={id}
-                role="tooltip"
-                className={cn(
-                  "block whitespace-nowrap rounded-[4px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-2 py-1 text-[11px] font-medium leading-none text-[var(--vscode-foreground)] shadow-[0_8px_18px_rgba(0,0,0,0.18)]",
-                  className,
-                )}
-              >
-                {content}
-              </span>
-            )}
-          </span>
-        ) : null}
-      </AnimatePresence>
+      {portalReady
+        ? createPortal(
+            <AnimatePresence mode="wait">
+              {open ? (
+                <span
+                  className="pointer-events-none fixed z-[2200]"
+                  style={{ left: position.left, top: position.top }}
+                >
+                  {allowBasicMotion ? (
+                    <motion.span
+                      ref={bubbleRef}
+                      id={id}
+                      role="tooltip"
+                      variants={variants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      style={{
+                        transformOrigin: transformOrigin[side],
+                        willChange: allowRichMotion ? "transform, opacity, filter" : "opacity",
+                      }}
+                      className={cn(
+                        "block whitespace-nowrap rounded-[4px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-2 py-1 text-[11px] font-normal leading-none text-[var(--vscode-foreground)] shadow-[0_8px_18px_rgba(0,0,0,0.18)]",
+                        className,
+                      )}
+                    >
+                      {content}
+                    </motion.span>
+                  ) : (
+                    <span
+                      ref={bubbleRef}
+                      id={id}
+                      role="tooltip"
+                      className={cn(
+                        "block whitespace-nowrap rounded-[4px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-2 py-1 text-[11px] font-normal leading-none text-[var(--vscode-foreground)] shadow-[0_8px_18px_rgba(0,0,0,0.18)]",
+                        className,
+                      )}
+                    >
+                      {content}
+                    </span>
+                  )}
+                </span>
+              ) : null}
+            </AnimatePresence>,
+            document.body,
+          )
+        : null}
     </span>
   );
 }

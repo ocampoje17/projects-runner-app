@@ -152,7 +152,7 @@ export function AppearanceSettingsPanel({
                     )}
                   />
                 </div>
-                <div className="flex w-full items-center gap-2 px-1 pt-2 text-[12.5px] font-semibold text-foreground">
+                <div className="flex w-full items-center gap-2 px-1 pt-2 text-[12.5px] font-normal text-foreground">
                   <option.Icon size={15} />
                   <span>{option.label}</span>
                   {active ? <Check className="ml-auto text-primary" size={14} /> : null}

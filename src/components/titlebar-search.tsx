@@ -253,12 +253,12 @@ export const TitlebarSearch = forwardRef<
         <div className="titlebar-search-panel absolute left-0 top-[calc(100%+8px)] w-full overflow-hidden rounded-[10px] border border-[var(--vscode-command-center-border)] bg-[var(--vscode-panel)] shadow-[0_24px_60px_rgb(0_0_0_/_0.45)]">
           {!normalizedQuery ? (
             <div className="px-4 py-4 text-[12px] text-[var(--vscode-foreground)]/74">
-              <div className="font-medium text-foreground">Type to search across your workspace</div>
+              <div className="font-normal text-foreground">Type to search across your workspace</div>
               <div className="mt-1">Projects are matched by name. Commands match by name and script. Notes match by title and full content.</div>
             </div>
           ) : sections.length === 0 ? (
             <div className="px-4 py-4 text-[12px] text-[var(--vscode-foreground)]/74">
-              <div className="font-medium text-foreground">No matches found</div>
+              <div className="font-normal text-foreground">No matches found</div>
               <div className="mt-1">Try a project name, part of a command script, or text from a note body.</div>
             </div>
           ) : (
@@ -346,7 +346,7 @@ function ProjectResultContent({ item }: { item: TitlebarProjectSearchItem }) {
   return (
     <>
       <div className="flex items-center gap-2">
-        <span className="truncate text-[12px] font-medium text-foreground">{item.title}</span>
+        <span className="truncate text-[12px] font-normal text-foreground">{item.title}</span>
         <Badge variant="muted">Project</Badge>
       </div>
       <div className="mt-1 truncate font-mono text-[11px] text-[var(--vscode-foreground)]/64">{item.path}</div>
@@ -359,7 +359,7 @@ function CommandResultContent({ item }: { item: TitlebarCommandSearchItem }) {
   return (
     <>
       <div className="flex items-center gap-2">
-        <span className="truncate text-[12px] font-medium text-foreground">{item.title}</span>
+        <span className="truncate text-[12px] font-normal text-foreground">{item.title}</span>
         <Badge variant="muted">Command</Badge>
         {item.section ? <Badge variant="default">{item.section}</Badge> : null}
       </div>
@@ -376,7 +376,7 @@ function NoteResultContent({ item }: { item: TitlebarNoteSearchItem }) {
   return (
     <>
       <div className="flex items-center gap-2">
-        <span className="truncate text-[12px] font-medium text-foreground">{item.title}</span>
+        <span className="truncate text-[12px] font-normal text-foreground">{item.title}</span>
         <Badge variant="muted">Note</Badge>
         {item.pinned ? <Badge variant="default">Pinned</Badge> : null}
         {item.hidden ? <Badge variant="default">Hidden</Badge> : null}

@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
 import { EntityAvatar } from "./entity-avatar";
 import { XtermTerminal } from "./xterm-terminal";
+import { createPortal } from "react-dom";
 import { commandPorts, normalizeCommandScript, runtimeModeLabel } from "../lib/command-utils";
 import type { Project, ProjectCommand } from "../lib/api";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
@@ -11,7 +12,7 @@ import { interactiveTerminalLabel } from "../lib/interactive-terminal";
 import { BrushCleaning, ChevronDown, FolderOpen, Keyboard, Loader2, Maximize2, Minimize2, Pencil, Play, Plus, PowerOff, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
 import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 export type RunState = {
   runId: number;
@@ -60,10 +61,10 @@ const terminalDropdownTriggerClassName =
   "h-7 rounded-[4px] border border-transparent bg-transparent px-2 text-left text-[11.5px] text-[var(--vscode-foreground)]/84 transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)] data-[state=open]:border-[var(--vscode-border)] data-[state=open]:bg-[var(--vscode-list-hover)] data-[state=open]:text-foreground";
 
 const terminalDropdownMenuClassName =
-  "absolute z-[70] min-w-[8rem] overflow-hidden rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-1.5 text-popover-foreground shadow-[0_10px_24px_rgba(0,0,0,0.24)]";
+  "fixed z-[2300] min-w-[8rem] overflow-hidden rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-1.5 text-popover-foreground shadow-[0_10px_24px_rgba(0,0,0,0.24)]";
 
 const terminalDropdownItemClassName =
-  "relative flex min-h-8 w-full cursor-default items-center rounded-[4px] border border-transparent py-1.5 pl-3 pr-3 text-[12px] text-muted-foreground outline-none transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground";
+  "relative flex min-h-8 w-full cursor-default items-center rounded-[4px] border border-transparent py-1.5 pl-3 pr-3 text-[12px] font-normal text-[var(--vscode-foreground)] outline-none transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground";
 
 export function CommandCard({
   command,
@@ -284,7 +285,12 @@ export function LogPanel({
   theme: "light" | "dark";
 }) {
   const terminalRef = useRef<HTMLDivElement | null>(null);
+  const terminalFilterTriggerRef = useRef<HTMLDivElement | null>(null);
+  const terminalFilterMenuRef = useRef<HTMLDivElement | null>(null);
+  const interactiveTerminalTriggerRef = useRef<HTMLDivElement | null>(null);
+  const interactiveTerminalMenuRef = useRef<HTMLDivElement | null>(null);
   const previousVisibleCountRef = useRef(0);
+  const [portalReady, setPortalReady] = useState(false);
   const [activePanelView, setActivePanelView] = useState<"terminal" | "environments">("terminal");
   const [terminalFilter, setTerminalFilter] = useState<TerminalFilter>("all");
   const [terminalFilterMenuOpen, setTerminalFilterMenuOpen] = useState(false);
@@ -308,6 +314,12 @@ export function LogPanel({
     // Default to minimized; expand only when user restores or a terminal tab opens.
     return saved !== "false";
   });
+  const [terminalFilterMenuPosition, setTerminalFilterMenuPosition] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  const [interactiveTerminalMenuPosition, setInteractiveTerminalMenuPosition] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("logPanelHeight", String(panelHeight));
@@ -315,6 +327,14 @@ export function LogPanel({
 
   useEffect(() => {
     localStorage.setItem("logPanelCollapsed", String(isCollapsed));
+  }, [isCollapsed]);
+
+  useEffect(() => {
+    if (!isCollapsed) {
+      return;
+    }
+    setInteractiveTerminalMenuOpen(false);
+    setTerminalFilterMenuOpen(false);
   }, [isCollapsed]);
 
   useEffect(() => {
@@ -358,6 +378,68 @@ export function LogPanel({
       window.removeEventListener("keydown", handleEscape);
     };
   }, [interactiveTerminalMenuOpen, terminalFilterMenuOpen]);
+
+  const positionDropdownMenu = useCallback(
+    (
+      trigger: HTMLDivElement | null,
+      menu: HTMLDivElement | null,
+      setPosition: (position: { left: number; top: number }) => void,
+    ) => {
+      if (!trigger || !menu) {
+        return;
+      }
+
+      const gap = 6;
+      const margin = 8;
+      const triggerRect = trigger.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      const collapsedAnchorTop = triggerRect.top - menuRect.height - gap;
+      const expandedAnchorTop = triggerRect.bottom + gap;
+      const top = isCollapsed ? collapsedAnchorTop : expandedAnchorTop;
+      const unclampedLeft = Math.min(
+        triggerRect.left,
+        window.innerWidth - menuRect.width - margin,
+      );
+      const left = Math.max(margin, unclampedLeft);
+      const maxTop = window.innerHeight - menuRect.height - margin;
+
+      setPosition({
+        left,
+        top: Math.max(margin, Math.min(top, maxTop)),
+      });
+    },
+    [isCollapsed],
+  );
+
+  useLayoutEffect(() => {
+    if (!terminalFilterMenuOpen || !portalReady) {
+      return;
+    }
+
+    const update = () => positionDropdownMenu(terminalFilterTriggerRef.current, terminalFilterMenuRef.current, setTerminalFilterMenuPosition);
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [portalReady, positionDropdownMenu, terminalFilterMenuOpen]);
+
+  useLayoutEffect(() => {
+    if (!interactiveTerminalMenuOpen || !portalReady) {
+      return;
+    }
+
+    const update = () => positionDropdownMenu(interactiveTerminalTriggerRef.current, interactiveTerminalMenuRef.current, setInteractiveTerminalMenuPosition);
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [interactiveTerminalMenuOpen, portalReady, positionDropdownMenu]);
 
   const startResize = (mouseDownEvent: React.MouseEvent) => {
     if (isCollapsed) return;
@@ -489,7 +571,7 @@ export function LogPanel({
     <div className="flex shrink-0 items-center gap-0.5 pr-1">
       {activePanelView === "terminal" ? (
         <>
-          <div className="relative" data-terminal-filter-menu="">
+          <div className="relative" data-terminal-filter-menu="" ref={terminalFilterTriggerRef}>
             <Button
               size="sm"
               variant="ghost"
@@ -506,38 +588,46 @@ export function LogPanel({
               <ChevronDown size={13} />
             </Button>
             {terminalFilterMenuOpen ? (
-              <div className={cn(terminalDropdownMenuClassName, "left-0 top-[calc(100%+6px)] min-w-[150px]")}>
-                {[
-                  { value: "all", label: "All terminals" },
-                  { value: "internal_interactive", label: "Interactive" },
-                  { value: "internal_headless", label: "Headless" },
-                  { value: "external_terminal", label: "External" },
-                ].map((option) => {
-                  const selected = terminalFilter === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => {
-                        setTerminalFilter(option.value as TerminalFilter);
-                        setTerminalFilterMenuOpen(false);
-                      }}
-                      className={cn(
-                        terminalDropdownItemClassName,
-                        selected
-                          ? "border-primary/35 bg-[var(--vscode-list-active)] text-foreground"
-                          : "text-[var(--vscode-foreground)]",
-                      )}
-                    >
-                      <span>{option.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              portalReady ? createPortal(
+                <div
+                  ref={terminalFilterMenuRef}
+                  className={cn(terminalDropdownMenuClassName, "min-w-[150px]")}
+                  style={terminalFilterMenuPosition}
+                  data-terminal-filter-menu=""
+                >
+                  {[
+                    { value: "all", label: "All terminals" },
+                    { value: "internal_interactive", label: "Interactive" },
+                    { value: "internal_headless", label: "Headless" },
+                    { value: "external_terminal", label: "External" },
+                  ].map((option) => {
+                    const selected = terminalFilter === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          setTerminalFilter(option.value as TerminalFilter);
+                          setTerminalFilterMenuOpen(false);
+                        }}
+                        className={cn(
+                          terminalDropdownItemClassName,
+                          selected
+                            ? "border-[var(--vscode-border)] bg-[var(--vscode-list-hover)]"
+                            : "",
+                        )}
+                      >
+                        <span>{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>,
+                document.body,
+              ) : null
             ) : null}
           </div>
           <div className="mx-1 h-4 w-px bg-[var(--vscode-border)]" aria-hidden="true" />
-          <div className="relative flex items-center" data-interactive-terminal-menu="">
+          <div className="relative flex items-center" data-interactive-terminal-menu="" ref={interactiveTerminalTriggerRef}>
             <Button
               size="sm"
               variant="ghost"
@@ -568,29 +658,37 @@ export function LogPanel({
               <ChevronDown size={13} />
             </Button>
             {interactiveTerminalMenuOpen ? (
-              <div className={cn(terminalDropdownMenuClassName, "right-0 top-[calc(100%+6px)] min-w-[140px]")}>
-                {interactiveTerminalOptions.map((option) => {
-                  const selected = option.id === selectedInteractiveTerminalKind;
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedInteractiveTerminalKind(option.id);
-                        setInteractiveTerminalMenuOpen(false);
-                      }}
-                      className={cn(
-                        terminalDropdownItemClassName,
-                        selected
-                          ? "border-primary/35 bg-[var(--vscode-list-active)] text-foreground"
-                          : "text-[var(--vscode-foreground)]",
-                      )}
-                    >
-                      <span>{option.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              portalReady ? createPortal(
+                <div
+                  ref={interactiveTerminalMenuRef}
+                  className={cn(terminalDropdownMenuClassName, "min-w-[140px]")}
+                  style={interactiveTerminalMenuPosition}
+                  data-interactive-terminal-menu=""
+                >
+                  {interactiveTerminalOptions.map((option) => {
+                    const selected = option.id === selectedInteractiveTerminalKind;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedInteractiveTerminalKind(option.id);
+                          setInteractiveTerminalMenuOpen(false);
+                        }}
+                        className={cn(
+                          terminalDropdownItemClassName,
+                          selected
+                            ? "border-[var(--vscode-border)] bg-[var(--vscode-list-hover)]"
+                            : "",
+                        )}
+                      >
+                        <span>{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>,
+                document.body,
+              ) : null
             ) : null}
           </div>
           <Tooltip content={`Current interactive terminal: ${interactiveTerminalLabel(selectedInteractiveTerminalKind)}`}>

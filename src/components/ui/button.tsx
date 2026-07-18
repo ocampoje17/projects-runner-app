@@ -10,14 +10,14 @@ import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap border font-medium leading-none tracking-normal [font-family:var(--font-sans)] transition-[background-color,border-color,color,box-shadow,transform] duration-120 app-focus-ring disabled:pointer-events-none disabled:opacity-50 select-none [&_svg]:pointer-events-none [&_svg]:h-[13px] [&_svg]:w-[13px] [&_svg]:shrink-0",
+  "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap border font-normal leading-none tracking-normal [font-family:var(--font-sans)] transition-[background-color,border-color,color,box-shadow,transform] duration-120 app-focus-ring disabled:pointer-events-none disabled:opacity-50 select-none [&_svg]:pointer-events-none [&_svg]:h-[13px] [&_svg]:w-[13px] [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-[var(--primary-color)] text-[var(--primary-foreground-color)] shadow-none hover:bg-[color-mix(in_srgb,var(--primary-color)_88%,black)] active:scale-[0.985] active:bg-[color-mix(in_srgb,var(--primary-color)_76%,black)]",
+          "border-transparent bg-[var(--primary-color)] text-[var(--primary-foreground-color)] font-semibold shadow-none hover:bg-[color-mix(in_srgb,var(--primary-color)_88%,black)] active:scale-[0.985] active:bg-[color-mix(in_srgb,var(--primary-color)_76%,black)]",
         primary:
-          "border-transparent bg-[var(--primary-color)] text-[var(--primary-foreground-color)] shadow-none hover:bg-[color-mix(in_srgb,var(--primary-color)_88%,black)] active:scale-[0.985] active:bg-[color-mix(in_srgb,var(--primary-color)_76%,black)]",
+          "border-transparent bg-[var(--primary-color)] text-[var(--primary-foreground-color)] font-semibold shadow-none hover:bg-[color-mix(in_srgb,var(--primary-color)_88%,black)] active:scale-[0.985] active:bg-[color-mix(in_srgb,var(--primary-color)_76%,black)]",
         secondary:
           "border-transparent bg-transparent text-foreground/90 shadow-none hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:scale-[0.985] active:border-[var(--vscode-border)] active:bg-[var(--vscode-list-active)]",
         ghost:

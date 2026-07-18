@@ -331,8 +331,8 @@ export function CommandDialog({
                       {runtimeModeOptions.map((option) => (
                         <SelectItem key={option.value} value={option.value} className="items-start py-2">
                           <div className="flex flex-col gap-0.5">
-                            <span className="text-[12px] font-medium text-foreground">{option.label}</span>
-                            <span className="text-[11px] leading-5 text-muted-foreground">{option.description}</span>
+                            <span className="select-item-title">{option.label}</span>
+                            <span className="select-item-description">{option.description}</span>
                           </div>
                         </SelectItem>
                       ))}
@@ -391,8 +391,8 @@ export function CommandDialog({
                                   <Icon size={15} />
                                 </span>
                                 <div className="flex flex-col gap-0.5">
-                                  <span className="text-[12px] font-medium text-foreground">{option.label}</span>
-                                  <span className="text-[11px] leading-5 text-muted-foreground">{option.description}</span>
+                                  <span className="select-item-title">{option.label}</span>
+                                  <span className="select-item-description">{option.description}</span>
                                 </div>
                               </div>
                             </SelectItem>

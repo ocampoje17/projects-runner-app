@@ -14,7 +14,7 @@ export const SelectTrigger = React.forwardRef<
     <SelectPrimitive.Trigger
       ref={ref}
       className={cn(
-        "flex h-9 w-full items-center justify-between rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2 text-left text-[12px] text-foreground outline-none transition-[background-color,border-color,box-shadow,color,transform] hover:border-border-strong hover:bg-[var(--vscode-list-hover)] active:scale-[0.995] data-[placeholder]:text-muted-foreground data-[state=open]:border-primary/45 data-[state=open]:bg-[var(--vscode-list-active)] app-focus-ring",
+        "flex h-9 w-full items-center justify-between rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-2 text-left text-[12px] font-normal text-foreground outline-none transition-[background-color,border-color,box-shadow,color,transform] hover:border-border-strong hover:bg-[var(--vscode-list-hover)] active:scale-[0.995] data-[placeholder]:text-muted-foreground data-[state=open]:border-primary/45 data-[state=open]:bg-[var(--vscode-list-active)] app-focus-ring [&_span]:font-normal",
         className,
       )}
       {...props}
@@ -68,7 +68,7 @@ export const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex min-h-8 w-full cursor-default items-center rounded-[4px] border border-transparent py-1.5 pl-8 pr-3 text-[12px] text-muted-foreground outline-none transition-[background-color,border-color,color] data-[disabled]:pointer-events-none data-[highlighted]:border-[var(--vscode-border)] data-[highlighted]:bg-[var(--vscode-list-hover)] data-[highlighted]:text-foreground data-[state=checked]:border-primary/35 data-[state=checked]:bg-[var(--vscode-list-active)] data-[state=checked]:text-foreground",
+      "relative flex min-h-8 w-full cursor-default items-center rounded-[4px] border border-transparent py-1.5 pl-8 pr-3 text-[12px] font-normal text-[var(--vscode-foreground)] outline-none transition-[background-color,border-color,color] data-[disabled]:pointer-events-none data-[highlighted]:border-[var(--vscode-border)] data-[highlighted]:bg-[var(--vscode-list-hover)] data-[highlighted]:text-foreground data-[state=checked]:border-primary/20 data-[state=checked]:bg-[var(--vscode-list-active)]/60 data-[state=checked]:text-[var(--vscode-foreground)] [&_.select-item-title]:text-[12px] [&_.select-item-title]:font-normal [&_.select-item-title]:text-[var(--vscode-foreground)] [&_.select-item-description]:text-[11px] [&_.select-item-description]:font-normal [&_.select-item-description]:leading-5 [&_.select-item-description]:text-[var(--vscode-foreground)]/62 [&_span]:font-normal",
       className,
     )}
     {...props}
