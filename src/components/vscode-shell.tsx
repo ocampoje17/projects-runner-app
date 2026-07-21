@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenText,
   ChevronDown,
@@ -9,6 +10,7 @@ import {
   FilePenLine,
   FileUp,
   FolderKanban,
+  GitBranch,
   FolderOpen,
   LayoutGrid,
   ListTree,
@@ -37,6 +39,9 @@ import { Tooltip } from "./motion/tooltip";
 import { ProjectDetailNotes, ProjectNoteDialog } from "./project-detail-notes";
 import type { CommandSection, ProjectNote } from "./project-detail-types";
 import { CommandCard, LogPanel, type RunState } from "./project-runtime";
+import { FlowLauncher } from "./flow-launcher";
+import { FlowFormDialog } from "./flow-form-dialog";
+import { FlowsOverviewPane } from "./flows-overview";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -45,16 +50,18 @@ import { commandPorts, normalizeCommandScript, runtimeModeLabel } from "@/lib/co
 import { formatDateTime } from "@/lib/date-time";
 import { noteExcerpt, noteTitle, projectNoteVisibilityKey } from "@/lib/project-notes";
 import { cn } from "@/lib/utils";
-import type { Project, ProjectCommand } from "../lib/api";
+import { api, type Project, type ProjectCommand, type ProjectFlow } from "../lib/api";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import type { UpdateStatus } from "../hooks/use-app-updater";
+import type { FlowRunState } from "../hooks/use-flow-runtime";
 
-type SidebarView = "explorer" | "notes" | "terminal" | "settings";
+type SidebarView = "explorer" | "flows" | "notes" | "terminal" | "settings";
 
 export type VSCodeShellHandle = {
   openProject: (projectId: number) => void;
   openCommand: (projectId: number, commandId: number) => void;
   openNote: (projectId: number, noteId: string) => void;
+  openFlow: (projectId: number, flowId: number) => void;
 };
 
 type EditorTab =
@@ -62,8 +69,10 @@ type EditorTab =
   | { id: string; kind: "project-overview"; title: string; projectId: number }
   | { id: string; kind: "commands-overview"; title: string; projectId: number }
   | { id: string; kind: "notes-overview"; title: string; projectId: number }
+  | { id: string; kind: "flows-overview"; title: string; projectId: number }
   | { id: string; kind: "command"; title: string; projectId: number; commandId: number }
   | { id: string; kind: "note"; title: string; projectId: number; noteId: string }
+  | { id: string; kind: "flow"; title: string; projectId: number; flowId: number }
   | { id: string; kind: "settings"; title: string };
 
 const SIDEBAR_VIEW_KEY = "vscodeSidebarView";
@@ -116,6 +125,14 @@ function commandsOverviewTab(project: Project): EditorTab {
 
 function notesOverviewTab(project: Project): EditorTab {
   return { id: `notes-overview:${project.id}`, kind: "notes-overview", projectId: project.id, title: `${project.name} Notes` };
+}
+
+function flowsOverviewTab(project: Project): EditorTab {
+  return { id: `flows-overview:${project.id}`, kind: "flows-overview", projectId: project.id, title: `${project.name} Flows` };
+}
+
+function flowTab(project: Project, flow: ProjectFlow): EditorTab {
+  return { id: `flow:${flow.id}`, kind: "flow", projectId: project.id, flowId: flow.id, title: flow.name };
 }
 
 function settingsTab(): EditorTab {
@@ -1253,6 +1270,11 @@ type VSCodeShellProps = {
   selectedProjectId: number | null;
   commands: ProjectCommand[];
   commandsByProjectId: Record<number, ProjectCommand[]>;
+  flowsByProjectId: Record<number, ProjectFlow[]>;
+  flowRuns: Record<number, FlowRunState>;
+  onRunFlow: (flow: ProjectFlow) => void;
+  onStopFlow: (flowId: number) => void;
+  onDeleteFlow: (flow: ProjectFlow) => void;
   commandSectionsByProjectId: Record<number, CommandSection[]>;
   settingsProps: SettingsPageProps;
   updateStatus: UpdateStatus;
@@ -1313,6 +1335,11 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   selectedProjectId,
   commands,
   commandsByProjectId,
+  flowsByProjectId,
+  flowRuns,
+  onRunFlow,
+  onStopFlow,
+  onDeleteFlow,
   commandSectionsByProjectId,
   settingsProps,
   updateStatus,
@@ -1360,24 +1387,30 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   onKillPorts,
   onOpenLogs,
 }, ref) {
+  const queryClient = useQueryClient();
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("appearance");
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>(() => {
     if (typeof window === "undefined") {
       return "explorer";
     }
     const saved = localStorage.getItem(SIDEBAR_VIEW_KEY);
-    return saved === "notes" || saved === "terminal" || saved === "settings" ? saved : "explorer";
+    return saved === "flows" || saved === "notes" || saved === "terminal" || saved === "settings" ? saved : "explorer";
   });
   const [tabs, setTabs] = useState<EditorTab[]>(() => [welcomeTab()]);
   const [activeTabId, setActiveTabId] = useState("welcome");
+  const [flowDialogProject, setFlowDialogProject] = useState<Project | null>(null);
+  const [isCreatingFlow, setIsCreatingFlow] = useState(false);
+  const [flowCreationError, setFlowCreationError] = useState<string | null>(null);
   const [commandsExpanded, setCommandsExpanded] = useState(true);
   const [notesExpanded, setNotesExpanded] = useState(true);
+  const [flowsExpanded, setFlowsExpanded] = useState(true);
   const [sidebarLayout, setSidebarLayout] = useState<{ sidebar: number; editor: number }>(() => readSidebarLayout());
   const runningCount = Object.values(runs).filter((run) => run.status === "running").length;
   const activeTabProjectId = getProjectIdFromTab(tabs.find((tab) => tab.id === activeTabId) ?? welcomeTab());
   const activeContextProject = findProjectById(projects, activeTabProjectId ?? selectedProjectId ?? undefined) ?? selectedProject;
   const selectedProjectCommands = activeContextProject ? commandsByProjectId[activeContextProject.id] ?? [] : [];
   const selectedProjectNotes = activeContextProject ? sortedProjectNotesByProjectId[activeContextProject.id] ?? [] : [];
+  const selectedProjectFlows = activeContextProject ? flowsByProjectId[activeContextProject.id] ?? [] : [];
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_VIEW_KEY, activeSidebarView);
@@ -1426,10 +1459,21 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         if (tab.kind === "note") {
           return Boolean(findNoteById(sortedProjectNotesByProjectId[tab.projectId] ?? [], tab.noteId));
         }
+        if (tab.kind === "flow") {
+          return Boolean((flowsByProjectId[tab.projectId] ?? []).some((flow) => flow.id === tab.flowId));
+        }
         return true;
       }),
     );
-  }, [commandsByProjectId, projects, sortedProjectNotesByProjectId]);
+  }, [commandsByProjectId, flowsByProjectId, projects, sortedProjectNotesByProjectId]);
+
+  useEffect(() => {
+    setTabs((current) => current.map((tab) => {
+      if (tab.kind !== "flow") return tab;
+      const flow = (flowsByProjectId[tab.projectId] ?? []).find((item) => item.id === tab.flowId);
+      return flow && flow.name !== tab.title ? { ...tab, title: flow.name } : tab;
+    }));
+  }, [flowsByProjectId]);
 
   useEffect(() => {
     setActiveTabId((current) => {
@@ -1502,6 +1546,42 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     setActiveSidebarView("explorer");
   }
 
+  function handleOpenFlowTab(project: Project, flow: ProjectFlow) {
+    openTab(flowTab(project, flow));
+    setActiveSidebarView("flows");
+  }
+
+  function handleOpenFlowsOverviewForProject(project: Project) {
+    openTab(flowsOverviewTab(project));
+    setActiveSidebarView("flows");
+  }
+
+  function handleOpenFlowsOverview() {
+    if (activeContextProject) {
+      handleOpenFlowsOverviewForProject(activeContextProject);
+    }
+  }
+
+  function handleCreateFlow(project: Project) {
+    setFlowCreationError(null);
+    setFlowDialogProject(project);
+  }
+
+  async function submitFlow(project: Project, name: string) {
+    setIsCreatingFlow(true);
+    setFlowCreationError(null);
+    try {
+      const flow = await api.createFlow(project.id, name);
+      await queryClient.invalidateQueries({ queryKey: ["flows", project.id] });
+      setFlowDialogProject(null);
+      handleOpenFlowTab(project, flow);
+    } catch (error) {
+      setFlowCreationError(error instanceof Error ? error.message : "Unable to create flow.");
+    } finally {
+      setIsCreatingFlow(false);
+    }
+  }
+
   function handleOpenNotesOverview() {
     if (!activeContextProject) return;
     handleOpenNotesOverviewForProject(activeContextProject);
@@ -1569,14 +1649,21 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         }
         handleOpenNoteTab(project, note);
       },
+      openFlow(projectId: number, flowId: number) {
+        const project = findProjectById(projects, projectId);
+        const flow = (flowsByProjectId[projectId] ?? []).find((item) => item.id === flowId);
+        if (project && flow) handleOpenFlowTab(project, flow);
+      },
     }),
-    [commandsByProjectId, projects, sortedProjectNotesByProjectId],
+    [commandsByProjectId, flowsByProjectId, projects, sortedProjectNotesByProjectId],
   );
 
   function handleSwitchPrimarySidebar(view: Exclude<SidebarView, "settings">) {
     if (activeTab.kind === "settings") {
       if (view === "notes" && activeContextProject) {
         handleOpenNotesOverviewForProject(activeContextProject);
+      } else if (view === "flows" && activeContextProject) {
+        handleOpenFlowsOverviewForProject(activeContextProject);
       } else if (view === "explorer" && activeContextProject) {
         handleOpenProjectOverviewForProject(activeContextProject);
       } else {
@@ -1734,6 +1821,11 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       return;
     }
 
+    if (activeTab.kind === "flow" || activeTab.kind === "flows-overview") {
+      setActiveSidebarView("flows");
+      return;
+    }
+
     setActiveSidebarView("explorer");
   }, [activeTab.kind]);
 
@@ -1845,6 +1937,34 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
           </div>
         </div>
       );
+    }
+
+    if (activeTab.kind === "flows-overview") {
+      return <FlowsOverviewPane
+        project={tabProject}
+        flows={flowsByProjectId[tabProject.id] ?? []}
+        flowRuns={flowRuns}
+        onCreate={() => handleCreateFlow(tabProject)}
+        onOpen={(flow) => handleOpenFlowTab(tabProject, flow)}
+        onRun={onRunFlow}
+        onStop={(flow) => onStopFlow(flow.id)}
+        onDelete={onDeleteFlow}
+      />;
+    }
+
+    if (activeTab.kind === "flow") {
+      const flow = (flowsByProjectId[tabProject.id] ?? []).find((item) => item.id === activeTab.flowId);
+      if (!flow) return <WelcomeEditor onAddProject={onAddProject} onImportProject={onImportProject} />;
+      return <FlowLauncher
+        flow={flow}
+        commands={commandsByProjectId[tabProject.id] ?? []}
+        runs={runs}
+        flowRun={flowRuns[flow.id]}
+        onRunFlow={onRunFlow}
+        onStopFlow={onStopFlow}
+        onOpenLogs={handleOpenLogs}
+        onDeleted={() => onDeleteFlow(flow)}
+      />;
     }
 
     if (activeTab.kind === "command") {
@@ -1986,6 +2106,39 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       );
     }
 
+    if (activeSidebarView === "flows") {
+      return (
+        <div className="px-2 py-3">
+          <div className="mb-2 flex items-center justify-between px-2">
+            <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/46">Project flows</span>
+            {activeContextProject ? (
+              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={handleOpenFlowsOverview}>
+                Open all
+              </Button>
+            ) : null}
+          </div>
+          {activeContextProject ? (
+            <div className="space-y-1">
+              <TreeItem title={`${activeContextProject.name} Flows`} icon={<GitBranch size={14} />} onClick={handleOpenFlowsOverview} />
+              {selectedProjectFlows.map((flow) => (
+                <TreeItem
+                  key={flow.id}
+                  level={1}
+                  title={flow.name}
+                  active={activeTab.kind === "flow" && activeTab.flowId === flow.id}
+                  onClick={() => handleOpenFlowTab(activeContextProject, flow)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-[8px] border border-dashed border-[var(--vscode-border)] px-3 py-5 text-[12px] text-[var(--vscode-foreground)]/62">
+              Select a project to browse its flows.
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div className="px-2 py-3">
         <div className="mb-2 flex items-center justify-between px-2">
@@ -2092,6 +2245,26 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                       </>
                     ) : null}
                     <TreeItem
+                      title="Flows"
+                      level={1}
+                      icon={flowsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      active={activeTab.kind === "flow" || activeTab.kind === "flows-overview"}
+                      onClick={() => setFlowsExpanded((current) => !current)}
+                      trailing={(flowsByProjectId[project.id] ?? []).length}
+                      menuItems={[
+                        { label: "Open flows view", icon: <LayoutGrid size={13} />, onSelect: handleOpenFlowsOverview },
+                        { label: flowsExpanded ? "Collapse flows" : "Expand flows", icon: flowsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />, onSelect: () => setFlowsExpanded((current) => !current) },
+                      ]}
+                    />
+                    {flowsExpanded ? (
+                      <>
+                        <TreeItem title="Open flows view" level={2} icon={<LayoutGrid size={12} />} active={activeTab.kind === "flows-overview"} onClick={handleOpenFlowsOverview} />
+                        {(flowsByProjectId[project.id] ?? []).map((flow) => (
+                          <TreeItem key={flow.id} level={2} title={flow.name} icon={<GitBranch size={12} />} active={activeTab.kind === "flow" && activeTab.flowId === flow.id} onClick={() => handleOpenFlowTab(project, flow)} />
+                        ))}
+                      </>
+                    ) : null}
+                    <TreeItem
                       title="Notes"
                       level={1}
                       icon={notesExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -2145,11 +2318,15 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   })();
 
   return (
-    <main className="app-shell flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--vscode-shell)] text-foreground">
+    <>
+      <main className="app-shell flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--vscode-shell)] text-foreground">
       <aside className="flex w-12 shrink-0 flex-col items-center justify-between border-r border-[var(--vscode-border)] bg-[var(--vscode-activity)]">
         <div className="flex w-full flex-col items-center pt-2">
           <SidebarIconButton label="Explorer" active={activeSidebarView === "explorer"} onClick={() => handleSwitchPrimarySidebar("explorer")}>
             <FolderKanban size={20} />
+          </SidebarIconButton>
+          <SidebarIconButton label="Flows" active={activeSidebarView === "flows"} onClick={() => handleSwitchPrimarySidebar("flows")}>
+            <GitBranch size={20} />
           </SidebarIconButton>
           <SidebarIconButton label="Notes" active={activeSidebarView === "notes"} onClick={() => handleSwitchPrimarySidebar("notes")}>
             <BookOpenText size={20} />
@@ -2188,6 +2365,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
               <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--vscode-foreground)]/58">
                 {activeSidebarView === "explorer"
                   ? "Explorer"
+                  : activeSidebarView === "flows"
+                    ? "Flows"
                   : activeSidebarView === "notes"
                     ? "Notes"
                     : activeSidebarView === "terminal"
@@ -2239,7 +2418,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
             <div className="min-h-0 flex-1 overflow-hidden">{editorBody}</div>
 
             {activeTab.kind === "settings" ? null : (
-              <div className="border-t border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
+              <div className="shrink-0 border-t border-[var(--vscode-border)] bg-[var(--vscode-panel)]">
                 <LogPanel
                   activeCommandId={activeLogCommandId}
                   commands={commands}
@@ -2281,6 +2460,22 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
           </section>
         </Panel>
       </Group>
-    </main>
+      </main>
+      <FlowFormDialog
+        open={flowDialogProject !== null}
+        projectName={flowDialogProject?.name ?? null}
+        isPending={isCreatingFlow}
+        error={flowCreationError}
+        onOpenChange={(open) => {
+          if (!open && !isCreatingFlow) {
+            setFlowDialogProject(null);
+            setFlowCreationError(null);
+          }
+        }}
+        onSubmit={(name) => {
+          if (flowDialogProject) void submitFlow(flowDialogProject, name);
+        }}
+      />
+    </>
   );
 });

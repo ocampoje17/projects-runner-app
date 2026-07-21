@@ -124,7 +124,7 @@ struct ProjectCommand {
     run_count: i32,
 }
 
-#[derive(Debug, Serialize, QueryableByName)]
+#[derive(Debug, Serialize, QueryableByName, Clone)]
 struct CommandRun {
     #[diesel(sql_type = BigInt)]
     id: i64,
@@ -138,12 +138,72 @@ struct CommandRun {
     ended_at: Option<String>,
     #[diesel(sql_type = Nullable<Integer>)]
     exit_code: Option<i32>,
+    #[diesel(sql_type = Nullable<Text>)]
+    flow_node_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, QueryableByName, Clone)]
+struct Flow {
+    #[diesel(sql_type = BigInt)] id: i64,
+    #[diesel(sql_type = BigInt)] project_id: i64,
+    #[diesel(sql_type = Text)] name: String,
+    #[diesel(sql_type = Text)] created_at: String,
+    #[diesel(sql_type = Text)] updated_at: String,
+}
+
+#[derive(Debug, Serialize, QueryableByName, Clone)]
+struct FlowSummary {
+    #[diesel(sql_type = BigInt)] id: i64,
+    #[diesel(sql_type = BigInt)] project_id: i64,
+    #[diesel(sql_type = Text)] name: String,
+    #[diesel(sql_type = Text)] created_at: String,
+    #[diesel(sql_type = Text)] updated_at: String,
+    #[diesel(sql_type = BigInt)] node_count: i64,
+}
+
+#[derive(Debug, Serialize, QueryableByName, Clone)]
+struct FlowNode {
+    #[diesel(sql_type = Text)] id: String,
+    #[diesel(sql_type = BigInt)] flow_id: i64,
+    #[diesel(sql_type = BigInt)] command_id: i64,
+    #[diesel(sql_type = Integer)] position_x: i32,
+    #[diesel(sql_type = Integer)] position_y: i32,
+}
+
+#[derive(Debug, Serialize, QueryableByName, Clone)]
+struct FlowEdge {
+    #[diesel(sql_type = Text)] id: String,
+    #[diesel(sql_type = BigInt)] flow_id: i64,
+    #[diesel(sql_type = Text)] source_node_id: String,
+    #[diesel(sql_type = Text)] target_node_id: String,
+}
+
+#[derive(Debug, Serialize)]
+struct FlowDetail { flow: Flow, nodes: Vec<FlowNode>, edges: Vec<FlowEdge> }
+
+#[derive(Debug, Deserialize)]
+struct FlowInput { project_id: i64, name: String }
+
+#[derive(Debug, Deserialize)]
+struct FlowGraphInput { name: String, nodes: Vec<FlowNodeInput>, edges: Vec<FlowEdgeInput> }
+
+#[derive(Debug, Deserialize)]
+struct FlowNodeInput { id: String, command_id: i64, position_x: i32, position_y: i32 }
+
+#[derive(Debug, Deserialize)]
+struct FlowEdgeInput { id: String, source_node_id: String, target_node_id: String }
+
+#[derive(Debug, Serialize)]
+struct FlowNodeRunStart {
+    run: CommandRun,
+    interactive_session: Option<InteractiveSessionInfo>,
 }
 
 #[derive(Debug, Serialize, Clone)]
 struct RunStartedPayload {
     run_id: i64,
     command_id: i64,
+    flow_node_id: Option<String>,
     started_at: String,
 }
 
@@ -151,6 +211,7 @@ struct RunStartedPayload {
 struct RunOutputPayload {
     run_id: i64,
     command_id: i64,
+    flow_node_id: Option<String>,
     line: String,
 }
 
@@ -158,6 +219,7 @@ struct RunOutputPayload {
 struct RunFinishedPayload {
     run_id: i64,
     command_id: i64,
+    flow_node_id: Option<String>,
     status: String,
     exit_code: Option<i32>,
     ended_at: String,
@@ -168,6 +230,7 @@ struct InteractiveSessionInfo {
     session_id: String,
     run_id: i64,
     command_id: i64,
+    flow_node_id: Option<String>,
     cols: u16,
     rows: u16,
     started_at: String,
@@ -178,6 +241,7 @@ struct InteractiveDataPayload {
     session_id: String,
     run_id: i64,
     command_id: i64,
+    flow_node_id: Option<String>,
     data: String,
 }
 
@@ -186,6 +250,7 @@ struct InteractiveExitPayload {
     session_id: String,
     run_id: i64,
     command_id: i64,
+    flow_node_id: Option<String>,
     exit_code: Option<i32>,
     ended_at: String,
     status: String,
@@ -196,6 +261,7 @@ struct InteractiveErrorPayload {
     session_id: String,
     run_id: i64,
     command_id: i64,
+    flow_node_id: Option<String>,
     error: String,
 }
 
@@ -524,7 +590,7 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     fs::create_dir_all(&paths.scripts_dir).map_err(|error| error.to_string())?;
     let mut conn = connect(paths)?;
 
-    sql_query(
+    conn.batch_execute(
         "CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             name TEXT NOT NULL,
@@ -536,7 +602,6 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
             updated_at TEXT NOT NULL
         );",
     )
-    .execute(&mut conn)
     .map_err(|error| error.to_string())?;
 
     sql_query(
@@ -566,6 +631,7 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
         "CREATE TABLE IF NOT EXISTS command_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             command_id INTEGER NOT NULL,
+            flow_node_id TEXT,
             status TEXT NOT NULL,
             started_at TEXT NOT NULL,
             ended_at TEXT,
@@ -574,6 +640,38 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
         );",
     )
     .execute(&mut conn)
+    .map_err(|error| error.to_string())?;
+
+    conn.batch_execute(
+        "CREATE TABLE IF NOT EXISTS flows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            project_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS flow_nodes (
+            id TEXT PRIMARY KEY NOT NULL,
+            flow_id INTEGER NOT NULL,
+            command_id INTEGER NOT NULL,
+            position_x INTEGER NOT NULL DEFAULT 0,
+            position_y INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
+            FOREIGN KEY(command_id) REFERENCES commands(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS flow_edges (
+            id TEXT PRIMARY KEY NOT NULL,
+            flow_id INTEGER NOT NULL,
+            source_node_id TEXT NOT NULL,
+            target_node_id TEXT NOT NULL,
+            FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
+            FOREIGN KEY(source_node_id) REFERENCES flow_nodes(id) ON DELETE CASCADE,
+            FOREIGN KEY(target_node_id) REFERENCES flow_nodes(id) ON DELETE CASCADE,
+            UNIQUE(flow_id, source_node_id),
+            UNIQUE(flow_id, target_node_id)
+        );",
+    )
     .map_err(|error| error.to_string())?;
 
     ensure_column(&mut conn, "projects", "notes", "TEXT")?;
@@ -614,6 +712,8 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
         "run_count",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+    ensure_column(&mut conn, "command_runs", "flow_node_id", "TEXT")?;
+    migrate_flow_nodes_allow_duplicates(&mut conn)?;
 
     sql_query(format!(
         "UPDATE commands SET runtime_mode = '{}' WHERE runtime_mode IS NULL OR TRIM(runtime_mode) = ''",
@@ -644,6 +744,65 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
 
     Ok(())
+}
+
+fn migrate_flow_nodes_allow_duplicates(conn: &mut SqliteConnection) -> Result<(), String> {
+    #[derive(QueryableByName)]
+    struct TableSql {
+        #[diesel(sql_type = Text)]
+        sql: String,
+    }
+
+    let schema = sql_query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'flow_nodes'")
+        .get_result::<TableSql>(conn)
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let Some(schema) = schema else { return Ok(()); };
+    if !schema.sql.contains("UNIQUE(flow_id, command_id)") {
+        return Ok(());
+    }
+
+    // SQLite cannot remove a table-level unique constraint in place. Rebuild
+    // both graph tables so their foreign keys continue to point at flow_nodes.
+    conn.batch_execute("PRAGMA foreign_keys = OFF; BEGIN IMMEDIATE TRANSACTION;")
+        .map_err(|error| error.to_string())?;
+    let result = conn.batch_execute(
+        "CREATE TABLE flow_nodes_next (
+            id TEXT PRIMARY KEY NOT NULL,
+            flow_id INTEGER NOT NULL,
+            command_id INTEGER NOT NULL,
+            position_x INTEGER NOT NULL DEFAULT 0,
+            position_y INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
+            FOREIGN KEY(command_id) REFERENCES commands(id) ON DELETE CASCADE
+        );
+        INSERT INTO flow_nodes_next (id, flow_id, command_id, position_x, position_y)
+            SELECT id, flow_id, command_id, position_x, position_y FROM flow_nodes;
+        CREATE TABLE flow_edges_next (
+            id TEXT PRIMARY KEY NOT NULL,
+            flow_id INTEGER NOT NULL,
+            source_node_id TEXT NOT NULL,
+            target_node_id TEXT NOT NULL,
+            FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
+            FOREIGN KEY(source_node_id) REFERENCES flow_nodes_next(id) ON DELETE CASCADE,
+            FOREIGN KEY(target_node_id) REFERENCES flow_nodes_next(id) ON DELETE CASCADE,
+            UNIQUE(flow_id, source_node_id),
+            UNIQUE(flow_id, target_node_id)
+        );
+        INSERT INTO flow_edges_next (id, flow_id, source_node_id, target_node_id)
+            SELECT id, flow_id, source_node_id, target_node_id FROM flow_edges;
+        DROP TABLE flow_edges;
+        DROP TABLE flow_nodes;
+        ALTER TABLE flow_nodes_next RENAME TO flow_nodes;
+        ALTER TABLE flow_edges_next RENAME TO flow_edges;",
+    );
+    match result {
+        Ok(()) => conn.batch_execute("COMMIT; PRAGMA foreign_keys = ON;").map_err(|error| error.to_string()),
+        Err(error) => {
+            let _ = conn.batch_execute("ROLLBACK; PRAGMA foreign_keys = ON;");
+            Err(error.to_string())
+        }
+    }
 }
 
 fn ensure_column(
@@ -1251,6 +1410,64 @@ mod tests {
     }
 
     #[test]
+    fn flow_graph_requires_one_connected_sequence() {
+        let nodes = vec![
+            FlowNodeInput { id: "a".to_string(), command_id: 1, position_x: 0, position_y: 0 },
+            FlowNodeInput { id: "b".to_string(), command_id: 2, position_x: 0, position_y: 100 },
+            FlowNodeInput { id: "c".to_string(), command_id: 3, position_x: 0, position_y: 200 },
+        ];
+        let edges = vec![
+            FlowEdgeInput { id: "ab".to_string(), source_node_id: "a".to_string(), target_node_id: "b".to_string() },
+            FlowEdgeInput { id: "bc".to_string(), source_node_id: "b".to_string(), target_node_id: "c".to_string() },
+        ];
+        assert!(validate_flow_graph(&nodes, &edges).is_ok());
+        assert!(validate_flow_graph(&nodes, &edges[..1]).is_err());
+        let cyclic = vec![
+            FlowEdgeInput { id: "ab".to_string(), source_node_id: "a".to_string(), target_node_id: "b".to_string() },
+            FlowEdgeInput { id: "ba".to_string(), source_node_id: "b".to_string(), target_node_id: "a".to_string() },
+        ];
+        assert!(validate_flow_graph(&nodes[..2], &cyclic).is_err());
+    }
+
+    #[test]
+    fn flow_graph_allows_reusing_a_command_for_distinct_nodes() {
+        let nodes = vec![
+            FlowNodeInput { id: "first".to_string(), command_id: 7, position_x: 0, position_y: 0 },
+            FlowNodeInput { id: "second".to_string(), command_id: 7, position_x: 0, position_y: 100 },
+        ];
+        let edges = vec![FlowEdgeInput {
+            id: "first-second".to_string(),
+            source_node_id: "first".to_string(),
+            target_node_id: "second".to_string(),
+        }];
+        assert!(validate_flow_graph(&nodes, &edges).is_ok());
+    }
+
+    #[test]
+    fn init_db_migrates_flow_nodes_that_prevent_command_reuse() {
+        let paths = temp_test_paths("flow-node-duplicates");
+        fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
+        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+        conn.batch_execute(
+            "CREATE TABLE projects (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL, path TEXT NOT NULL, avatar_path TEXT, description TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+             CREATE TABLE commands (id INTEGER PRIMARY KEY NOT NULL, project_id INTEGER NOT NULL, name TEXT NOT NULL, script TEXT NOT NULL, avatar_path TEXT, ports TEXT NOT NULL DEFAULT '[]', section TEXT NOT NULL DEFAULT 'General', order_index INTEGER NOT NULL DEFAULT 0, runtime_mode TEXT NOT NULL DEFAULT 'internal_headless', run_in_external_terminal INTEGER NOT NULL DEFAULT 0, external_terminal_kind TEXT NOT NULL DEFAULT 'default', interactive_terminal_kind TEXT NOT NULL DEFAULT 'powershell', run_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+             CREATE TABLE flows (id INTEGER PRIMARY KEY NOT NULL, project_id INTEGER NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+             CREATE TABLE flow_nodes (id TEXT PRIMARY KEY NOT NULL, flow_id INTEGER NOT NULL, command_id INTEGER NOT NULL, position_x INTEGER NOT NULL DEFAULT 0, position_y INTEGER NOT NULL DEFAULT 0, UNIQUE(flow_id, command_id));
+             CREATE TABLE flow_edges (id TEXT PRIMARY KEY NOT NULL, flow_id INTEGER NOT NULL, source_node_id TEXT NOT NULL, target_node_id TEXT NOT NULL, UNIQUE(flow_id, source_node_id), UNIQUE(flow_id, target_node_id));
+             INSERT INTO projects VALUES (1, 'Project', '.', NULL, NULL, NULL, 'now', 'now');
+             INSERT INTO commands VALUES (1, 1, 'Command', 'echo ok', NULL, '[]', 'General', 0, 'internal_headless', 0, 'default', 'powershell', 0, 'now', 'now');
+             INSERT INTO flows VALUES (1, 1, 'Flow', 'now', 'now');
+             INSERT INTO flow_nodes VALUES ('first', 1, 1, 0, 0);",
+        ).expect("create legacy flow schema");
+
+        init_db(&paths).expect("migrate flow nodes");
+        let mut verify = connect(&paths).expect("reopen database");
+        sql_query("INSERT INTO flow_nodes (id, flow_id, command_id, position_x, position_y) VALUES ('second', 1, 1, 0, 100)")
+            .execute(&mut verify)
+            .expect("allow a repeated command in a flow");
+    }
+
+    #[test]
     fn init_db_migrates_runtime_mode_for_legacy_commands_table() {
         let paths = temp_test_paths("runtime-mode-migration");
         fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
@@ -1328,6 +1545,19 @@ mod tests {
             .map(|row| row.name)
             .collect::<Vec<_>>();
         assert!(columns.iter().any(|name| name == "runtime_mode"));
+
+        #[derive(QueryableByName)]
+        struct TableName {
+            #[diesel(sql_type = Text)]
+            name: String,
+        }
+        let flow_tables = sql_query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('flows', 'flow_nodes', 'flow_edges') ORDER BY name")
+            .load::<TableName>(&mut verify)
+            .expect("read flow tables")
+            .into_iter()
+            .map(|row| row.name)
+            .collect::<Vec<_>>();
+        assert_eq!(flow_tables, vec!["flow_edges", "flow_nodes", "flows"]);
 
         drop(verify);
         fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
@@ -2634,6 +2864,159 @@ fn list_commands(project_id: i64, state: State<AppState>) -> Result<Vec<ProjectC
     .map_err(|error| error.to_string())
 }
 
+fn load_flow_detail(conn: &mut SqliteConnection, id: i64) -> Result<FlowDetail, String> {
+    let flow = sql_query(format!("SELECT * FROM flows WHERE id = {}", id))
+        .get_result::<Flow>(conn)
+        .map_err(|error| error.to_string())?;
+    let nodes = sql_query(format!("SELECT * FROM flow_nodes WHERE flow_id = {} ORDER BY id ASC", id))
+        .load::<FlowNode>(conn)
+        .map_err(|error| error.to_string())?;
+    let edges = sql_query(format!("SELECT * FROM flow_edges WHERE flow_id = {} ORDER BY id ASC", id))
+        .load::<FlowEdge>(conn)
+        .map_err(|error| error.to_string())?;
+    Ok(FlowDetail { flow, nodes, edges })
+}
+
+fn validate_flow_graph(nodes: &[FlowNodeInput], edges: &[FlowEdgeInput]) -> Result<(), String> {
+    let mut ids = HashSet::new();
+    for node in nodes {
+        if node.id.trim().is_empty() || !ids.insert(node.id.as_str()) {
+            return Err("Each flow node needs a unique id".to_string());
+        }
+    }
+    if nodes.is_empty() {
+        return if edges.is_empty() { Ok(()) } else { Err("An empty flow cannot have connections".to_string()) };
+    }
+    if edges.len() != nodes.len().saturating_sub(1) {
+        return Err("A flow must be one continuous sequence".to_string());
+    }
+    let mut incoming = HashMap::<&str, &str>::new();
+    let mut outgoing = HashMap::<&str, &str>::new();
+    let mut edge_ids = HashSet::new();
+    for edge in edges {
+        if edge.id.trim().is_empty() || !edge_ids.insert(edge.id.as_str()) {
+            return Err("Each connection needs a unique id".to_string());
+        }
+        if edge.source_node_id == edge.target_node_id || !ids.contains(edge.source_node_id.as_str()) || !ids.contains(edge.target_node_id.as_str()) {
+            return Err("Connections must join two different nodes in this flow".to_string());
+        }
+        if outgoing.insert(edge.source_node_id.as_str(), edge.target_node_id.as_str()).is_some() || incoming.insert(edge.target_node_id.as_str(), edge.source_node_id.as_str()).is_some() {
+            return Err("Each node can have only one predecessor and one successor".to_string());
+        }
+    }
+    let start = ids.iter().find(|id| !incoming.contains_key(**id)).ok_or_else(|| "The flow contains a cycle".to_string())?;
+    let mut visited = HashSet::new();
+    let mut current = *start;
+    while visited.insert(current) {
+        match outgoing.get(current) { Some(next) => current = next, None => break }
+    }
+    if visited.len() != nodes.len() { return Err("The flow must be a single connected sequence".to_string()); }
+    Ok(())
+}
+
+#[tauri::command]
+fn list_flows(project_id: i64, state: State<AppState>) -> Result<Vec<FlowSummary>, String> {
+    let mut conn = connect(&state.paths)?;
+    sql_query(format!(
+        "SELECT f.id, f.project_id, f.name, f.created_at, f.updated_at, COUNT(n.id) AS node_count
+         FROM flows f LEFT JOIN flow_nodes n ON n.flow_id = f.id
+         WHERE f.project_id = {} GROUP BY f.id ORDER BY f.updated_at DESC, f.id DESC", project_id
+    ))
+    .load::<FlowSummary>(&mut conn).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_flow(id: i64, state: State<AppState>) -> Result<FlowDetail, String> {
+    load_flow_detail(&mut connect(&state.paths)?, id)
+}
+
+#[tauri::command]
+fn create_flow(input: FlowInput, state: State<AppState>) -> Result<Flow, String> {
+    let name = input.name.trim();
+    if name.is_empty() { return Err("Flow name is required".to_string()); }
+    let mut conn = connect(&state.paths)?;
+    let exists = sql_query(format!("SELECT * FROM projects WHERE id = {}", input.project_id)).get_result::<Project>(&mut conn).optional().map_err(|error| error.to_string())?;
+    if exists.is_none() { return Err("Project not found".to_string()); }
+    let timestamp = now();
+    sql_query(format!("INSERT INTO flows (project_id, name, created_at, updated_at) VALUES ({}, '{}', '{}', '{}')", input.project_id, quote_sql(name), timestamp, timestamp))
+        .execute(&mut conn).map_err(|error| error.to_string())?;
+    sql_query("SELECT * FROM flows WHERE id = last_insert_rowid()").get_result::<Flow>(&mut conn).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_flow_graph(id: i64, input: FlowGraphInput, state: State<AppState>) -> Result<FlowDetail, String> {
+    let name = input.name.trim();
+    if name.is_empty() { return Err("Flow name is required".to_string()); }
+    validate_flow_graph(&input.nodes, &input.edges)?;
+    let mut conn = connect(&state.paths)?;
+    let flow = sql_query(format!("SELECT * FROM flows WHERE id = {}", id)).get_result::<Flow>(&mut conn).map_err(|error| error.to_string())?;
+    for node in &input.nodes {
+        let command = sql_query(format!("SELECT * FROM commands WHERE id = {}", node.command_id)).get_result::<ProjectCommand>(&mut conn).optional().map_err(|error| error.to_string())?;
+        if command.map(|command| command.project_id) != Some(flow.project_id) { return Err("All flow commands must belong to the project".to_string()); }
+    }
+    conn.batch_execute("BEGIN IMMEDIATE TRANSACTION;").map_err(|error| error.to_string())?;
+    let result = (|| -> Result<(), String> {
+        sql_query(format!("DELETE FROM flow_edges WHERE flow_id = {}", id)).execute(&mut conn).map_err(|error| error.to_string())?;
+        sql_query(format!("DELETE FROM flow_nodes WHERE flow_id = {}", id)).execute(&mut conn).map_err(|error| error.to_string())?;
+        for node in &input.nodes {
+            sql_query(format!("INSERT INTO flow_nodes (id, flow_id, command_id, position_x, position_y) VALUES ('{}', {}, {}, {}, {})", quote_sql(&node.id), id, node.command_id, node.position_x, node.position_y)).execute(&mut conn).map_err(|error| error.to_string())?;
+        }
+        for edge in &input.edges {
+            sql_query(format!("INSERT INTO flow_edges (id, flow_id, source_node_id, target_node_id) VALUES ('{}', {}, '{}', '{}')", quote_sql(&edge.id), id, quote_sql(&edge.source_node_id), quote_sql(&edge.target_node_id))).execute(&mut conn).map_err(|error| error.to_string())?;
+        }
+        sql_query(format!("UPDATE flows SET name = '{}', updated_at = '{}' WHERE id = {}", quote_sql(name), now(), id)).execute(&mut conn).map_err(|error| error.to_string())?;
+        Ok(())
+    })();
+    if let Err(error) = result { let _ = conn.batch_execute("ROLLBACK;"); return Err(error); }
+    conn.batch_execute("COMMIT;").map_err(|error| error.to_string())?;
+    load_flow_detail(&mut conn, id)
+}
+
+#[tauri::command]
+fn delete_flow(id: i64, state: State<AppState>) -> Result<(), String> {
+    let mut conn = connect(&state.paths)?;
+    sql_query(format!("DELETE FROM flows WHERE id = {}", id)).execute(&mut conn).map(|_| ()).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn start_flow_node(
+    flow_id: i64,
+    flow_node_id: String,
+    cols: u16,
+    rows: u16,
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<FlowNodeRunStart, String> {
+    let mut conn = connect(&state.paths)?;
+    let node = sql_query(format!(
+        "SELECT * FROM flow_nodes WHERE id = '{}' AND flow_id = {}",
+        quote_sql(&flow_node_id), flow_id
+    ))
+    .get_result::<FlowNode>(&mut conn)
+    .optional()
+    .map_err(|error| error.to_string())?
+    .ok_or_else(|| "Flow node not found".to_string())?;
+    let flow = sql_query(format!("SELECT * FROM flows WHERE id = {}", flow_id))
+        .get_result::<Flow>(&mut conn)
+        .map_err(|error| error.to_string())?;
+    let (command, _) = load_command(&mut conn, node.command_id)?;
+    if command.project_id != flow.project_id {
+        return Err("The flow node command does not belong to this project".to_string());
+    }
+    drop(conn);
+
+    if command.runtime_mode == RUNTIME_MODE_INTERNAL_INTERACTIVE {
+        let session = start_interactive_command_instance(command.id, Some(&node.id), cols, rows, &app, &state)?;
+        let run = sql_query(format!("SELECT * FROM command_runs WHERE id = {}", session.run_id))
+            .get_result::<CommandRun>(&mut connect(&state.paths)?)
+            .map_err(|error| error.to_string())?;
+        Ok(FlowNodeRunStart { run, interactive_session: Some(session) })
+    } else {
+        let run = start_non_interactive_command(command.id, Some(&node.id), &app, &state)?;
+        Ok(FlowNodeRunStart { run, interactive_session: None })
+    }
+}
+
 #[tauri::command]
 fn create_command(input: CommandInput, state: State<AppState>) -> Result<ProjectCommand, String> {
     let mut conn = connect(&state.paths)?;
@@ -2854,20 +3237,22 @@ fn run_command(
     app: AppHandle,
     state: State<AppState>,
 ) -> Result<CommandRun, String> {
-    start_non_interactive_command(command_id, &app, &state)
+    start_non_interactive_command(command_id, None, &app, &state)
 }
 
 fn start_non_interactive_command(
     command_id: i64,
+    flow_node_id: Option<&str>,
     app: &AppHandle,
     state: &AppState,
 ) -> Result<CommandRun, String> {
     let mut conn = connect(&state.paths)?;
     mark_stale_running_runs(&mut conn, &state)?;
-    let active_runs = sql_query(format!(
-        "SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'",
-        command_id
-    ))
+    let active_query = match flow_node_id {
+        Some(node_id) => format!("SELECT * FROM command_runs WHERE flow_node_id = '{}' AND status = 'running'", quote_sql(node_id)),
+        None => format!("SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'", command_id),
+    };
+    let active_runs = sql_query(active_query)
     .load::<CommandRun>(&mut conn)
     .map_err(|error| error.to_string())?;
     if !active_runs.is_empty() {
@@ -2897,8 +3282,8 @@ fn start_non_interactive_command(
     .execute(&mut conn)
     .map_err(|error| error.to_string())?;
     sql_query(format!(
-        "INSERT INTO command_runs (command_id, status, started_at) VALUES ({}, 'running', '{}')",
-        command_id, started_at
+        "INSERT INTO command_runs (command_id, flow_node_id, status, started_at) VALUES ({}, {}, 'running', '{}')",
+        command_id, optional_sql(&flow_node_id.map(str::to_string)), started_at
     ))
     .execute(&mut conn)
     .map_err(|error| error.to_string())?;
@@ -2942,19 +3327,21 @@ fn start_non_interactive_command(
         RunStartedPayload {
             run_id: run.id,
             command_id,
+            flow_node_id: run.flow_node_id.clone(),
             started_at: run.started_at.clone(),
         },
     );
 
     if let Some(stdout) = stdout {
-        spawn_output_reader(app.clone(), run.id, command_id, stdout, "command://stdout");
+        spawn_output_reader(app.clone(), run.id, command_id, run.flow_node_id.clone(), stdout, "command://stdout");
     }
     if let Some(stderr) = stderr {
-        spawn_output_reader(app.clone(), run.id, command_id, stderr, "command://stderr");
+        spawn_output_reader(app.clone(), run.id, command_id, run.flow_node_id.clone(), stderr, "command://stderr");
     }
 
     let paths = state.paths.clone();
     let app_for_wait = app.clone();
+    let flow_node_id = run.flow_node_id.clone();
     std::thread::spawn(move || {
         let status = process
             .child
@@ -3004,6 +3391,7 @@ fn start_non_interactive_command(
             RunFinishedPayload {
                 run_id: run.id,
                 command_id,
+                flow_node_id: flow_node_id.clone(),
                 status: final_status.to_string(),
                 exit_code,
                 ended_at,
@@ -3090,6 +3478,7 @@ async fn restart_command(
                 RunFinishedPayload {
                     run_id: run.id,
                     command_id: run.command_id,
+                    flow_node_id: run.flow_node_id.clone(),
                     status: "stopped".to_string(),
                     exit_code: None,
                     ended_at,
@@ -3098,7 +3487,7 @@ async fn restart_command(
         }
     }
 
-    start_non_interactive_command(command_id, &app, &state)
+    start_non_interactive_command(command_id, None, &app, &state)
 }
 
 #[cfg(target_os = "windows")]
@@ -3144,6 +3533,7 @@ async fn stop_command(
                 RunFinishedPayload {
                     run_id,
                     command_id: run.command_id,
+                    flow_node_id: run.flow_node_id.clone(),
                     status: "stopped".to_string(),
                     exit_code: None,
                     ended_at: ended_at.clone(),
@@ -3185,13 +3575,25 @@ fn start_interactive_command(
     app: AppHandle,
     state: State<AppState>,
 ) -> Result<InteractiveSessionInfo, String> {
+    start_interactive_command_instance(command_id, None, cols, rows, &app, &state)
+}
+
+fn start_interactive_command_instance(
+    command_id: i64,
+    flow_node_id: Option<&str>,
+    cols: u16,
+    rows: u16,
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<InteractiveSessionInfo, String> {
     let mut conn = connect(&state.paths)?;
     mark_stale_running_runs(&mut conn, &state)?;
 
-    let active_runs = sql_query(format!(
-        "SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'",
-        command_id
-    ))
+    let active_query = match flow_node_id {
+        Some(node_id) => format!("SELECT * FROM command_runs WHERE flow_node_id = '{}' AND status = 'running'", quote_sql(node_id)),
+        None => format!("SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'", command_id),
+    };
+    let active_runs = sql_query(active_query)
     .load::<CommandRun>(&mut conn)
     .map_err(|error| error.to_string())?;
     if !active_runs.is_empty() {
@@ -3224,8 +3626,8 @@ fn start_interactive_command(
     .execute(&mut conn)
     .map_err(|error| error.to_string())?;
     sql_query(format!(
-        "INSERT INTO command_runs (command_id, status, started_at) VALUES ({}, 'running', '{}')",
-        command_id, started_at
+        "INSERT INTO command_runs (command_id, flow_node_id, status, started_at) VALUES ({}, {}, 'running', '{}')",
+        command_id, optional_sql(&flow_node_id.map(str::to_string)), started_at
     ))
     .execute(&mut conn)
     .map_err(|error| error.to_string())?;
@@ -3292,6 +3694,7 @@ fn start_interactive_command(
         session_id: session_id.clone(),
         run_id: run.id,
         command_id,
+        flow_node_id: run.flow_node_id.clone(),
         cols: cols.max(20),
         rows: rows.max(1),
         started_at: run.started_at.clone(),
@@ -3302,6 +3705,7 @@ fn start_interactive_command(
         RunStartedPayload {
             run_id: run.id,
             command_id,
+            flow_node_id: run.flow_node_id.clone(),
             started_at: run.started_at.clone(),
         },
     );
@@ -3312,6 +3716,7 @@ fn start_interactive_command(
         session_id.clone(),
         run.id,
         command_id,
+        run.flow_node_id.clone(),
     );
 
     let paths = state.paths.clone();
@@ -3360,6 +3765,7 @@ fn start_interactive_command(
                 session_id: session_id.clone(),
                 run_id: run.id,
                 command_id,
+                flow_node_id: run.flow_node_id.clone(),
                 exit_code,
                 ended_at: ended_at.clone(),
                 status: final_status.to_string(),
@@ -3370,6 +3776,7 @@ fn start_interactive_command(
             RunFinishedPayload {
                 run_id: run.id,
                 command_id,
+                flow_node_id: run.flow_node_id.clone(),
                 status: final_status.to_string(),
                 exit_code,
                 ended_at,
@@ -3465,6 +3872,7 @@ fn start_project_interactive_terminal(
         session_id: session_id.clone(),
         run_id,
         command_id: terminal_id,
+        flow_node_id: None,
         cols: cols.max(20),
         rows: rows.max(1),
         started_at: started_at.clone(),
@@ -3475,6 +3883,7 @@ fn start_project_interactive_terminal(
         RunStartedPayload {
             run_id,
             command_id: terminal_id,
+            flow_node_id: None,
             started_at: started_at.clone(),
         },
     );
@@ -3485,6 +3894,7 @@ fn start_project_interactive_terminal(
         session_id.clone(),
         run_id,
         terminal_id,
+        None,
     );
 
     let app_for_wait = app.clone();
@@ -3521,6 +3931,7 @@ fn start_project_interactive_terminal(
                 session_id: session_id.clone(),
                 run_id,
                 command_id: terminal_id,
+                flow_node_id: None,
                 exit_code,
                 ended_at: ended_at.clone(),
                 status: final_status.to_string(),
@@ -3531,6 +3942,7 @@ fn start_project_interactive_terminal(
             RunFinishedPayload {
                 run_id,
                 command_id: terminal_id,
+                flow_node_id: None,
                 status: final_status.to_string(),
                 exit_code,
                 ended_at,
@@ -4026,6 +4438,7 @@ fn spawn_interactive_reader(
     session_id: String,
     run_id: i64,
     command_id: i64,
+    flow_node_id: Option<String>,
 ) {
     std::thread::spawn(move || {
         let mut buffer = [0u8; 4096];
@@ -4040,6 +4453,7 @@ fn spawn_interactive_reader(
                             session_id: session_id.clone(),
                             run_id,
                             command_id,
+                            flow_node_id: flow_node_id.clone(),
                             data: chunk,
                         },
                     );
@@ -4055,6 +4469,7 @@ fn spawn_interactive_reader(
                             session_id: session_id.clone(),
                             run_id,
                             command_id,
+                            flow_node_id: flow_node_id.clone(),
                             error: error.to_string(),
                         },
                     );
@@ -4234,6 +4649,7 @@ fn spawn_output_reader<R>(
     app: AppHandle,
     run_id: i64,
     command_id: i64,
+    flow_node_id: Option<String>,
     reader: R,
     event: &'static str,
 ) where
@@ -4247,6 +4663,7 @@ fn spawn_output_reader<R>(
                 RunOutputPayload {
                     run_id,
                     command_id,
+                    flow_node_id: flow_node_id.clone(),
                     line,
                 },
             );
@@ -4300,6 +4717,12 @@ pub fn run() {
             update_project,
             delete_project,
             list_commands,
+            list_flows,
+            get_flow,
+            create_flow,
+            save_flow_graph,
+            delete_flow,
+            start_flow_node,
             create_command,
             update_command,
             delete_command,

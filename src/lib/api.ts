@@ -217,6 +217,43 @@ export type CommandRun = {
   started_at: string;
   ended_at: string | null;
   exit_code: number | null;
+  flow_node_id: string | null;
+};
+
+export type FlowNodeRunStart = {
+  run: CommandRun;
+  interactive_session: InteractiveSession | null;
+};
+
+export type ProjectFlow = {
+  id: number;
+  project_id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  node_count?: number;
+};
+
+export type FlowNode = {
+  id: string;
+  flow_id: number;
+  command_id: number;
+  position_x: number;
+  position_y: number;
+};
+
+export type FlowEdge = {
+  id: string;
+  flow_id: number;
+  source_node_id: string;
+  target_node_id: string;
+};
+
+export type FlowDetail = { flow: ProjectFlow; nodes: FlowNode[]; edges: FlowEdge[] };
+export type FlowGraphInput = {
+  name: string;
+  nodes: Array<Pick<FlowNode, "id" | "command_id" | "position_x" | "position_y">>;
+  edges: Array<Pick<FlowEdge, "id" | "source_node_id" | "target_node_id">>;
 };
 
 export type ProjectInput = {
@@ -365,6 +402,7 @@ export type InteractiveSession = {
   session_id: string;
   run_id: number;
   command_id: number;
+  flow_node_id: string | null;
   cols: number;
   rows: number;
   started_at: string;
@@ -374,6 +412,7 @@ export type InteractiveSessionExitedPayload = {
   session_id: string;
   run_id: number;
   command_id: number;
+  flow_node_id: string | null;
   exit_code: number | null;
   ended_at: string;
   status: string;
@@ -383,6 +422,7 @@ export type InteractiveSessionDataPayload = {
   session_id: string;
   run_id: number;
   command_id: number;
+  flow_node_id: string | null;
   data: string;
 };
 
@@ -390,24 +430,28 @@ export type InteractiveSessionErrorPayload = {
   session_id: string;
   run_id: number;
   command_id: number;
+  flow_node_id: string | null;
   error: string;
 };
 
 export type RunStartedPayload = {
   run_id: number;
   command_id: number;
+  flow_node_id: string | null;
   started_at: string;
 };
 
 export type RunOutputPayload = {
   run_id: number;
   command_id: number;
+  flow_node_id: string | null;
   line: string;
 };
 
 export type RunFinishedPayload = {
   run_id: number;
   command_id: number;
+  flow_node_id: string | null;
   status: string;
   exit_code: number | null;
   ended_at: string;
@@ -430,6 +474,13 @@ export const api = {
     isDesktopRuntime()
       ? invokeDesktop<ProjectCommand[]>("list_commands", { projectId })
       : readBrowserMockPayloadAsync().then((payload) => payload?.commandsByProjectId[projectId] ?? []),
+  listFlows: (projectId: number) => invokeDesktop<ProjectFlow[]>("list_flows", { projectId }),
+  getFlow: (id: number) => invokeDesktop<FlowDetail>("get_flow", { id }),
+  createFlow: (projectId: number, name: string) => invokeDesktop<ProjectFlow>("create_flow", { input: { project_id: projectId, name } }),
+  saveFlowGraph: (id: number, input: FlowGraphInput) => invokeDesktop<FlowDetail>("save_flow_graph", { id, input }),
+  deleteFlow: (id: number) => invokeDesktop<void>("delete_flow", { id }),
+  startFlowNode: (flowId: number, flowNodeId: string, cols = 120, rows = 32) =>
+    invokeDesktop<FlowNodeRunStart>("start_flow_node", { flowId, flowNodeId, cols, rows }),
   createCommand: (input: CommandInput) =>
     invokeDesktop<ProjectCommand>("create_command", { input }),
   updateCommand: (id: number, input: CommandInput) =>

@@ -501,6 +501,35 @@ p {
   border-radius: 0;
 }
 
+.flow-command-node {
+  width: 250px;
+  border: 1px solid var(--vscode-border);
+  border-radius: 6px;
+  background: var(--vscode-panel);
+  color: var(--vscode-foreground);
+  padding: 10px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.16);
+}
+
+.flow-command-node.is-selected { border-color: var(--primary-color); box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 70%, transparent); }
+.flow-command-node-running { border-color: color-mix(in srgb, var(--success-color) 72%, var(--vscode-border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--success-color) 35%, transparent), 0 0 18px color-mix(in srgb, var(--success-color) 20%, transparent); }
+.flow-command-node-failed { border-color: color-mix(in srgb, var(--vscode-danger) 76%, var(--vscode-border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-danger) 30%, transparent); }
+.flow-command-node-success { border-color: color-mix(in srgb, var(--success-color) 48%, var(--vscode-border)); }
+.flow-status-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--vscode-icon); }
+.flow-command-node-queued .flow-status-dot { background: #569cd6; }
+.flow-command-node-starting .flow-status-dot { background: #d7ba7d; animation: pulseDot 1.2s ease-in-out infinite; }
+.flow-command-node-running .flow-status-dot { background: var(--success-color); animation: pulseDot 1.2s ease-in-out infinite; }
+.flow-command-node-failed .flow-status-dot { background: var(--vscode-danger); }
+.flow-command-node-success .flow-status-dot { background: var(--success-color); }
+.flow-command-node-stopped .flow-status-dot { background: #d7ba7d; }
+.flow-handle { width: 8px !important; height: 8px !important; border: 1px solid var(--vscode-editor) !important; background: var(--primary-color) !important; }
+.flow-toolbar-button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; color: var(--vscode-foreground); font-size: 11px; transition: background-color 120ms ease; }
+.flow-toolbar-button:hover:not(:disabled) { background: var(--vscode-list-hover); border-color: var(--vscode-border); }
+.flow-toolbar-button:disabled { opacity: .45; cursor: not-allowed; }
+.react-flow__controls { border-color: var(--vscode-border) !important; box-shadow: 0 1px 4px rgb(0 0 0 / .24) !important; }
+.react-flow__controls-button { background: var(--vscode-panel) !important; border-bottom-color: var(--vscode-border) !important; fill: var(--vscode-icon) !important; }
+.react-flow__minimap { background: color-mix(in srgb, var(--vscode-panel) 90%, transparent) !important; border: 1px solid var(--vscode-border); }
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

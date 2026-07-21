@@ -1,4 +1,4 @@
-import type { Project, ProjectCommand } from "./api";
+import type { Project, ProjectCommand, ProjectFlow } from "./api";
 import { noteExcerpt, noteTitle, projectNoteVisibilityKey } from "./project-notes";
 import type { ProjectNote } from "../components/project-detail-types";
 
@@ -40,25 +40,40 @@ export type TitlebarNoteSearchItem = {
   hidden: boolean;
 };
 
+export type TitlebarFlowSearchItem = {
+  id: string;
+  kind: "flow";
+  projectId: number;
+  flowId: number;
+  title: string;
+  subtitle: string;
+  projectName: string;
+  nodeCount: number;
+};
+
 export type TitlebarSearchItem =
   | TitlebarProjectSearchItem
   | TitlebarCommandSearchItem
-  | TitlebarNoteSearchItem;
+  | TitlebarNoteSearchItem
+  | TitlebarFlowSearchItem;
 
 export type TitlebarSearchCollections = {
   projects: TitlebarProjectSearchItem[];
   commands: TitlebarCommandSearchItem[];
   notes: TitlebarNoteSearchItem[];
+  flows: TitlebarFlowSearchItem[];
 };
 
 export function buildTitlebarSearchCollections({
   projects,
   commandsByProjectId,
+  flowsByProjectId,
   notesByProjectId,
   noteVisibility,
 }: {
   projects: Project[];
   commandsByProjectId: Record<number, ProjectCommand[]>;
+  flowsByProjectId: Record<number, ProjectFlow[]>;
   notesByProjectId: Record<number, ProjectNote[]>;
   noteVisibility: Record<string, boolean>;
 }): TitlebarSearchCollections {
@@ -104,9 +119,23 @@ export function buildTitlebarSearchCollections({
     })),
   );
 
+  const flowItems = projects.flatMap<TitlebarFlowSearchItem>((project) =>
+    (flowsByProjectId[project.id] ?? []).map((flow) => ({
+      id: `flow:${flow.id}`,
+      kind: "flow",
+      projectId: project.id,
+      flowId: flow.id,
+      title: flow.name,
+      subtitle: `${project.name} • ${flow.node_count ?? 0} command nodes`,
+      projectName: project.name,
+      nodeCount: flow.node_count ?? 0,
+    })),
+  );
+
   return {
     projects: projectItems,
     commands: commandItems,
     notes: noteItems,
+    flows: flowItems,
   };
 }

@@ -29,7 +29,18 @@ function cleanTerminalLine(line: string) {
 
 const DEFAULT_INTERACTIVE_COLS = 120;
 const DEFAULT_INTERACTIVE_ROWS = 32;
+const FLOW_TERMINAL_ID_OFFSET = 1_000_000_000;
 let nextAdHocTerminalId = -1;
+
+function terminalIdForEvent(commandId: number, runId: number, flowNodeId: string | null) {
+  return flowNodeId ? -(FLOW_TERMINAL_ID_OFFSET + runId) : commandId;
+}
+
+export type FlowNodeExecution = {
+  flowNodeId: string;
+  runId: number;
+  terminalId: number;
+};
 
 function buildAdHocInteractiveCommand(project: Project, terminalKind: InteractiveTerminalKind): ProjectCommand {
   const timestamp = new Date().toISOString();
@@ -80,6 +91,7 @@ export function useCommandRuntime({
   const [interactiveSessionsByCommandId, setInteractiveSessionsByCommandId] = useState<Record<number, InteractiveSession>>({});
   const [interactiveSizesByCommandId, setInteractiveSizesByCommandId] = useState<Record<number, { cols: number; rows: number }>>({});
   const [adHocInteractiveCommands, setAdHocInteractiveCommands] = useState<ProjectCommand[]>([]);
+  const [flowExecutionCommands, setFlowExecutionCommands] = useState<ProjectCommand[]>([]);
   const [openLogCommandIds, setOpenLogCommandIds] = useState<number[]>([]);
   const [activeLogCommandId, setActiveLogCommandId] = useState<number | null>(null);
   const [stoppingRunIds, setStoppingRunIds] = useState<Set<number>>(new Set());
@@ -106,7 +118,6 @@ export function useCommandRuntime({
 
   const runMutation = useMutation({
     mutationFn: api.runCommand,
-    onError: (error) => onErrorRef.current(error),
   });
 
   const stopMutation = useMutation({
@@ -127,14 +138,15 @@ export function useCommandRuntime({
     },
     onSuccess: (_, runId) => {
       setRuns((current) => {
-        const entry = Object.values(current).find((run) => run.runId === runId);
+        const entry = Object.entries(current).find(([, run]) => run.runId === runId);
         if (!entry) {
           return current;
         }
+        const [terminalId, run] = entry;
         return {
           ...current,
-          [entry.commandId]: {
-            ...entry,
+          [terminalId]: {
+            ...run,
             status: "stopped",
             endedAt: new Date().toISOString(),
           },
@@ -151,9 +163,10 @@ export function useCommandRuntime({
 
     const unlisteners = [
       listen<RunStartedPayload>("command://started", (event) => {
+        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
         setRuns((current) => ({
           ...current,
-          [event.payload.command_id]: {
+          [terminalId]: {
             runId: event.payload.run_id,
             commandId: event.payload.command_id,
             status: "running",
@@ -161,11 +174,12 @@ export function useCommandRuntime({
           },
         }));
         setOpenLogCommandIds((current) =>
-          current.includes(event.payload.command_id) ? current : [...current, event.payload.command_id],
+          current.includes(terminalId) ? current : [...current, terminalId],
         );
-        setActiveLogCommandId(event.payload.command_id);
+        setActiveLogCommandId(terminalId);
       }),
       listen<RunOutputPayload>("command://stdout", (event) => {
+        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
         const cleanedLine = cleanTerminalLine(event.payload.line);
         const timestamp = formatTime(new Date());
         setLogs((current) => [
@@ -173,7 +187,7 @@ export function useCommandRuntime({
           {
             id: `${event.payload.run_id}-out-${current.length}`,
             runId: event.payload.run_id,
-            commandId: event.payload.command_id,
+            commandId: terminalId,
             stream: "stdout",
             line: cleanedLine,
             timestamp,
@@ -181,10 +195,11 @@ export function useCommandRuntime({
         ]);
         setTerminalContentByCommandId((current) => ({
           ...current,
-          [event.payload.command_id]: `${current[event.payload.command_id] ?? ""}${formatHeadlessTerminalLine("stdout", cleanedLine, timestamp)}\r\n`,
+          [terminalId]: `${current[terminalId] ?? ""}${formatHeadlessTerminalLine("stdout", cleanedLine, timestamp)}\r\n`,
         }));
       }),
       listen<RunOutputPayload>("command://stderr", (event) => {
+        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
         const cleanedLine = cleanTerminalLine(event.payload.line);
         const timestamp = formatTime(new Date());
         setLogs((current) => [
@@ -192,7 +207,7 @@ export function useCommandRuntime({
           {
             id: `${event.payload.run_id}-err-${current.length}`,
             runId: event.payload.run_id,
-            commandId: event.payload.command_id,
+            commandId: terminalId,
             stream: "stderr",
             line: cleanedLine,
             timestamp,
@@ -200,13 +215,14 @@ export function useCommandRuntime({
         ]);
         setTerminalContentByCommandId((current) => ({
           ...current,
-          [event.payload.command_id]: `${current[event.payload.command_id] ?? ""}${formatHeadlessTerminalLine("stderr", cleanedLine, timestamp)}\r\n`,
+          [terminalId]: `${current[terminalId] ?? ""}${formatHeadlessTerminalLine("stderr", cleanedLine, timestamp)}\r\n`,
         }));
       }),
       listen<RunFinishedPayload>("command://finished", (event) => {
+        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
         setRuns((current) => ({
           ...current,
-          [event.payload.command_id]: {
+          [terminalId]: {
             runId: event.payload.run_id,
             commandId: event.payload.command_id,
             status:
@@ -215,14 +231,14 @@ export function useCommandRuntime({
                 : event.payload.status === "stopped"
                   ? "stopped"
                   : "failed",
-            startedAt: current[event.payload.command_id]?.startedAt ?? event.payload.ended_at,
+            startedAt: current[terminalId]?.startedAt ?? event.payload.ended_at,
             endedAt: event.payload.ended_at,
             exitCode: event.payload.exit_code,
           },
         }));
 
         setRestartPendingCommandIds((current) => {
-          if (!current.includes(event.payload.command_id)) {
+          if (event.payload.flow_node_id || !current.includes(event.payload.command_id)) {
             return current;
           }
 
@@ -238,37 +254,41 @@ export function useCommandRuntime({
         });
       }),
       listen<InteractiveSession>("pty://started", (event) => {
+        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
         setInteractiveSessionsByCommandId((current) => ({
           ...current,
-          [event.payload.command_id]: event.payload,
+          [terminalId]: event.payload,
         }));
         setInteractiveSizesByCommandId((current) => ({
           ...current,
-          [event.payload.command_id]: {
+          [terminalId]: {
             cols: event.payload.cols,
             rows: event.payload.rows,
           },
         }));
         setOpenLogCommandIds((current) =>
-          current.includes(event.payload.command_id) ? current : [...current, event.payload.command_id],
+          current.includes(terminalId) ? current : [...current, terminalId],
         );
-        setActiveLogCommandId(event.payload.command_id);
+        setActiveLogCommandId(terminalId);
       }),
       listen<InteractiveSessionDataPayload>("pty://data", (event) => {
+        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
         setTerminalContentByCommandId((current) => ({
           ...current,
-          [event.payload.command_id]: `${current[event.payload.command_id] ?? ""}${event.payload.data}`,
+          [terminalId]: `${current[terminalId] ?? ""}${event.payload.data}`,
         }));
       }),
       listen<InteractiveSessionExitedPayload>("pty://exit", (event) => {
+        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
         setInteractiveSessionsByCommandId((current) => {
           const next = { ...current };
-          delete next[event.payload.command_id];
+          delete next[terminalId];
           return next;
         });
       }),
       listen<InteractiveSessionErrorPayload>("pty://error", (event) => {
-        if (!interactiveSessionsByCommandIdRef.current[event.payload.command_id]) {
+        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
+        if (!interactiveSessionsByCommandIdRef.current[terminalId]) {
           return;
         }
         onErrorRef.current(new Error(event.payload.error));
@@ -280,10 +300,10 @@ export function useCommandRuntime({
     };
   }, [autoClearLogs, showLogsTimestamp, showStreamName]);
 
-  function openLogCommandTab(commandId: number) {
+  const openLogCommandTab = useCallback((commandId: number) => {
     setOpenLogCommandIds((current) => (current.includes(commandId) ? current : [...current, commandId]));
     setActiveLogCommandId(commandId);
-  }
+  }, []);
 
   async function openAdHocInteractiveTerminal(project: Project, terminalKind: InteractiveTerminalKind) {
     const command = buildAdHocInteractiveCommand(project, terminalKind);
@@ -305,10 +325,10 @@ export function useCommandRuntime({
     }
   }
 
-  async function startCommandRun(command: ProjectCommand) {
+  async function startCommandRun(command: ProjectCommand): Promise<boolean> {
     const run = runs[command.id];
     if (run?.status === "running" || (run && stoppingRunIds.has(run.runId))) {
-      return;
+      return false;
     }
 
     if (autoClearLogs) {
@@ -329,12 +349,43 @@ export function useCommandRuntime({
         };
         await api.startInteractiveCommand(command.id, size.cols, size.rows);
       } else {
-        runMutation.mutate(command.id);
+        await runMutation.mutateAsync(command.id);
       }
+      return true;
     } catch (error) {
       onErrorRef.current(error);
+      return false;
     }
   }
+
+  const startFlowNodeRun = useCallback(async (
+    flowId: number,
+    flowNodeId: string,
+    command: ProjectCommand,
+    label: string,
+  ): Promise<FlowNodeExecution> => {
+    const result = await api.startFlowNode(flowId, flowNodeId, DEFAULT_INTERACTIVE_COLS, DEFAULT_INTERACTIVE_ROWS);
+    const terminalId = terminalIdForEvent(command.id, result.run.id, flowNodeId);
+    const executionCommand = { ...command, id: terminalId, name: label };
+    setFlowExecutionCommands((current) => current.some((item) => item.id === terminalId) ? current : [...current, executionCommand]);
+    setRuns((current) => ({
+      ...current,
+      [terminalId]: current[terminalId] ?? {
+        runId: result.run.id,
+        commandId: command.id,
+        status: "running",
+        startedAt: result.run.started_at,
+      },
+    }));
+    if (command.runtime_mode === "external_terminal") {
+      setTerminalContentByCommandId((current) => ({
+        ...current,
+        [terminalId]: "This command is running in an external terminal window.\r\n",
+      }));
+    }
+    openLogCommandTab(terminalId);
+    return { flowNodeId, runId: result.run.id, terminalId };
+  }, [openLogCommandTab]);
 
   async function handleRestartCommand(command: ProjectCommand) {
     openLogCommandTab(command.id);
@@ -486,6 +537,7 @@ export function useCommandRuntime({
       return next;
     });
     setAdHocInteractiveCommands((current) => current.filter((command) => command.id !== commandId));
+    setFlowExecutionCommands((current) => current.filter((command) => command.id !== commandId));
     setActiveLogCommandId((current) => (current === commandId ? nextActiveLogCommandId : current));
   }, [interactiveSessionsByCommandId, runs, stopMutation, stoppingRunIds]);
 
@@ -524,6 +576,7 @@ export function useCommandRuntime({
     logs,
     terminalContentByCommandId,
     adHocInteractiveCommands,
+    flowExecutionCommands,
     interactiveSessionsByCommandId,
     openLogCommandIds,
     activeLogCommandId,
@@ -537,6 +590,7 @@ export function useCommandRuntime({
     setKillPortsDialogOpen,
     killingPorts,
     startCommandRun,
+    startFlowNodeRun,
     handleRestartCommand,
     handleKillPortsClick,
     handleKillProcesses,

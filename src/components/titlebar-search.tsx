@@ -4,6 +4,7 @@ import {
   CornerDownLeft,
   FileCode2,
   FolderKanban,
+  GitBranch,
   Search,
   StickyNote,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import type {
   TitlebarCommandSearchItem,
+  TitlebarFlowSearchItem,
   TitlebarNoteSearchItem,
   TitlebarProjectSearchItem,
   TitlebarSearchCollections,
@@ -32,9 +34,10 @@ import { cn } from "@/lib/utils";
 const PROJECT_RESULT_LIMIT = 6;
 const COMMAND_RESULT_LIMIT = 8;
 const NOTE_RESULT_LIMIT = 8;
+const FLOW_RESULT_LIMIT = 8;
 
 type VisibleSection = {
-  key: "projects" | "commands" | "notes";
+  key: "projects" | "commands" | "notes" | "flows";
   title: string;
   items: TitlebarSearchItem[];
 };
@@ -136,6 +139,13 @@ export const TitlebarSearch = forwardRef<
     [collections.notes],
   );
 
+  const flowFuse = useMemo(
+    () => new Fuse(collections.flows, { includeScore: true, threshold: 0.36, ignoreLocation: true, keys: [
+      { name: "title", weight: 0.7 }, { name: "projectName", weight: 0.3 },
+    ] }),
+    [collections.flows],
+  );
+
   const sections = useMemo<VisibleSection[]>(() => {
     if (!normalizedQuery) {
       return [];
@@ -157,10 +167,15 @@ export const TitlebarSearch = forwardRef<
         title: "Notes",
         items: noteFuse.search(normalizedQuery).map((result) => result.item).slice(0, NOTE_RESULT_LIMIT),
       },
+      {
+        key: "flows",
+        title: "Flows",
+        items: flowFuse.search(normalizedQuery).map((result) => result.item).slice(0, FLOW_RESULT_LIMIT),
+      },
     ];
 
     return nextSections.filter((section) => section.items.length > 0);
-  }, [commandFuse, noteFuse, normalizedQuery, projectFuse]);
+  }, [commandFuse, flowFuse, noteFuse, normalizedQuery, projectFuse]);
 
   const flatResults = useMemo(() => sections.flatMap((section) => section.items), [sections]);
 
@@ -240,7 +255,7 @@ export const TitlebarSearch = forwardRef<
           setIsOpen(true);
         }}
         onKeyDown={handleInputKeyDown}
-        placeholder="Search projects, commands, and notes"
+        placeholder="Search projects, commands, notes, and flows"
         className="titlebar-search-input h-8 rounded-[8px] border-[var(--vscode-command-center-border)] bg-[var(--vscode-command-center-bg)] pl-8 pr-16 text-[12px] hover:bg-[var(--vscode-command-center-hover)] focus-visible:bg-[var(--vscode-command-center-active)]"
       />
       <div className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 text-[10.5px] text-[var(--vscode-foreground)]/58">
@@ -254,12 +269,12 @@ export const TitlebarSearch = forwardRef<
           {!normalizedQuery ? (
             <div className="px-4 py-4 text-[12px] text-[var(--vscode-foreground)]/74">
               <div className="font-normal text-foreground">Type to search across your workspace</div>
-              <div className="mt-1">Projects are matched by name. Commands match by name and script. Notes match by title and full content.</div>
+              <div className="mt-1">Projects, commands, notes, and saved flows can be opened from here.</div>
             </div>
           ) : sections.length === 0 ? (
             <div className="px-4 py-4 text-[12px] text-[var(--vscode-foreground)]/74">
               <div className="font-normal text-foreground">No matches found</div>
-              <div className="mt-1">Try a project name, part of a command script, or text from a note body.</div>
+              <div className="mt-1">Try a project, command, note, or flow name.</div>
             </div>
           ) : (
             <div className="max-h-[480px] overflow-y-auto py-2">
@@ -323,6 +338,8 @@ function SearchResultRow({
           <div className="flex h-9 w-9 items-center justify-center rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] text-[var(--vscode-status)]">
             <Command size={15} />
           </div>
+        ) : item.kind === "flow" ? (
+          <div className="flex h-9 w-9 items-center justify-center rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] text-[var(--success-color)]"><GitBranch size={15} /></div>
         ) : (
           <div className="flex h-9 w-9 items-center justify-center rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] text-[var(--primary-color)]">
             <StickyNote size={15} />
@@ -333,6 +350,7 @@ function SearchResultRow({
         {item.kind === "project" ? <ProjectResultContent item={item} /> : null}
         {item.kind === "command" ? <CommandResultContent item={item} /> : null}
         {item.kind === "note" ? <NoteResultContent item={item} /> : null}
+        {item.kind === "flow" ? <FlowResultContent item={item} /> : null}
       </div>
       <div className="mt-0.5 hidden shrink-0 items-center gap-1 text-[11px] text-[var(--vscode-foreground)]/54 md:flex">
         <CornerDownLeft size={12} />
@@ -340,6 +358,10 @@ function SearchResultRow({
       </div>
     </button>
   );
+}
+
+function FlowResultContent({ item }: { item: TitlebarFlowSearchItem }) {
+  return <><div className="flex items-center gap-2"><span className="truncate text-[12px] font-normal text-foreground">{item.title}</span><Badge variant="muted">Flow</Badge></div><div className="mt-1 flex items-center gap-1 text-[11px] text-[var(--vscode-foreground)]/66"><FolderKanban size={12} /><span className="truncate">{item.projectName}</span></div><div className="mt-1 text-[11px] text-[var(--vscode-foreground)]/72">{item.nodeCount} command nodes</div></>;
 }
 
 function ProjectResultContent({ item }: { item: TitlebarProjectSearchItem }) {

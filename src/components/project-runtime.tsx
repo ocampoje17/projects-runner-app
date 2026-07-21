@@ -303,7 +303,7 @@ export function LogPanel({
     if (saved) {
       const parsed = parseInt(saved, 10);
       if (!isNaN(parsed)) {
-        return Math.max(150, Math.min(800, parsed));
+        return Math.max(160, Math.min(800, parsed));
       }
     }
     return 350;
@@ -441,27 +441,29 @@ export function LogPanel({
     };
   }, [interactiveTerminalMenuOpen, portalReady, positionDropdownMenu]);
 
-  const startResize = (mouseDownEvent: React.MouseEvent) => {
+  const startResize = (pointerDownEvent: React.PointerEvent<HTMLDivElement>) => {
     if (isCollapsed) return;
-    mouseDownEvent.preventDefault();
+    pointerDownEvent.preventDefault();
+    pointerDownEvent.currentTarget.setPointerCapture(pointerDownEvent.pointerId);
     setIsResizing(true);
-    const startY = mouseDownEvent.clientY;
+    const startY = pointerDownEvent.clientY;
     const startHeight = panelHeight;
 
-    const doResize = (mouseMoveEvent: MouseEvent) => {
-      const deltaY = mouseMoveEvent.clientY - startY;
-      const newHeight = Math.max(150, Math.min(800, startHeight - deltaY));
+    const doResize = (pointerMoveEvent: PointerEvent) => {
+      const deltaY = pointerMoveEvent.clientY - startY;
+      const maximumHeight = Math.max(160, Math.min(800, window.innerHeight - 220));
+      const newHeight = Math.max(160, Math.min(maximumHeight, startHeight - deltaY));
       setPanelHeight(newHeight);
     };
 
     const stopResize = () => {
       setIsResizing(false);
-      window.removeEventListener("mousemove", doResize);
-      window.removeEventListener("mouseup", stopResize);
+      window.removeEventListener("pointermove", doResize);
+      window.removeEventListener("pointerup", stopResize);
     };
 
-    window.addEventListener("mousemove", doResize);
-    window.addEventListener("mouseup", stopResize);
+    window.addEventListener("pointermove", doResize);
+    window.addEventListener("pointerup", stopResize);
   };
 
   const handleDoubleClick = () => {
@@ -727,7 +729,7 @@ export function LogPanel({
         "log-panel relative flex w-full min-w-0 flex-col overflow-hidden rounded-none border-0 bg-[var(--log-panel-bg)]",
         isCollapsed
           ? "h-auto min-h-0 shrink-0"
-          : "h-[var(--log-panel-height)] min-h-[220px] xl:h-full xl:min-h-0",
+          : "h-[var(--log-panel-height)] min-h-[160px] shrink-0",
       )}
       style={
         isCollapsed
@@ -738,7 +740,7 @@ export function LogPanel({
       {!isCollapsed ? (
         <div
           className={`absolute left-0 right-0 top-[-4px] z-50 h-2 cursor-ns-resize bg-transparent transition-colors ${isResizing ? "bg-primary/40" : "hover:bg-primary/40"}`}
-          onMouseDown={startResize}
+          onPointerDown={startResize}
           onDoubleClick={handleDoubleClick}
           title="Drag to resize, double click to reset"
         />

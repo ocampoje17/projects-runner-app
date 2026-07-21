@@ -26,6 +26,7 @@ import { VSCodeShell, type VSCodeShellHandle } from "./components/vscode-shell";
 import { resolveTerminalFontFamilyValue, useAppPreferences } from "./hooks/use-app-preferences";
 import { useCommandSections } from "./hooks/use-command-sections";
 import { useCommandRuntime } from "./hooks/use-command-runtime";
+import { useFlowRuntime } from "./hooks/use-flow-runtime";
 import { usePrdImportFlow } from "./hooks/use-prd-import-flow";
 import { useProjectNotes } from "./hooks/use-project-notes";
 import { useAppUpdater } from "./hooks/use-app-updater";
@@ -573,6 +574,22 @@ function App() {
     [commandQueries, projects],
   );
 
+  const flowQueries = useQueries({
+    queries: projects.map((project) => ({
+      queryKey: ["flows", project.id],
+      queryFn: () => api.listFlows(project.id),
+      enabled: isDesktopRuntime(),
+    })),
+  });
+
+  const flowsByProjectId = useMemo(
+    () => projects.reduce<Record<number, import("./lib/api").ProjectFlow[]>>((acc, project, index) => {
+      acc[project.id] = flowQueries[index]?.data ?? [];
+      return acc;
+    }, {}),
+    [flowQueries, projects],
+  );
+
   const allCommands = useMemo(() => Object.values(commandsByProjectId).flat(), [commandsByProjectId]);
 
   useEffect(() => {
@@ -723,6 +740,7 @@ function App() {
     runs,
     terminalContentByCommandId,
     adHocInteractiveCommands,
+    flowExecutionCommands,
     openLogCommandIds,
     activeLogCommandId,
     setActiveLogCommandId,
@@ -732,6 +750,7 @@ function App() {
     setKillPortsDialogOpen,
     killingPorts,
     startCommandRun,
+    startFlowNodeRun,
     handleRestartCommand,
     handleKillPortsClick,
     handleKillProcesses,
@@ -751,9 +770,17 @@ function App() {
     onError: showError,
   });
 
+  const { flowRuns, runFlow, stopFlow, clearFlowRuntime } = useFlowRuntime({
+    commandsByProjectId,
+    runs,
+    startFlowNodeRun,
+    stopCommandByCommandId,
+    onError: showError,
+  });
+
   const allCommandsWithAdHocTerminals = useMemo(
-    () => [...allCommands, ...adHocInteractiveCommands],
-    [adHocInteractiveCommands, allCommands],
+    () => [...allCommands, ...adHocInteractiveCommands, ...flowExecutionCommands],
+    [adHocInteractiveCommands, allCommands, flowExecutionCommands],
   );
 
   const {
@@ -916,10 +943,11 @@ function App() {
       buildTitlebarSearchCollections({
         projects,
         commandsByProjectId,
+        flowsByProjectId,
         notesByProjectId: sortedProjectNotesById,
         noteVisibility,
       }),
-    [commandsByProjectId, noteVisibility, projects, sortedProjectNotesById],
+    [commandsByProjectId, flowsByProjectId, noteVisibility, projects, sortedProjectNotesById],
   );
 
   function handleTitlebarSearchSelect(item: TitlebarSearchItem) {
@@ -930,6 +958,11 @@ function App() {
 
     if (item.kind === "command") {
       shellRef.current?.openCommand(item.projectId, item.commandId);
+      return;
+    }
+
+    if (item.kind === "flow") {
+      shellRef.current?.openFlow(item.projectId, item.flowId);
       return;
     }
 
@@ -980,6 +1013,20 @@ function App() {
             selectedProjectId={selectedProject?.id ?? null}
             commands={allCommandsWithAdHocTerminals}
             commandsByProjectId={commandsByProjectId}
+            flowsByProjectId={flowsByProjectId}
+            flowRuns={flowRuns}
+            onRunFlow={(flow) => { void runFlow(flow); }}
+            onStopFlow={stopFlow}
+            onDeleteFlow={(flow) => {
+              if (["starting", "running", "degraded"].includes(flowRuns[flow.id]?.status ?? "idle")) {
+                showError(new Error("Stop this flow before deleting it."));
+                return;
+              }
+              void api.deleteFlow(flow.id).then(() => {
+                clearFlowRuntime(flow.id);
+                return queryClient.invalidateQueries({ queryKey: ["flows", flow.project_id] });
+              }).catch(showError);
+            }}
             commandSectionsByProjectId={commandSectionsByProjectId}
             settingsProps={settingsProps}
             updateStatus={appUpdater.status}

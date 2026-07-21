@@ -120,11 +120,12 @@ function IconPickerDialog({
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              name="icon-library-search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search icons"
               className="pl-9"
-              autoComplete="off"
+              autoComplete="new-password"
               autoCorrect="off"
               autoCapitalize="none"
               spellCheck={false}
