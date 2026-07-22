@@ -197,6 +197,12 @@ struct ProjectFileEntry {
 }
 
 #[derive(Debug, Serialize)]
+struct ProjectFilePage {
+    entries: Vec<ProjectFileEntry>,
+    has_more: bool,
+}
+
+#[derive(Debug, Serialize)]
 struct ProjectFileContent {
     file_kind: String,
     content: Option<String>,
@@ -2937,6 +2943,55 @@ fn project_file_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry, Stri
     })
 }
 
+fn project_file_tree_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry, String> {
+    let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+    let is_directory = metadata.is_dir();
+    let file_kind = if is_directory { "folder".to_string() } else if is_text_file(path, &metadata) { "text".to_string() } else { "binary".to_string() };
+    Ok(ProjectFileEntry {
+        name: path.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_default(),
+        relative_path: path.strip_prefix(root).map_err(|error| error.to_string())?.to_string_lossy().replace('\\', "/"),
+        is_directory,
+        size_bytes: if is_directory { 0 } else { metadata.len() },
+        child_file_count: 0,
+        child_folder_count: 0,
+        created_at: format_system_time(metadata.created()),
+        modified_at: format_system_time(metadata.modified()),
+        file_kind: file_kind.clone(),
+        line_count: if file_kind == "text" { count_text_lines(path) } else { None },
+    })
+}
+
+fn sorted_project_directory_paths(root: &Path, directory: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut entries = fs::read_dir(directory)
+        .map_err(|error| error.to_string())?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy() != ".git")
+        .filter_map(|entry| {
+            let path = entry.path();
+            let canonical = path.canonicalize().ok()?;
+            if canonical.starts_with(root) { Some(path) } else { None }
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        let left_is_directory = left.is_dir();
+        let right_is_directory = right.is_dir();
+        right_is_directory.cmp(&left_is_directory).then_with(|| left.file_name().unwrap_or_default().to_string_lossy().to_lowercase().cmp(&right.file_name().unwrap_or_default().to_string_lossy().to_lowercase()))
+    });
+    Ok(entries)
+}
+
+#[tauri::command]
+fn list_project_files_page(project_id: i64, relative_path: String, offset: usize, limit: usize, state: State<AppState>) -> Result<ProjectFilePage, String> {
+    let root = project_root(project_id, &state)?;
+    let directory = safe_project_relative_path(&root, &relative_path)?;
+    if !directory.is_dir() { return Err("Path is not a folder".to_string()); }
+    let paths = sorted_project_directory_paths(&root, &directory)?;
+    let page_size = limit.clamp(1, 100);
+    let has_more = offset.saturating_add(page_size) < paths.len();
+    let entries = paths.into_iter().skip(offset).take(page_size).filter_map(|path| project_file_tree_entry(&root, &path).ok()).collect();
+    Ok(ProjectFilePage { entries, has_more })
+}
+
 #[tauri::command]
 fn list_project_files(project_id: i64, relative_path: String, state: State<AppState>) -> Result<Vec<ProjectFileEntry>, String> {
     let root = project_root(project_id, &state)?;
@@ -2964,6 +3019,21 @@ fn get_project_file_info(project_id: i64, relative_path: String, state: State<Ap
     let root = project_root(project_id, &state)?;
     let path = safe_project_relative_path(&root, &relative_path)?;
     project_file_entry(&root, &path)
+}
+
+#[tauri::command]
+fn project_file_exists(project_id: i64, relative_path: String, state: State<AppState>) -> Result<bool, String> {
+    let root = project_root(project_id, &state)?;
+    let relative = Path::new(&relative_path);
+    if relative.is_absolute() || relative.components().any(|component| !matches!(component, Component::Normal(_))) {
+        return Err("Invalid project-relative path".to_string());
+    }
+    let candidate = root.join(relative);
+    if !candidate.exists() {
+        return Ok(false);
+    }
+    let canonical = candidate.canonicalize().map_err(|error| error.to_string())?;
+    Ok(canonical.starts_with(root))
 }
 
 #[tauri::command]
@@ -5018,7 +5088,9 @@ pub fn run() {
             update_project,
             delete_project,
             list_project_files,
+            list_project_files_page,
             get_project_file_info,
+            project_file_exists,
             create_project_file,
             create_project_folder,
             paste_project_file,

@@ -262,6 +262,8 @@ export type ProjectFileEntry = {
   file_kind: "folder" | "text" | "binary";
   line_count: number | null;
 };
+
+export type ProjectFilePage = { entries: ProjectFileEntry[]; has_more: boolean };
 export type ProjectFileContent = { file_kind: "text" | "image"; content: string | null; data_url: string | null };
 export type FlowGraphInput = {
   name: string;
@@ -485,8 +487,12 @@ export const api = {
   deleteProject: (id: number) => invokeDesktop<void>("delete_project", { id }),
   listProjectFiles: (projectId: number, relativePath = "") =>
     invokeDesktop<ProjectFileEntry[]>("list_project_files", { projectId, relativePath }),
+  listProjectFilesPage: (projectId: number, relativePath = "", offset = 0, limit = 64) =>
+    invokeDesktop<ProjectFilePage>("list_project_files_page", { projectId, relativePath, offset, limit }),
   getProjectFileInfo: (projectId: number, relativePath = "") =>
     invokeDesktop<ProjectFileEntry>("get_project_file_info", { projectId, relativePath }),
+  projectFileExists: (projectId: number, relativePath: string) =>
+    invokeDesktop<boolean>("project_file_exists", { projectId, relativePath }),
   createProjectFile: (projectId: number, parentRelativePath: string, name: string) =>
     invokeDesktop<void>("create_project_file", { projectId, parentRelativePath, name }),
   createProjectFolder: (projectId: number, parentRelativePath: string, name: string) =>

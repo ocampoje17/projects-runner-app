@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import appIcon from "../assets/app-icon.png";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -235,6 +236,9 @@ export function AppearanceSettingsPanel({
 export function TerminalSettingsPanel({
   terminalFontSize,
   setTerminalFontSize,
+  defaultInteractiveTerminalKind,
+  setDefaultInteractiveTerminalKind,
+  interactiveTerminalOptions,
   terminalFontFamily,
   setTerminalFontFamily,
   autoClearLogs,
@@ -246,6 +250,9 @@ export function TerminalSettingsPanel({
 }: {
   terminalFontSize: string;
   setTerminalFontSize: (size: string) => void;
+  defaultInteractiveTerminalKind: InteractiveTerminalKind;
+  setDefaultInteractiveTerminalKind: (kind: InteractiveTerminalKind) => void;
+  interactiveTerminalOptions: InteractiveTerminalOption[];
   terminalFontFamily: string;
   setTerminalFontFamily: (family: string) => void;
   autoClearLogs: boolean;
@@ -266,6 +273,15 @@ export function TerminalSettingsPanel({
 
   return (
     <div className="flex w-full flex-col gap-4">
+      <SettingsSection icon={<Terminal size={16} />} title="Default terminal" description="Used when opening a new internal interactive terminal from the app">
+        <div className="flex flex-col gap-2 py-1">
+          <Label htmlFor="default-interactive-terminal">Terminal</Label>
+          <Select value={defaultInteractiveTerminalKind} onValueChange={(value) => setDefaultInteractiveTerminalKind(value as InteractiveTerminalKind)}>
+            <SelectTrigger id="default-interactive-terminal"><SelectValue placeholder="Select a terminal" /></SelectTrigger>
+            <SelectContent>{interactiveTerminalOptions.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      </SettingsSection>
       <SettingsSection
         icon={<Terminal size={16} />}
         title="Typography"

@@ -1,4 +1,5 @@
 import type { AppInfo } from "../lib/api";
+import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import type { AccentColor, ThemePreference } from "../lib/theme";
 import type { MotionLevel } from "../lib/motion";
 import type { DateFormatPreference } from "../lib/date-time";
@@ -16,6 +17,9 @@ export interface SettingsPageProps {
   setDateFormat: (format: DateFormatPreference) => void;
   terminalFontSize: string;
   setTerminalFontSize: (size: string) => void;
+  defaultInteractiveTerminalKind: InteractiveTerminalKind;
+  setDefaultInteractiveTerminalKind: (kind: InteractiveTerminalKind) => void;
+  interactiveTerminalOptions: InteractiveTerminalOption[];
   terminalFontFamily: string;
   setTerminalFontFamily: (family: string) => void;
   autoClearLogs: boolean;
@@ -44,6 +48,9 @@ export function SettingsPage({
   setDateFormat,
   terminalFontSize,
   setTerminalFontSize,
+  defaultInteractiveTerminalKind,
+  setDefaultInteractiveTerminalKind,
+  interactiveTerminalOptions,
   terminalFontFamily,
   setTerminalFontFamily,
   autoClearLogs,
@@ -77,6 +84,9 @@ export function SettingsPage({
       <TerminalSettingsPanel
         terminalFontSize={terminalFontSize}
         setTerminalFontSize={setTerminalFontSize}
+        defaultInteractiveTerminalKind={defaultInteractiveTerminalKind}
+        setDefaultInteractiveTerminalKind={setDefaultInteractiveTerminalKind}
+        interactiveTerminalOptions={interactiveTerminalOptions}
         terminalFontFamily={terminalFontFamily}
         setTerminalFontFamily={setTerminalFontFamily}
         autoClearLogs={autoClearLogs}

@@ -241,7 +241,7 @@ function AppTitleBar({
         <button
           data-window-control="true"
           type="button"
-          className="flex h-9 w-12 items-center justify-center border-l border-transparent text-[var(--vscode-icon)] transition-[background-color,color,border-color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]"
+          className="mx-1 self-center flex h-6 w-7 items-center justify-center rounded-[4px] border border-transparent text-[var(--vscode-icon)] transition-[background-color,color,border-color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]"
           onMouseDown={(event) => event.stopPropagation()}
           onDoubleClick={(event) => event.stopPropagation()}
           onClick={onToggleSecondarySidebar}
@@ -331,6 +331,8 @@ function App() {
     setDateFormat,
     terminalFontSize,
     setTerminalFontSize,
+    defaultInteractiveTerminalKind,
+    setDefaultInteractiveTerminalKind,
     terminalFontFamily,
     setTerminalFontFamily,
     autoClearLogs,
@@ -924,6 +926,9 @@ function App() {
     setDateFormat,
     terminalFontSize,
     setTerminalFontSize,
+    defaultInteractiveTerminalKind,
+    setDefaultInteractiveTerminalKind,
+    interactiveTerminalOptions: interactiveTerminalOptionsQuery.data?.length ? interactiveTerminalOptionsQuery.data : FALLBACK_WINDOWS_INTERACTIVE_TERMINAL_OPTIONS,
     terminalFontFamily,
     setTerminalFontFamily,
     autoClearLogs,
@@ -991,6 +996,12 @@ function App() {
     interactiveTerminalOptionsQuery.data?.length
       ? interactiveTerminalOptionsQuery.data
       : FALLBACK_WINDOWS_INTERACTIVE_TERMINAL_OPTIONS;
+
+  useEffect(() => {
+    if (!interactiveTerminalOptions.some((option) => option.id === defaultInteractiveTerminalKind)) {
+      setDefaultInteractiveTerminalKind(interactiveTerminalOptions[0]?.id ?? "powershell");
+    }
+  }, [defaultInteractiveTerminalKind, interactiveTerminalOptions, setDefaultInteractiveTerminalKind]);
 
   function handleRequestCloseAllTerminalTabs(commandIds: number[]) {
     const closeCount = commandIds.length;
@@ -1090,7 +1101,7 @@ function App() {
               void api.showProjectInExplorer(project.path).catch(showError);
             }}
             onOpenTerminal={(project) => {
-              void api.openInExternalTerminal(project.path).catch(showError);
+              void openAdHocInteractiveTerminal(project, defaultInteractiveTerminalKind);
             }}
             onShareProject={(project) => {
               setSelectedProjectId(project.id);
@@ -1106,6 +1117,7 @@ function App() {
             }}
             onEditCommand={openCommandDialog}
             interactiveTerminalOptions={interactiveTerminalOptions}
+            defaultInteractiveTerminalKind={defaultInteractiveTerminalKind}
             onRequestCloseAllLogTabs={handleRequestCloseAllTerminalTabs}
             onOpenAdHocInteractiveTerminal={(project, terminalKind, workingDirectory) => {
               void openAdHocInteractiveTerminal(project, terminalKind, workingDirectory);

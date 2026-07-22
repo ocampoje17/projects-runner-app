@@ -117,6 +117,13 @@
   --vscode-status: #007acc;
   --vscode-status-border: #0062a3;
   --vscode-status-foreground: #ffffff;
+  --file-code-base: #d4d4d4;
+  --file-code-comment: #6a9955;
+  --file-code-string: #ce9178;
+  --file-code-tag: #569cd6;
+  --file-code-keyword: #c586c0;
+  --file-code-number: #b5cea8;
+  --file-code-function: #dcdcaa;
 
   --radius-sm: 10px;
   --radius-md: 14px;
@@ -222,6 +229,13 @@
   --vscode-status: #007acc;
   --vscode-status-border: #0062a3;
   --vscode-status-foreground: #ffffff;
+  --file-code-base: #24292f;
+  --file-code-comment: #6a737d;
+  --file-code-string: #a31515;
+  --file-code-tag: #0451a5;
+  --file-code-keyword: #a626a4;
+  --file-code-number: #098658;
+  --file-code-function: #795e26;
 }
 
 .theme-dark {

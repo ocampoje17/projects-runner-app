@@ -58,13 +58,13 @@ function matchesTerminalFilter(command: ProjectCommand, filter: TerminalFilter) 
 }
 
 const terminalDropdownTriggerClassName =
-  "h-7 rounded-[4px] border border-transparent bg-transparent px-2 text-left text-[11.5px] text-[var(--vscode-foreground)]/84 transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)] data-[state=open]:border-[var(--vscode-border)] data-[state=open]:bg-[var(--vscode-list-hover)] data-[state=open]:text-foreground";
+  "h-7 rounded-[4px] border border-transparent bg-transparent px-2 text-left text-[11px] text-[var(--vscode-foreground)]/84 transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)] data-[state=open]:border-[var(--vscode-border)] data-[state=open]:bg-[var(--vscode-list-hover)] data-[state=open]:text-foreground";
 
 const terminalDropdownMenuClassName =
   "fixed z-[2300] min-w-[8rem] overflow-hidden rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-1.5 text-popover-foreground shadow-[0_10px_24px_rgba(0,0,0,0.24)]";
 
 const terminalDropdownItemClassName =
-  "relative flex min-h-8 w-full cursor-default items-center rounded-[4px] border border-transparent py-1.5 pl-3 pr-3 text-[12px] font-normal text-[var(--vscode-foreground)] outline-none transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground";
+  "relative flex min-h-8 w-full cursor-default items-center rounded-[4px] border border-transparent py-1.5 pl-3 pr-3 text-[11px] font-normal text-[var(--vscode-foreground)] outline-none transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground";
 
 export function CommandCard({
   command,
@@ -761,7 +761,7 @@ export function LogPanel({
                     type="button"
                     onClick={() => setActivePanelView(view.id as "terminal" | "environments")}
                     className={cn(
-                      "inline-flex h-8 items-center border-b border-transparent px-2.5 text-[11.5px] text-[var(--vscode-foreground)]/72 transition-[background-color,color,border-color] hover:text-foreground",
+                      "inline-flex h-8 items-center border-b border-transparent px-2.5 text-[11px] text-[var(--vscode-foreground)]/72 transition-[background-color,color,border-color] hover:text-foreground",
                       active && "border-primary bg-transparent text-foreground",
                     )}
                   >
@@ -804,7 +804,7 @@ export function LogPanel({
                     type="button"
                     onClick={() => setActivePanelView(view.id as "terminal" | "environments")}
                     className={cn(
-                      "inline-flex h-8 items-center border-b border-transparent px-2.5 text-[11.5px] text-[var(--vscode-foreground)]/72 transition-[background-color,color,border-color] hover:text-foreground",
+                      "inline-flex h-8 items-center border-b border-transparent px-2.5 text-[11px] text-[var(--vscode-foreground)]/72 transition-[background-color,color,border-color] hover:text-foreground",
                       active && "border-primary bg-transparent text-foreground",
                     )}
                   >

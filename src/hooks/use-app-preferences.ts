@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { resolveAccentTheme, type AccentColor, type ResolvedTheme, type ThemePreference } from "../lib/theme";
 import type { MotionLevel } from "../lib/motion";
 import { isDateFormatPreference, type DateFormatPreference } from "../lib/date-time";
+import type { InteractiveTerminalKind } from "../lib/interactive-terminal";
 
 const SYSTEM_MONO_FAMILY = '"Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace';
 const ACCENT_VALUES: AccentColor[] = ["mono", "blue"];
@@ -34,6 +35,10 @@ export function useAppPreferences() {
   });
 
   const [terminalFontSize, setTerminalFontSize] = useState(() => localStorage.getItem("terminalFontSize") || "13px");
+  const [defaultInteractiveTerminalKind, setDefaultInteractiveTerminalKind] = useState<InteractiveTerminalKind>(() => {
+    const saved = localStorage.getItem("defaultInteractiveTerminalKind");
+    return saved === "cmd" || saved === "bash" || saved === "powershell" || saved === "wsl2" || saved === "powershellcore" ? saved : "powershell";
+  });
   const [dateFormat, setDateFormat] = useState<DateFormatPreference>(() => {
     const saved = localStorage.getItem("dateFormat");
     return isDateFormatPreference(saved) ? saved : "dd/mm/yyyy";
@@ -119,6 +124,8 @@ export function useAppPreferences() {
     document.documentElement.style.setProperty("--terminal-font-size", terminalFontSize);
   }, [terminalFontSize]);
 
+  useEffect(() => { localStorage.setItem("defaultInteractiveTerminalKind", defaultInteractiveTerminalKind); }, [defaultInteractiveTerminalKind]);
+
   useEffect(() => {
     localStorage.setItem("dateFormat", dateFormat);
     document.documentElement.dataset.dateFormat = dateFormat;
@@ -158,6 +165,8 @@ export function useAppPreferences() {
     setAccent,
     terminalFontSize,
     setTerminalFontSize,
+    defaultInteractiveTerminalKind,
+    setDefaultInteractiveTerminalKind,
     dateFormat,
     setDateFormat,
     terminalFontFamily,
