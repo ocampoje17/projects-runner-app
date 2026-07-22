@@ -19,12 +19,13 @@ use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
+use walkdir::WalkDir;
 
 const RUNTIME_MODE_INTERNAL_HEADLESS: &str = "internal_headless";
 const RUNTIME_MODE_INTERNAL_INTERACTIVE: &str = "internal_interactive";
@@ -180,6 +181,27 @@ struct FlowEdge {
 
 #[derive(Debug, Serialize)]
 struct FlowDetail { flow: Flow, nodes: Vec<FlowNode>, edges: Vec<FlowEdge> }
+
+#[derive(Debug, Serialize)]
+struct ProjectFileEntry {
+    name: String,
+    relative_path: String,
+    is_directory: bool,
+    size_bytes: u64,
+    child_file_count: u64,
+    child_folder_count: u64,
+    created_at: Option<String>,
+    modified_at: Option<String>,
+    file_kind: String,
+    line_count: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+struct ProjectFileContent {
+    file_kind: String,
+    content: Option<String>,
+    data_url: Option<String>,
+}
 
 #[derive(Debug, Deserialize)]
 struct FlowInput { project_id: i64, name: String }
@@ -2822,6 +2844,239 @@ fn list_projects(state: State<AppState>) -> Result<Vec<Project>, String> {
         .map_err(|error| error.to_string())
 }
 
+fn project_root(project_id: i64, state: &AppState) -> Result<PathBuf, String> {
+    let mut conn = connect(&state.paths)?;
+    let project = sql_query(format!("SELECT * FROM projects WHERE id = {}", project_id))
+        .get_result::<Project>(&mut conn)
+        .map_err(|error| error.to_string())?;
+    let root = PathBuf::from(project.path).canonicalize().map_err(|error| error.to_string())?;
+    if !root.is_dir() {
+        return Err("Project path is not a folder".to_string());
+    }
+    Ok(root)
+}
+
+fn safe_project_relative_path(root: &Path, relative_path: &str) -> Result<PathBuf, String> {
+    let relative = Path::new(relative_path);
+    if relative.is_absolute() || relative.components().any(|component| !matches!(component, Component::Normal(_))) {
+        return Err("Invalid project-relative path".to_string());
+    }
+    let candidate = root.join(relative);
+    let canonical = candidate.canonicalize().map_err(|error| error.to_string())?;
+    if !canonical.starts_with(root) {
+        return Err("Path must remain inside the project folder".to_string());
+    }
+    Ok(canonical)
+}
+
+fn safe_new_entry_path(root: &Path, parent_relative_path: &str, name: &str) -> Result<PathBuf, String> {
+    let parent = safe_project_relative_path(root, parent_relative_path)?;
+    if !parent.is_dir() {
+        return Err("Destination is not a folder".to_string());
+    }
+    let name_path = Path::new(name.trim());
+    if name_path.components().count() != 1 || !matches!(name_path.components().next(), Some(Component::Normal(_))) {
+        return Err("Name must not contain path separators".to_string());
+    }
+    let target = parent.join(name_path);
+    if target.exists() {
+        return Err("A file or folder with this name already exists".to_string());
+    }
+    Ok(target)
+}
+
+fn format_system_time(value: std::io::Result<std::time::SystemTime>) -> Option<String> {
+    value.ok().map(|time| chrono::DateTime::<Utc>::from(time).to_rfc3339())
+}
+
+fn is_text_file(path: &Path, metadata: &fs::Metadata) -> bool {
+    if metadata.is_dir() || metadata.len() > 32 * 1024 * 1024 {
+        return false;
+    }
+    let mut file = match fs::File::open(path) { Ok(file) => file, Err(_) => return false };
+    let mut sample = [0_u8; 8192];
+    let count = match file.read(&mut sample) { Ok(count) => count, Err(_) => return false };
+    !sample[..count].contains(&0)
+}
+
+fn count_text_lines(path: &Path) -> Option<u64> {
+    let file = fs::File::open(path).ok()?;
+    Some(BufReader::new(file).lines().count() as u64)
+}
+
+fn project_file_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry, String> {
+    let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+    let is_directory = metadata.is_dir();
+    let mut size_bytes = metadata.len();
+    let mut child_file_count = 0;
+    let mut child_folder_count = 0;
+    if is_directory {
+        size_bytes = 0;
+        for entry in WalkDir::new(path).follow_links(false).into_iter().filter_map(Result::ok).skip(1) {
+            let file_type = entry.file_type();
+            if file_type.is_dir() { child_folder_count += 1; }
+            if file_type.is_file() {
+                child_file_count += 1;
+                size_bytes += entry.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+            }
+        }
+    }
+    let file_kind = if is_directory { "folder".to_string() } else if is_text_file(path, &metadata) { "text".to_string() } else { "binary".to_string() };
+    let line_count = if file_kind == "text" { count_text_lines(path) } else { None };
+    Ok(ProjectFileEntry {
+        name: path.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_default(),
+        relative_path: path.strip_prefix(root).map_err(|error| error.to_string())?.to_string_lossy().replace('\\', "/"),
+        is_directory,
+        size_bytes,
+        child_file_count,
+        child_folder_count,
+        created_at: format_system_time(metadata.created()),
+        modified_at: format_system_time(metadata.modified()),
+        file_kind,
+        line_count,
+    })
+}
+
+#[tauri::command]
+fn list_project_files(project_id: i64, relative_path: String, state: State<AppState>) -> Result<Vec<ProjectFileEntry>, String> {
+    let root = project_root(project_id, &state)?;
+    let directory = safe_project_relative_path(&root, &relative_path)?;
+    if !directory.is_dir() {
+        return Err("Path is not a folder".to_string());
+    }
+    let mut entries = fs::read_dir(directory)
+        .map_err(|error| error.to_string())?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            if entry.file_name().to_string_lossy() == ".git" { return None; }
+            let path = entry.path();
+            let canonical = path.canonicalize().ok()?;
+            if !canonical.starts_with(&root) { return None; }
+            project_file_entry(&root, &path).ok()
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| right.is_directory.cmp(&left.is_directory).then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())));
+    Ok(entries)
+}
+
+#[tauri::command]
+fn get_project_file_info(project_id: i64, relative_path: String, state: State<AppState>) -> Result<ProjectFileEntry, String> {
+    let root = project_root(project_id, &state)?;
+    let path = safe_project_relative_path(&root, &relative_path)?;
+    project_file_entry(&root, &path)
+}
+
+#[tauri::command]
+fn create_project_file(project_id: i64, parent_relative_path: String, name: String, state: State<AppState>) -> Result<(), String> {
+    let root = project_root(project_id, &state)?;
+    let target = safe_new_entry_path(&root, &parent_relative_path, &name)?;
+    fs::File::create(target).map(|_| ()).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn create_project_folder(project_id: i64, parent_relative_path: String, name: String, state: State<AppState>) -> Result<(), String> {
+    let root = project_root(project_id, &state)?;
+    let target = safe_new_entry_path(&root, &parent_relative_path, &name)?;
+    fs::create_dir(target).map_err(|error| error.to_string())
+}
+
+fn copy_path(source: &Path, target: &Path) -> Result<(), String> {
+    if source.is_dir() {
+        fs::create_dir(target).map_err(|error| error.to_string())?;
+        for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            copy_path(&entry.path(), &target.join(entry.file_name()))?;
+        }
+    } else {
+        fs::copy(source, target).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn paste_project_file(project_id: i64, source_relative_path: String, target_relative_path: String, cut: bool, state: State<AppState>) -> Result<(), String> {
+    let root = project_root(project_id, &state)?;
+    let source = safe_project_relative_path(&root, &source_relative_path)?;
+    let target_folder = safe_project_relative_path(&root, &target_relative_path)?;
+    if !target_folder.is_dir() { return Err("Paste target is not a folder".to_string()); }
+    if source.is_dir() && target_folder.starts_with(&source) { return Err("Cannot paste a folder inside itself".to_string()); }
+    let target = target_folder.join(source.file_name().ok_or_else(|| "Invalid source".to_string())?);
+    if target.exists() { return Err("An item with this name already exists".to_string()); }
+    if cut { fs::rename(source, target).map_err(|error| error.to_string()) } else { copy_path(&source, &target) }
+}
+
+#[tauri::command]
+fn rename_project_file(project_id: i64, relative_path: String, name: String, state: State<AppState>) -> Result<(), String> {
+    let root = project_root(project_id, &state)?;
+    let source = safe_project_relative_path(&root, &relative_path)?;
+    let parent_relative = Path::new(&relative_path).parent().and_then(Path::to_str).unwrap_or("");
+    let target = safe_new_entry_path(&root, parent_relative, &name)?;
+    fs::rename(source, target).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn delete_project_file(project_id: i64, relative_path: String, state: State<AppState>) -> Result<(), String> {
+    let root = project_root(project_id, &state)?;
+    let target = safe_project_relative_path(&root, &relative_path)?;
+    if target == root { return Err("The project root cannot be deleted".to_string()); }
+    if target.is_dir() { fs::remove_dir_all(target) } else { fs::remove_file(target) }.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn reveal_project_file(project_id: i64, relative_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let root = project_root(project_id, &state)?;
+    let path = safe_project_relative_path(&root, &relative_path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = Command::new("explorer.exe");
+            if path.is_file() { command.arg(format!("/select,{}", path.to_string_lossy())); } else { command.arg(path); }
+            command
+        };
+        #[cfg(target_os = "macos")]
+        let mut command = { let mut command = Command::new("open"); command.arg(path); command };
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        let mut command = { let mut command = Command::new("xdg-open"); command.arg(path); command };
+        command.spawn().map(|_| ()).map_err(|error| error.to_string())
+    }).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn open_project_file(project_id: i64, relative_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let root = project_root(project_id, &state)?;
+    let path = safe_project_relative_path(&root, &relative_path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let path_string = path.to_string_lossy().to_string();
+            let mut command = Command::new("cmd");
+            command.args(["/C", "start", "", &path_string]);
+            command
+        };
+        #[cfg(target_os = "macos")]
+        let mut command = { let mut command = Command::new("open"); command.arg(path); command };
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        let mut command = { let mut command = Command::new("xdg-open"); command.arg(path); command };
+        command.spawn().map(|_| ()).map_err(|error| error.to_string())
+    }).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn read_project_file(project_id: i64, relative_path: String, state: State<AppState>) -> Result<ProjectFileContent, String> {
+    let root = project_root(project_id, &state)?;
+    let path = safe_project_relative_path(&root, &relative_path)?;
+    let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+    if metadata.is_dir() { return Err("Folders cannot be viewed".to_string()); }
+    if metadata.len() > 20 * 1024 * 1024 { return Err("Files larger than 20 MB cannot be viewed".to_string()); }
+    let mime = MimeGuess::from_path(&path).first_or_octet_stream();
+    if mime.type_().as_str() == "image" {
+        let bytes = fs::read(path).map_err(|error| error.to_string())?;
+        return Ok(ProjectFileContent { file_kind: "image".to_string(), content: None, data_url: Some(format!("data:{};base64,{}", mime.essence_str(), BASE64_STANDARD.encode(bytes))) });
+    }
+    if !is_text_file(&path, &metadata) { return Err("This binary file cannot be viewed internally".to_string()); }
+    Ok(ProjectFileContent { file_kind: "text".to_string(), content: Some(fs::read_to_string(path).map_err(|error| error.to_string())?), data_url: None })
+}
+
 #[tauri::command]
 fn create_project(input: ProjectInput, state: State<AppState>) -> Result<Project, String> {
     let mut conn = connect(&state.paths)?;
@@ -4762,6 +5017,16 @@ pub fn run() {
             create_project,
             update_project,
             delete_project,
+            list_project_files,
+            get_project_file_info,
+            create_project_file,
+            create_project_folder,
+            paste_project_file,
+            rename_project_file,
+            delete_project_file,
+            reveal_project_file,
+            open_project_file,
+            read_project_file,
             list_commands,
             list_flows,
             get_flow,

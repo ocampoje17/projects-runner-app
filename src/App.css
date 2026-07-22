@@ -102,6 +102,8 @@
   --vscode-panel: #252526;
   --vscode-tabs: #2d2d30;
   --vscode-border: rgb(255 255 255 / 0.1);
+  --vscode-input-border: var(--vscode-border);
+  --vscode-input-focus-border: #007acc;
   --vscode-command-center-bg: color-mix(in oklab, var(--vscode-editor) 80%, var(--vscode-panel));
   --vscode-command-center-border: color-mix(in oklab, var(--primary-color) 18%, var(--vscode-border));
   --vscode-command-center-hover: color-mix(in oklab, var(--vscode-list-hover) 82%, var(--vscode-command-center-bg));

@@ -305,14 +305,14 @@ export function useCommandRuntime({
     setActiveLogCommandId(commandId);
   }, []);
 
-  async function openAdHocInteractiveTerminal(project: Project, terminalKind: InteractiveTerminalKind) {
+  async function openAdHocInteractiveTerminal(project: Project, terminalKind: InteractiveTerminalKind, workingDirectory?: string) {
     const command = buildAdHocInteractiveCommand(project, terminalKind);
     setAdHocInteractiveCommands((current) => [...current, command]);
     openLogCommandTab(command.id);
     setTerminalContentByCommandId((current) => ({ ...current, [command.id]: "" }));
 
     try {
-      await api.startProjectInteractiveTerminal(project.path, command.id, terminalKind, DEFAULT_INTERACTIVE_COLS, DEFAULT_INTERACTIVE_ROWS);
+      await api.startProjectInteractiveTerminal(workingDirectory ?? project.path, command.id, terminalKind, DEFAULT_INTERACTIVE_COLS, DEFAULT_INTERACTIVE_ROWS);
     } catch (error) {
       setAdHocInteractiveCommands((current) => current.filter((item) => item.id !== command.id));
       setOpenLogCommandIds((current) => current.filter((id) => id !== command.id));

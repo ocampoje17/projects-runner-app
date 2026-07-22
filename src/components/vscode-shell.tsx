@@ -1,25 +1,39 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenText,
+  CalendarDays,
+  Clipboard,
   ChevronDown,
   ChevronRight,
+  ChevronsUp,
   CopyPlus,
   Eye,
   EyeOff,
   FilePenLine,
+  FilePlus,
+  FileText,
+  Folder,
   FileUp,
   FolderKanban,
   GitBranch,
   FolderOpen,
+  FolderPlus,
+  HardDrive,
   LayoutGrid,
+  List,
+  LoaderCircle,
   ListTree,
   Pencil,
   Pin,
   PinOff,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   PowerOff,
   RotateCcw,
+  RefreshCw,
+  Scissors,
   Search,
   Square,
   Settings2,
@@ -55,6 +69,7 @@ import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/
 import type { UpdateStatus } from "../hooks/use-app-updater";
 import type { FlowRunState } from "../hooks/use-flow-runtime";
 import { ConfirmDialog } from "./process-dialogs";
+import { VscFile, VscFileCode, VscFileMedia, VscFilePdf, VscFileZip, VscJson, VscMarkdown } from "react-icons/vsc";
 
 type SidebarView = "explorer" | "flows" | "notes" | "terminal" | "settings";
 
@@ -63,6 +78,7 @@ export type VSCodeShellHandle = {
   openCommand: (projectId: number, commandId: number) => void;
   openNote: (projectId: number, noteId: string) => void;
   openFlow: (projectId: number, flowId: number) => void;
+  toggleSecondarySidebar: () => void;
 };
 
 type EditorTab =
@@ -74,6 +90,7 @@ type EditorTab =
   | { id: string; kind: "command"; title: string; projectId: number; commandId: number }
   | { id: string; kind: "note"; title: string; projectId: number; noteId: string }
   | { id: string; kind: "flow"; title: string; projectId: number; flowId: number }
+  | { id: string; kind: "file-view"; title: string; projectId: number; relativePath: string }
   | { id: string; kind: "settings"; title: string };
 
 const SIDEBAR_VIEW_KEY = "vscodeSidebarView";
@@ -136,6 +153,10 @@ function flowTab(project: Project, flow: ProjectFlow): EditorTab {
   return { id: `flow:${flow.id}`, kind: "flow", projectId: project.id, flowId: flow.id, title: flow.name };
 }
 
+function fileViewTab(project: Project, relativePath: string): EditorTab {
+  return { id: `file-view:${project.id}:${relativePath}`, kind: "file-view", projectId: project.id, relativePath, title: relativePath.split("/").pop() ?? relativePath };
+}
+
 function settingsTab(): EditorTab {
   return { id: "settings", kind: "settings", title: "Settings" };
 }
@@ -146,22 +167,6 @@ function welcomeTab(): EditorTab {
 
 function getProjectIdFromTab(tab: EditorTab): number | null {
   return "projectId" in tab ? tab.projectId : null;
-}
-
-function resolveNextActiveTabId(currentTabs: EditorTab[], closingTabId: string, activeTabId: string) {
-  if (activeTabId !== closingTabId) {
-    return activeTabId;
-  }
-
-  const closingIndex = currentTabs.findIndex((tab) => tab.id === closingTabId);
-  const remainingTabs = currentTabs.filter((tab) => tab.id !== closingTabId);
-
-  if (remainingTabs.length === 0) {
-    return welcomeTab().id;
-  }
-
-  const fallbackIndex = closingIndex >= remainingTabs.length ? remainingTabs.length - 1 : closingIndex;
-  return remainingTabs[Math.max(fallbackIndex, 0)]!.id;
 }
 
 function findProjectById(projects: Project[], projectId?: number) {
@@ -404,6 +409,7 @@ function TreeItem({
   level = 0,
   active,
   onClick,
+  onDoubleClick,
   icon,
   title,
   trailing,
@@ -413,15 +419,17 @@ function TreeItem({
   level?: number;
   active?: boolean;
   onClick?: () => void;
+  onDoubleClick?: () => void;
   icon?: React.ReactNode;
   title: string;
   trailing?: React.ReactNode;
   menuItems?: {
-    label: string;
+    label?: string;
     icon?: React.ReactNode;
-    onSelect: () => void;
+    onSelect?: () => void;
     disabled?: boolean;
     tone?: "default" | "danger";
+    separator?: boolean;
   }[];
   editTitle?: {
     value: string;
@@ -443,7 +451,7 @@ function TreeItem({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
-  const hasMenu = Boolean(menuItems?.length);
+  const hasMenu = Boolean(menuItems?.some((item) => !item.separator));
   const menuOpen = menuState !== null;
   const isEditingTitle = Boolean(editTitle);
 
@@ -550,6 +558,7 @@ function TreeItem({
           <button
             type="button"
             onClick={onClick}
+            onDoubleClick={onDoubleClick}
             className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-[6px] px-2 text-left"
             style={{ paddingLeft: `${8 + level * 14}px` } as CSSProperties}
           >
@@ -577,7 +586,9 @@ function TreeItem({
                 } as CSSProperties)
           }
         >
-          {menuItems?.map((item) => (
+          {menuItems?.map((item, index) => item.separator ? (
+            <div key={`separator-${index}`} role="separator" className="my-1 h-px bg-[var(--vscode-border)]" />
+          ) : (
             <button
               key={item.label}
               type="button"
@@ -587,7 +598,7 @@ function TreeItem({
                   return;
                 }
                 setMenuState(null);
-                item.onSelect();
+                item.onSelect?.();
               }}
               className={cn(
                 "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[12px] text-[var(--vscode-foreground)] transition-[background-color,color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)] disabled:cursor-not-allowed disabled:opacity-50",
@@ -603,6 +614,210 @@ function TreeItem({
       ) : null}
     </div>
   );
+}
+
+type TabMenuItem = {
+  label?: string;
+  icon?: React.ReactNode;
+  onSelect?: () => void;
+  disabled?: boolean;
+  separator?: boolean;
+};
+
+function TabContextMenu({ x, y, items, onClose }: { x: number; y: number; items: TabMenuItem[]; onClose: () => void }) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [position, setPosition] = useState({ x, y });
+
+  useEffect(() => {
+    setPosition({ x, y });
+  }, [x, y]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) onClose();
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    const rect = menuRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPosition((current) => ({
+      x: Math.max(8, Math.min(current.x, window.innerWidth - rect.width - 8)),
+      y: Math.max(8, Math.min(current.y, window.innerHeight - rect.height - 8)),
+    }));
+  }, []);
+
+  return (
+    <div ref={menuRef} className="fixed z-[1000] min-w-[190px] overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-1 shadow-[var(--split-menu-shadow)]" style={{ left: position.x, top: position.y }}>
+      {items.map((item, index) => item.separator ? (
+        <div key={`separator-${index}`} role="separator" className="my-1 h-px bg-[var(--vscode-border)]" />
+      ) : (
+        <button
+          key={item.label}
+          type="button"
+          disabled={item.disabled}
+          onClick={() => {
+            if (item.disabled) return;
+            onClose();
+            item.onSelect?.();
+          }}
+          className="flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[12px] text-[var(--vscode-foreground)] transition-[background-color,color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)] disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {item.icon ? <span className="shrink-0">{item.icon}</span> : null}
+          <span className="truncate">{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type FileClipboard = { relativePath: string; cut: boolean } | null;
+
+function formatCompactCount(value: number) {
+  if (value < 1000) return String(value);
+  const units = ["k", "m", "b"];
+  const unit = Math.min(Math.floor(Math.log10(value) / 3) - 1, units.length - 1);
+  return `${(value / 1000 ** (unit + 1)).toFixed(1)}${units[unit]}`;
+}
+
+function formatFileSize(value: number) {
+  if (value < 1024) return `${value} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  const unit = Math.min(Math.floor(Math.log(value) / Math.log(1024)) - 1, units.length - 1);
+  return `${(value / 1024 ** (unit + 1)).toFixed(1)} ${units[unit]}`;
+}
+
+function FileDetailRow({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return <div className="flex items-center gap-2"><span className="shrink-0 text-[var(--vscode-icon)]">{icon}</span><span>{children}</span></div>;
+}
+
+function ProjectFileIcon({ name, isDirectory }: { name: string; isDirectory: boolean }) {
+  if (isDirectory) return <FolderOpen size={14} className="text-[#dcb67a]" />;
+  const extension = name.split(".").pop()?.toLowerCase() ?? "";
+  if (extension === "json") return <VscJson className="text-[#cbcb41]" size={15} />;
+  if (["ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "css", "html", "yml", "yaml"].includes(extension)) return <VscFileCode className="text-[#519aba]" size={15} />;
+  if (["md", "mdx"].includes(extension)) return <VscMarkdown className="text-[#519aba]" size={15} />;
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"].includes(extension)) return <VscFileMedia className="text-[#c586c0]" size={15} />;
+  if (extension === "pdf") return <VscFilePdf className="text-[#f14c4c]" size={15} />;
+  if (["zip", "7z", "rar", "tar", "gz"].includes(extension)) return <VscFileZip className="text-[#d7ba7d]" size={15} />;
+  return <VscFile className="text-[#9cdcfe]" size={15} />;
+}
+
+function ProjectFileTree({ project, entry, level, selectedPath, onSelect, clipboard, collapseVersion, onCreate, onCopy, onCut, onPaste, onRename, onDelete, onReveal, onOpenTerminal, onView, onOpenExternal }: {
+  project: Project; entry: import("../lib/api").ProjectFileEntry; level: number; selectedPath: string; onSelect: (entry: import("../lib/api").ProjectFileEntry) => void; clipboard: FileClipboard; collapseVersion: number;
+  onCreate: (parentPath: string, kind: "file" | "folder") => void; onCopy: (path: string) => void; onCut: (path: string) => void; onPaste: (path: string) => void; onRename: (entry: import("../lib/api").ProjectFileEntry) => void; onDelete: (entry: import("../lib/api").ProjectFileEntry) => void; onReveal: (path: string) => void; onOpenTerminal: (relativeDirectoryPath: string) => void; onView: (entry: import("../lib/api").ProjectFileEntry) => void; onOpenExternal: (path: string) => void;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  useEffect(() => { setIsExpanded(false); }, [collapseVersion]);
+  const entriesQuery = useQuery({ queryKey: ["project-files", project.id, entry.relative_path], queryFn: () => api.listProjectFiles(project.id, entry.relative_path), enabled: entry.is_directory && isExpanded });
+  const targetPath = entry.is_directory ? entry.relative_path : entry.relative_path.split("/").slice(0, -1).join("/");
+  const menuItems = [
+    { label: "View", icon: <Eye size={13} />, onSelect: () => onView(entry), disabled: entry.is_directory || (entry.file_kind !== "text" && !["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"].includes(entry.name.split(".").pop()?.toLowerCase() ?? "")) },
+    { separator: true },
+    { label: "New File", icon: <FilePlus size={13} />, onSelect: () => onCreate(targetPath, "file") },
+    { label: "New Folder", icon: <FolderPlus size={13} />, onSelect: () => onCreate(targetPath, "folder") },
+    { separator: true },
+    { label: "Reveal in File Explorer", icon: <FolderOpen size={13} />, onSelect: () => onReveal(entry.relative_path) },
+    { label: "Open in Internal Interactive Terminal", icon: <TerminalSquare size={13} />, onSelect: () => onOpenTerminal(entry.is_directory ? entry.relative_path : targetPath) },
+    { separator: true },
+    { label: "Copy", icon: <CopyPlus size={13} />, onSelect: () => onCopy(entry.relative_path) },
+    { label: "Cut", icon: <Scissors size={13} />, onSelect: () => onCut(entry.relative_path) },
+    { label: "Paste", icon: <Clipboard size={13} />, onSelect: () => onPaste(targetPath), disabled: !clipboard },
+    { separator: true },
+    { label: "Copy Full Path", icon: <CopyPlus size={13} />, onSelect: () => void navigator.clipboard.writeText(`${project.path}${entry.relative_path ? `/${entry.relative_path}` : ""}`) },
+    { label: "Copy Relative Path", icon: <CopyPlus size={13} />, onSelect: () => void navigator.clipboard.writeText(entry.relative_path) },
+    { separator: true },
+    { label: "Rename", icon: <Pencil size={13} />, onSelect: () => onRename(entry) },
+    { label: "Delete", icon: <Trash2 size={13} />, onSelect: () => onDelete(entry), tone: "danger" as const },
+  ];
+  return <div>
+    <TreeItem title={entry.name} level={level} active={selectedPath === entry.relative_path} icon={entry.is_directory ? (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <ProjectFileIcon name={entry.name} isDirectory={false} />} trailing={entriesQuery.isFetching ? <LoaderCircle size={12} className="animate-spin" /> : entry.line_count !== null ? <span className={cn(entry.line_count >= 1_000_000 ? "text-[var(--vscode-danger)]" : entry.line_count >= 1_000 ? "text-[#d7ba7d]" : "text-[var(--vscode-foreground)]/52")}>{formatCompactCount(entry.line_count)}</span> : undefined} onClick={() => { onSelect(entry); if (entry.is_directory) setIsExpanded((current) => !current); }} onDoubleClick={() => { if (!entry.is_directory) onOpenExternal(entry.relative_path); }} menuItems={menuItems} />
+    {entry.is_directory && isExpanded ? <div>{entriesQuery.isError ? <div className="px-3 py-1 text-[11px] text-[var(--vscode-danger)]" style={{ paddingLeft: `${24 + (level + 1) * 14}px` }}>Unable to read folder.</div> : null}{entriesQuery.data?.map((child) => <ProjectFileTree key={child.relative_path} project={project} entry={child} level={level + 1} selectedPath={selectedPath} onSelect={onSelect} clipboard={clipboard} collapseVersion={collapseVersion} onCreate={onCreate} onCopy={onCopy} onCut={onCut} onPaste={onPaste} onRename={onRename} onDelete={onDelete} onReveal={onReveal} onOpenTerminal={onOpenTerminal} onView={onView} onOpenExternal={onOpenExternal} />)}</div> : null}
+  </div>;
+}
+
+function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Project | null; onOpenTerminal: (relativeDirectoryPath: string) => void; onView: (relativePath: string) => void }) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const [clipboard, setClipboard] = useState<FileClipboard>(null);
+  const [selected, setSelected] = useState<import("../lib/api").ProjectFileEntry | null>(null);
+  const [collapseVersion, setCollapseVersion] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<import("../lib/api").ProjectFileEntry | null>(null);
+  const rootQuery = useQuery({ queryKey: ["project-files", project?.id, ""], queryFn: () => api.listProjectFiles(project!.id), enabled: Boolean(project) });
+  const rootInfoQuery = useQuery({ queryKey: ["project-file-info", project?.id, ""], queryFn: () => api.getProjectFileInfo(project!.id), enabled: Boolean(project) });
+  const invalidate = () => project ? queryClient.invalidateQueries({ queryKey: ["project-files", project.id] }) : Promise.resolve();
+  const run = (operation: Promise<unknown>) => void operation.then(invalidate).catch((value: unknown) => setError(value instanceof Error ? value.message : "File operation failed."));
+  useEffect(() => { setError(null); setClipboard(null); setSelected(null); }, [project?.id]);
+  if (!project) return <div className="p-4 text-[12px] text-[var(--vscode-foreground)]/60">Select a project to browse its files.</div>;
+  const selectedInfo = selected ?? rootInfoQuery.data ?? null;
+  const create = (parentPath: string, kind: "file" | "folder") => { const name = window.prompt(kind === "file" ? "New file name" : "New folder name"); if (name?.trim()) run((kind === "file" ? api.createProjectFile : api.createProjectFolder)(project.id, parentPath, name.trim())); };
+  const rename = (entry: import("../lib/api").ProjectFileEntry) => { const name = window.prompt("New name", entry.name); if (name?.trim() && name.trim() !== entry.name) run(api.renameProjectFile(project.id, entry.relative_path, name.trim())); };
+  const paste = (targetPath: string) => { if (clipboard) run(api.pasteProjectFile(project.id, clipboard.relativePath, targetPath, clipboard.cut)); if (clipboard?.cut) setClipboard(null); };
+  return <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex items-center justify-between border-b border-[var(--vscode-border)] px-3 py-2"><span className="flex min-w-0 items-center gap-2 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/62">{project.name}{rootQuery.isFetching ? <LoaderCircle size={12} className="shrink-0 animate-spin" /> : null}</span><div className="flex items-center gap-0.5"><Tooltip content="New File"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => create("", "file")}><FilePlus size={14} /></button></Tooltip><Tooltip content="New Folder"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => create("", "folder")}><FolderPlus size={14} /></button></Tooltip><Tooltip content="Refresh Explorer"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => void invalidate()}><RefreshCw size={14} /></button></Tooltip><Tooltip content="Collapse All"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => setCollapseVersion((current) => current + 1)}><ChevronsUp size={14} /></button></Tooltip></div></div>
+    <Group orientation="vertical" className="min-h-0 flex-1"><Panel id="file-tree" minSize="35%" className="min-h-0 overflow-y-auto px-2 py-2">{error ? <div className="mb-2 text-[11px] text-[var(--vscode-danger)]">{error}</div> : null}{rootQuery.data?.map((entry) => <ProjectFileTree key={entry.relative_path} project={project} entry={entry} level={0} selectedPath={selected?.relative_path ?? ""} onSelect={setSelected} clipboard={clipboard} collapseVersion={collapseVersion} onCreate={create} onCopy={(relativePath) => setClipboard({ relativePath, cut: false })} onCut={(relativePath) => setClipboard({ relativePath, cut: true })} onPaste={paste} onRename={rename} onDelete={setDeleteTarget} onReveal={(relativePath) => run(api.revealProjectFile(project.id, relativePath))} onOpenTerminal={onOpenTerminal} onView={(entry) => { if (!entry.is_directory) onView(entry.relative_path); }} onOpenExternal={(relativePath) => run(api.openProjectFile(project.id, relativePath))} />)}</Panel><Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" /><Panel id="file-details" defaultSize="30%" minSize="18%" className="min-h-0 overflow-y-auto border-t border-[var(--vscode-border)] p-3"><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55">Details</div>{selectedInfo ? <div className="mt-2 grid gap-1.5 text-[11px] text-[var(--vscode-foreground)]/72"><div className="flex items-center gap-2 truncate font-medium text-foreground"><ProjectFileIcon name={selectedInfo.name} isDirectory={selectedInfo.is_directory} />{selectedInfo.name || project.name}</div><FileDetailRow icon={selectedInfo.file_kind === "folder" ? <Folder size={13} /> : <FileText size={13} />}>{selectedInfo.file_kind === "folder" ? "Folder" : `${selectedInfo.file_kind === "text" ? "Text" : "Binary"} file`}</FileDetailRow><FileDetailRow icon={<HardDrive size={13} />}>Size: {formatFileSize(selectedInfo.size_bytes)} ({selectedInfo.size_bytes.toLocaleString()} bytes)</FileDetailRow>{selectedInfo.file_kind === "folder" ? <FileDetailRow icon={<Folder size={13} />}>{selectedInfo.child_folder_count.toLocaleString()} folders · {selectedInfo.child_file_count.toLocaleString()} files</FileDetailRow> : null}{selectedInfo.line_count !== null ? <FileDetailRow icon={<List size={13} />}>Lines: {selectedInfo.line_count.toLocaleString()}</FileDetailRow> : null}<FileDetailRow icon={<CalendarDays size={13} />}>Created: {selectedInfo.created_at ? formatDateTime(selectedInfo.created_at) : "—"}</FileDetailRow><FileDetailRow icon={<CalendarDays size={13} />}>Modified: {selectedInfo.modified_at ? formatDateTime(selectedInfo.modified_at) : "—"}</FileDetailRow></div> : <div className="mt-2 text-[11px] text-[var(--vscode-foreground)]/55">Select a file or folder.</div>}</Panel></Group>
+    <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }} title="Delete file or folder" description={`Delete “${deleteTarget?.name ?? ""}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (deleteTarget) run(api.deleteProjectFile(project.id, deleteTarget.relative_path)); setDeleteTarget(null); }} />
+  </div>;
+}
+
+const SYNTAX_KEYWORDS = new Set([
+  "as", "async", "await", "break", "case", "catch", "class", "const", "continue", "def", "default", "else", "enum", "export", "extends", "false", "finally", "fn", "for", "from", "function", "if", "impl", "import", "in", "interface", "let", "match", "mod", "new", "null", "None", "pub", "return", "self", "static", "struct", "switch", "this", "throw", "trait", "true", "try", "type", "undefined", "use", "while", "with", "yield",
+]);
+
+function syntaxLanguage(relativePath: string) {
+  const extension = relativePath.split(".").pop()?.toLowerCase() ?? "";
+  const languages: Record<string, string> = {
+    bash: "Shell", c: "C", cpp: "C++", css: "CSS", go: "Go", h: "C/C++", html: "HTML", htm: "HTML", java: "Java", js: "JavaScript", jsx: "JavaScript", json: "JSON", md: "Markdown", mdx: "Markdown", py: "Python", rs: "Rust", sh: "Shell", sql: "SQL", toml: "TOML", ts: "TypeScript", tsx: "TypeScript", xml: "XML", yaml: "YAML", yml: "YAML",
+  };
+  return languages[extension] ?? "Plain Text";
+}
+
+function syntaxTokens(line: string, relativePath: string): React.ReactNode[] {
+  const extension = relativePath.split(".").pop()?.toLowerCase() ?? "";
+  const hashComments = ["py", "yml", "yaml", "sh", "bash", "toml"].includes(extension);
+  const markup = ["html", "htm", "xml", "svg"].includes(extension);
+  const comments = markup ? "<!--.*?-->" : hashComments ? "#.*" : "//.*|/\\*.*?\\*/";
+  const pattern = new RegExp(`(?:${comments})|(?:\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'|\\\`(?:\\\\.|[^\\\`\\\\])*\\\`)|\\b(?:${[...SYNTAX_KEYWORDS].join("|")})\\b|\\b\\d+(?:\\.\\d+)?\\b|\\b[A-Za-z_$][\\w$]*(?=\\s*\\()|<\\/?[A-Za-z][^>]*>`, "g");
+  const tokens: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of line.matchAll(pattern)) {
+    const value = match[0];
+    const index = match.index ?? 0;
+    if (index > cursor) tokens.push(line.slice(cursor, index));
+    const className = value.startsWith("//") || value.startsWith("/*") || value.startsWith("<!--") || (hashComments && value.startsWith("#"))
+      ? "text-[#6a9955]"
+      : value.startsWith("\"") || value.startsWith("'") || value.startsWith("`")
+        ? "text-[#ce9178]"
+        : value.startsWith("<")
+          ? "text-[#569cd6]"
+          : SYNTAX_KEYWORDS.has(value)
+            ? "text-[#c586c0]"
+            : /^\d/.test(value)
+              ? "text-[#b5cea8]"
+              : "text-[#dcdcaa]";
+    tokens.push(<span key={`${index}-${value}`} className={className}>{value}</span>);
+    cursor = index + value.length;
+  }
+  if (cursor < line.length) tokens.push(line.slice(cursor));
+  return tokens;
+}
+
+function ProjectFileViewer({ project, relativePath }: { project: Project; relativePath: string }) {
+  const contentQuery = useQuery({ queryKey: ["project-file-content", project.id, relativePath], queryFn: () => api.readProjectFile(project.id, relativePath) });
+  const lines = useMemo(() => contentQuery.data?.content?.split("\n") ?? [], [contentQuery.data?.content]);
+  if (contentQuery.isLoading) return <div className="flex h-full items-center justify-center text-[12px] text-[var(--vscode-foreground)]/60"><LoaderCircle size={14} className="mr-2 animate-spin" /> Loading file…</div>;
+  if (contentQuery.isError || !contentQuery.data) return <div className="p-5 text-[12px] text-[var(--vscode-danger)]">{contentQuery.error instanceof Error ? contentQuery.error.message : "Unable to view this file."}</div>;
+  return <div className="flex h-full min-h-0 flex-col bg-[var(--vscode-editor)]"><div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--vscode-border)] px-5 py-3 text-[12px] text-[var(--vscode-foreground)]/70"><span className="truncate">{project.name} / {relativePath}</span>{contentQuery.data.file_kind === "text" ? <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/48">{syntaxLanguage(relativePath)} · {lines.length.toLocaleString()} lines</span> : null}</div>{contentQuery.data.file_kind === "image" ? <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-6"><img src={contentQuery.data.data_url ?? ""} alt={relativePath} className="max-h-full max-w-full object-contain" /></div> : <div className="min-h-0 flex-1 overflow-auto py-3 font-mono text-[12px] leading-6"><div className="min-w-max">{lines.map((line, index) => <div key={index} className="grid grid-cols-[auto_1fr] hover:bg-[var(--vscode-list-hover)]/35"><span className="sticky left-0 select-none border-r border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 text-right text-[var(--vscode-foreground)]/38" style={{ minWidth: `${Math.max(3, String(lines.length).length) + 1}ch` }}>{index + 1}</span><code className="whitespace-pre px-4 text-[#d4d4d4]">{syntaxTokens(line, relativePath)}</code></div>)}</div></div>}</div>;
 }
 
 function EmptyEditorState({
@@ -1248,8 +1463,8 @@ function NoteDetailPane({
 
         <div className="my-4 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-          <section className="py-1">
+        <div className="flex flex-col gap-6">
+          <section className="w-full py-1">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">Source</div>
@@ -1361,7 +1576,7 @@ type VSCodeShellProps = {
   ) => void;
   interactiveTerminalOptions: InteractiveTerminalOption[];
   onRequestCloseAllLogTabs: (commandIds: number[]) => void;
-  onOpenAdHocInteractiveTerminal: (project: Project, terminalKind: InteractiveTerminalKind) => void;
+  onOpenAdHocInteractiveTerminal: (project: Project, terminalKind: InteractiveTerminalKind, workingDirectory?: string) => void;
   onEditCommand: (command: ProjectCommand) => void;
   onDeleteCommand: (command: ProjectCommand) => void;
   onRunCommand: (command: ProjectCommand) => void;
@@ -1441,6 +1656,15 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   });
   const [tabs, setTabs] = useState<EditorTab[]>(() => [welcomeTab()]);
   const [activeTabId, setActiveTabId] = useState("welcome");
+  const [pinnedTabIds, setPinnedTabIds] = useState<Set<string>>(() => new Set());
+  const [flowDirtyById, setFlowDirtyById] = useState<Record<number, boolean>>({});
+  const [pendingTabCloseIds, setPendingTabCloseIds] = useState<string[] | null>(null);
+  const [tabContextMenu, setTabContextMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
+  const [isSecondarySidebarVisible, setIsSecondarySidebarVisible] = useState(true);
+  const [isFileExplorerVisible, setIsFileExplorerVisible] = useState(false);
+  const [fileExplorerWidth, setFileExplorerWidth] = useState(320);
+  const [groupLayoutVersion, setGroupLayoutVersion] = useState(0);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
   const [flowDialogProject, setFlowDialogProject] = useState<Project | null>(null);
   const [isCreatingFlow, setIsCreatingFlow] = useState(false);
   const [flowCreationError, setFlowCreationError] = useState<string | null>(null);
@@ -1467,6 +1691,33 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const selectedProjectCommands = activeContextProject ? commandsByProjectId[activeContextProject.id] ?? [] : [];
   const selectedProjectNotes = activeContextProject ? sortedProjectNotesByProjectId[activeContextProject.id] ?? [] : [];
   const selectedProjectFlows = activeContextProject ? flowsByProjectId[activeContextProject.id] ?? [] : [];
+
+  function toggleFileExplorer() {
+    const previousWidth = workspaceRef.current?.getBoundingClientRect().width ?? 0;
+    setIsFileExplorerVisible((current) => !current);
+    window.requestAnimationFrame(() => {
+      const nextWidth = workspaceRef.current?.getBoundingClientRect().width ?? 0;
+      if (!previousWidth || !nextWidth) return;
+      setSidebarLayout((current) => {
+        const sidebar = Math.max(SIDEBAR_MIN_LAYOUT, Math.min(SIDEBAR_MAX_LAYOUT, current.sidebar * previousWidth / nextWidth));
+        return { sidebar, editor: 100 - sidebar };
+      });
+      setGroupLayoutVersion((current) => current + 1);
+    });
+  }
+
+  function startFileExplorerResize(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const initialX = event.clientX;
+    const initialWidth = fileExplorerWidth;
+    const handleMove = (moveEvent: PointerEvent) => setFileExplorerWidth(Math.max(240, Math.min(620, initialWidth + initialX - moveEvent.clientX)));
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  }
   const updateFlowMutation = useMutation({
     mutationFn: ({ id, name }: { id: number; name: string }) => api.updateFlow(id, name),
     onSuccess: (flow) => {
@@ -1636,14 +1887,48 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     setActiveTabId(tab.id);
   }
 
-  function closeTab(tabId: string) {
+  const handleFlowDirtyChange = useCallback((flowId: number, isDirty: boolean) => {
+    setFlowDirtyById((current) => current[flowId] === isDirty ? current : { ...current, [flowId]: isDirty });
+  }, []);
+
+  function closeTabsNow(tabIds: string[]) {
+    const ids = new Set(tabIds);
+    if (ids.size === 0) return;
     let nextActiveId = activeTabId;
     setTabs((current) => {
-      nextActiveId = resolveNextActiveTabId(current, tabId, activeTabId);
-      const next = current.filter((tab) => tab.id !== tabId);
+      const activeIndex = current.findIndex((tab) => tab.id === activeTabId);
+      const next = current.filter((tab) => !ids.has(tab.id));
+      if (ids.has(activeTabId)) {
+        nextActiveId = (next.length > 0 ? next[Math.min(Math.max(activeIndex, 0), next.length - 1)] : welcomeTab()).id;
+      }
       return next.length > 0 ? next : [welcomeTab()];
     });
+    setPinnedTabIds((current) => new Set([...current].filter((id) => !ids.has(id))));
+    setFlowDirtyById((current) => Object.fromEntries(Object.entries(current).filter(([flowId]) => !ids.has(`flow:${flowId}`))));
     setActiveTabId(nextActiveId);
+  }
+
+  function requestCloseTabs(tabIds: string[]) {
+    const ids = [...new Set(tabIds)].filter((id) => id !== "welcome");
+    if (ids.length === 0) return;
+    const hasUnsavedFlow = tabs.some((tab) => tab.kind === "flow" && ids.includes(tab.id) && flowDirtyById[tab.flowId]);
+    if (hasUnsavedFlow) {
+      setPendingTabCloseIds(ids);
+      return;
+    }
+    closeTabsNow(ids);
+  }
+
+  function closeTab(tabId: string) {
+    requestCloseTabs([tabId]);
+  }
+
+  function togglePinnedTab(tabId: string) {
+    setPinnedTabIds((current) => {
+      const next = new Set(current);
+      if (next.has(tabId)) next.delete(tabId); else next.add(tabId);
+      return next;
+    });
   }
 
   function handleSelectProject(projectId: number) {
@@ -1779,6 +2064,9 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         const flow = (flowsByProjectId[projectId] ?? []).find((item) => item.id === flowId);
         if (project && flow) handleOpenFlowTab(project, flow);
       },
+      toggleSecondarySidebar() {
+        setIsSecondarySidebarVisible((current) => !current);
+      },
     }),
     [commandsByProjectId, flowsByProjectId, projects, sortedProjectNotesByProjectId],
   );
@@ -1816,6 +2104,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         icon: <TerminalSquare size={13} />,
         onSelect: () => onOpenTerminal(project),
       },
+      { separator: true },
       {
         label: "Export project",
         icon: <FileUp size={13} />,
@@ -1854,6 +2143,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         icon: <LayoutGrid size={13} />,
         onSelect: () => handleOpenCommandTab(command),
       },
+      { separator: true },
       {
         label: "Run command",
         icon: <Play size={13} />,
@@ -1876,6 +2166,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         icon: <TerminalSquare size={13} />,
         onSelect: () => handleOpenLogs(command.id),
       },
+      { separator: true },
       {
         label: "Edit command",
         icon: <FilePenLine size={13} />,
@@ -1914,6 +2205,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         icon: <BookOpenText size={13} />,
         onSelect: () => handleOpenNoteTab(project, note),
       },
+      { separator: true },
       {
         label: note.pinned ? "Unpin note" : "Pin note",
         icon: <Pin size={13} />,
@@ -1934,6 +2226,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         icon: <FilePenLine size={13} />,
         onSelect: () => setEditingSidebarNote({ project, note }),
       },
+      { separator: true },
       {
         label: "Delete note",
         icon: <Trash2 size={13} className="text-[var(--vscode-danger)]" />,
@@ -1950,6 +2243,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         icon: <GitBranch size={13} />,
         onSelect: () => handleOpenFlowTab(project, flow),
       },
+      { separator: true },
       {
         label: "Rename flow",
         icon: <Pencil size={13} />,
@@ -1960,6 +2254,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         icon: <FilePenLine size={13} />,
         onSelect: () => setEditingFlow(flow),
       },
+      { separator: true },
       {
         label: "Delete flow",
         icon: <Trash2 size={13} className="text-[var(--vscode-danger)]" />,
@@ -1976,6 +2271,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         icon: <Pencil size={13} />,
         onSelect: () => beginRename({ kind: "terminal", command }, terminalNames[command.id] ?? command.name),
       },
+      { separator: true },
       {
         label: "Kill terminal",
         icon: <X size={13} />,
@@ -2025,6 +2321,10 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     const tabProject = findProjectById(projects, activeTab.projectId);
     if (!tabProject) {
       return <WelcomeEditor onAddProject={onAddProject} onImportProject={onImportProject} />;
+    }
+
+    if (activeTab.kind === "file-view") {
+      return <ProjectFileViewer project={tabProject} relativePath={activeTab.relativePath} />;
     }
 
     if (activeTab.kind === "project-overview") {
@@ -2142,6 +2442,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         onStopFlow={onStopFlow}
         onOpenLogs={handleOpenLogs}
         onDeleted={() => onDeleteFlow(flow)}
+        onDirtyChange={handleFlowDirtyChange}
       />;
     }
 
@@ -2392,6 +2693,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                           icon: commandsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />,
                           onSelect: () => setCommandsExpanded((current) => !current),
                         },
+                        { separator: true },
                         ...getCommandsMenuItems(project),
                       ]}
                     />
@@ -2437,6 +2739,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                       trailing={(flowsByProjectId[project.id] ?? []).length}
                       menuItems={[
                         { label: "Open flows view", icon: <LayoutGrid size={13} />, onSelect: handleOpenFlowsOverview },
+                        { separator: true },
                         { label: flowsExpanded ? "Collapse flows" : "Expand flows", icon: flowsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />, onSelect: () => setFlowsExpanded((current) => !current) },
                       ]}
                     />
@@ -2461,6 +2764,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                           icon: notesExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />,
                           onSelect: () => setNotesExpanded((current) => !current),
                         },
+                        { separator: true },
                         ...getNotesMenuItems(project),
                       ]}
                     />
@@ -2527,7 +2831,9 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         </div>
       </aside>
 
+      <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1">
       <Group
+        key={groupLayoutVersion}
         orientation="horizontal"
         defaultLayout={sidebarLayout}
         onLayoutChanged={(layout) =>
@@ -2536,9 +2842,9 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
             editor: layout.editor ?? DEFAULT_SIDEBAR_LAYOUT.editor,
           })
         }
-        className="min-h-0 flex-1"
+        className="min-h-0 min-w-0 flex-1"
       >
-        <Panel
+        {isSecondarySidebarVisible ? <Panel
           id="sidebar"
           defaultSize={SIDEBAR_DEFAULT_SIZE}
           minSize={SIDEBAR_MIN_SIZE}
@@ -2546,7 +2852,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
           className="min-h-0 min-w-0"
         >
           <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r border-[var(--vscode-border)] bg-[var(--vscode-sidebar)]">
-            <div className="border-b border-[var(--vscode-border)] px-4 py-3">
+            <div className="flex items-center justify-between border-b border-[var(--vscode-border)] px-4 py-3">
               <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--vscode-foreground)]/58">
                 {activeSidebarView === "explorer"
                   ? "Explorer"
@@ -2558,12 +2864,19 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                       ? "Terminal"
                       : "Settings"}
               </div>
+              {activeSidebarView === "explorer" ? (
+                <Tooltip content={isFileExplorerVisible ? "Hide file explorer" : "Show file explorer"}>
+                  <button type="button" onClick={toggleFileExplorer} className="rounded-[4px] p-1 text-[var(--vscode-icon)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground" aria-label={isFileExplorerVisible ? "Hide file explorer" : "Show file explorer"}>
+                    {isFileExplorerVisible ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+                  </button>
+                </Tooltip>
+              ) : null}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">{sidebarContent}</div>
           </aside>
-        </Panel>
+        </Panel> : null}
 
-        <Separator className="relative -mx-1 w-2 cursor-col-resize bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-[var(--vscode-border)] before:transition-colors hover:before:bg-primary" />
+        {isSecondarySidebarVisible ? <Separator className="relative -mx-1 w-2 cursor-col-resize bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-[var(--vscode-border)] before:transition-colors hover:before:bg-primary" /> : null}
 
         <Panel id="editor" minSize={EDITOR_MIN_SIZE} className="min-h-0 min-w-0">
           <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--vscode-editor)]">
@@ -2577,9 +2890,15 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                         "group flex h-9 min-w-[160px] max-w-[240px] items-center border-r border-[var(--vscode-border)] px-3 text-[12px] text-[var(--vscode-foreground)]/76 transition-[background-color,color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
                         activeTabId === tab.id && "bg-[var(--vscode-editor)] text-foreground",
                       )}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        setTabContextMenu({ tabId: tab.id, x: event.clientX, y: event.clientY });
+                      }}
                     >
-                      <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={() => setActiveTabId(tab.id)}>
-                        {tab.title}
+                      <button type="button" className="flex min-w-0 flex-1 items-center gap-2 truncate text-left" onClick={() => setActiveTabId(tab.id)}>
+                        <span className="truncate">{tab.title}</span>
+                        {tab.kind === "flow" && flowDirtyById[tab.flowId] ? <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--vscode-foreground)]" aria-label="Unsaved changes" /> : null}
+                        {pinnedTabIds.has(tab.id) ? <Pin size={11} className="shrink-0 text-[var(--vscode-icon)]" aria-label="Pinned" /> : null}
                       </button>
                       {tab.kind !== "welcome" ? (
                         <button
@@ -2645,7 +2964,43 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
           </section>
         </Panel>
       </Group>
+      {activeSidebarView === "explorer" && isFileExplorerVisible ? (
+        <aside className="relative flex shrink-0 flex-col border-l border-[var(--vscode-border)] bg-[var(--vscode-sidebar)]" style={{ width: fileExplorerWidth }}>
+          <div onPointerDown={startFileExplorerResize} className="absolute inset-y-0 -left-1 z-20 w-3 cursor-col-resize before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-transparent hover:before:bg-primary" aria-label="Resize file explorer" />
+          <div className="flex h-[45px] items-center justify-between border-b border-[var(--vscode-border)] px-3">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--vscode-foreground)]/58">Files</span>
+            <button type="button" onClick={toggleFileExplorer} className="rounded-[4px] p-1 text-[var(--vscode-icon)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground" aria-label="Close file explorer"><X size={15} /></button>
+          </div>
+          <ProjectFileExplorer project={activeContextProject} onView={(relativePath) => {
+            if (activeContextProject) openTab(fileViewTab(activeContextProject, relativePath));
+          }} onOpenTerminal={(relativeDirectoryPath) => {
+            if (activeContextProject) onOpenAdHocInteractiveTerminal(activeContextProject, "powershell", relativeDirectoryPath ? `${activeContextProject.path}/${relativeDirectoryPath}` : activeContextProject.path);
+          }} />
+        </aside>
+      ) : null}
+      </div>
       </main>
+      {tabContextMenu ? (() => {
+        const tab = tabs.find((item) => item.id === tabContextMenu.tabId);
+        if (!tab) return null;
+        const tabIndex = tabs.findIndex((item) => item.id === tab.id);
+        const closeOthers = tabs.filter((item) => item.id !== tab.id && item.id !== "welcome" && !pinnedTabIds.has(item.id)).map((item) => item.id);
+        const closeToRight = tabs.slice(tabIndex + 1).filter((item) => item.id !== "welcome" && !pinnedTabIds.has(item.id)).map((item) => item.id);
+        const closeAll = tabs.filter((item) => item.id !== "welcome" && !pinnedTabIds.has(item.id)).map((item) => item.id);
+        return <TabContextMenu
+          x={tabContextMenu.x}
+          y={tabContextMenu.y}
+          onClose={() => setTabContextMenu(null)}
+          items={[
+            { label: "Close", icon: <X size={13} />, onSelect: () => closeTab(tab.id), disabled: tab.kind === "welcome" },
+            { label: "Close Others", icon: <X size={13} />, onSelect: () => requestCloseTabs(closeOthers), disabled: closeOthers.length === 0 },
+            { label: "Close to the Right", icon: <X size={13} />, onSelect: () => requestCloseTabs(closeToRight), disabled: closeToRight.length === 0 },
+            { label: "Close All", icon: <X size={13} />, onSelect: () => requestCloseTabs(closeAll), disabled: closeAll.length === 0 },
+            { separator: true },
+            { label: pinnedTabIds.has(tab.id) ? "Unpin" : "Pin", icon: pinnedTabIds.has(tab.id) ? <PinOff size={13} /> : <Pin size={13} />, onSelect: () => togglePinnedTab(tab.id) },
+          ]}
+        />;
+      })() : null}
       <FlowFormDialog
         open={flowDialogProject !== null}
         projectName={flowDialogProject?.name ?? null}
@@ -2699,6 +3054,17 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         description={`Delete flow “${flowToDelete?.name ?? ""}”? This cannot be undone.`}
         confirmLabel="Delete flow"
         onConfirm={() => { if (flowToDelete) onDeleteFlow(flowToDelete); }}
+      />
+      <ConfirmDialog
+        open={pendingTabCloseIds !== null}
+        onOpenChange={(open) => { if (!open) setPendingTabCloseIds(null); }}
+        title="Discard unsaved flow changes?"
+        description="One or more flow tabs have changes that have not been saved. Closing them will discard those changes."
+        confirmLabel="Discard and close"
+        onConfirm={() => {
+          if (pendingTabCloseIds) closeTabsNow(pendingTabCloseIds);
+          setPendingTabCloseIds(null);
+        }}
       />
     </>
   );

@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Copy, Minus, Square, X } from "lucide-react";
+import { Copy, Minus, PanelLeft, Square, X } from "lucide-react";
 import {
   api,
   CommandInput,
@@ -40,10 +40,11 @@ type PrdOpenRequestPayload = {
 };
 
 type AppContextMenuItem = {
-  label: string;
-  onSelect: () => void | Promise<void>;
+  label?: string;
+  onSelect?: () => void | Promise<void>;
   disabled?: boolean;
   tone?: "default" | "danger";
+  separator?: boolean;
 };
 
 function AppContextMenu({
@@ -100,7 +101,7 @@ function AppContextMenu({
   }
 
   const menuWidth = 200;
-  const menuHeight = menuState.items.length * 34 + 8;
+  const menuHeight = menuState.items.reduce((height, item) => height + (item.separator ? 9 : 34), 8);
   const left = Math.max(8, Math.min(menuState.x, window.innerWidth - menuWidth - 8));
   const top = Math.max(8, Math.min(menuState.y, window.innerHeight - menuHeight - 8));
 
@@ -115,7 +116,9 @@ function AppContextMenu({
         } as CSSProperties
       }
     >
-      {menuState.items.map((item) => (
+      {menuState.items.map((item, index) => item.separator ? (
+        <div key={`separator-${index}`} role="separator" className="my-1 h-px bg-[var(--vscode-border)]" />
+      ) : (
         <button
           key={item.label}
           type="button"
@@ -125,7 +128,7 @@ function AppContextMenu({
               return;
             }
             onClose();
-            void item.onSelect();
+            void item.onSelect?.();
           }}
           className={[
             "flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[12px] text-[var(--vscode-foreground)] transition-[background-color,color]",
@@ -146,10 +149,12 @@ function AppTitleBar({
   selectedProjectName,
   searchCollections,
   onSearchSelect,
+  onToggleSecondarySidebar,
 }: {
   selectedProjectName: string | null;
   searchCollections: ReturnType<typeof buildTitlebarSearchCollections>;
   onSearchSelect: (item: TitlebarSearchItem) => void;
+  onToggleSecondarySidebar: () => void;
 }) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [isFocused, setIsFocused] = useState(true);
@@ -233,6 +238,17 @@ function AppTitleBar({
         </div>
       </div>
       <div className="relative z-10 flex shrink-0 items-stretch">
+        <button
+          data-window-control="true"
+          type="button"
+          className="flex h-9 w-12 items-center justify-center border-l border-transparent text-[var(--vscode-icon)] transition-[background-color,color,border-color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]"
+          onMouseDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onClick={onToggleSecondarySidebar}
+          aria-label="Toggle secondary sidebar"
+        >
+          <PanelLeft size={15} />
+        </button>
         <button
           data-window-control="true"
           type="button"
@@ -483,6 +499,7 @@ function App() {
             onSelect: () => pasteIntoTarget(target),
             disabled: readOnly,
           },
+          { separator: true },
           {
             label: "Select All",
             onSelect: () => selectAllTarget(target),
@@ -495,6 +512,7 @@ function App() {
             onSelect: () => copySelection(target),
             disabled: !selected,
           },
+          { separator: true },
           {
             label: "Reload",
             onSelect: () => window.location.reload(),
@@ -1003,6 +1021,7 @@ function App() {
           selectedProjectName={selectedProject?.name ?? null}
           searchCollections={titlebarSearchCollections}
           onSearchSelect={handleTitlebarSearchSelect}
+          onToggleSecondarySidebar={() => shellRef.current?.toggleSecondarySidebar()}
         />
 
         <div className="min-h-0 flex flex-1 overflow-hidden">
@@ -1088,8 +1107,8 @@ function App() {
             onEditCommand={openCommandDialog}
             interactiveTerminalOptions={interactiveTerminalOptions}
             onRequestCloseAllLogTabs={handleRequestCloseAllTerminalTabs}
-            onOpenAdHocInteractiveTerminal={(project, terminalKind) => {
-              void openAdHocInteractiveTerminal(project, terminalKind);
+            onOpenAdHocInteractiveTerminal={(project, terminalKind, workingDirectory) => {
+              void openAdHocInteractiveTerminal(project, terminalKind, workingDirectory);
             }}
             onDeleteCommand={(command) => {
               setConfirmDialog({

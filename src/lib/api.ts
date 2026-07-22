@@ -250,6 +250,19 @@ export type FlowEdge = {
 };
 
 export type FlowDetail = { flow: ProjectFlow; nodes: FlowNode[]; edges: FlowEdge[] };
+export type ProjectFileEntry = {
+  name: string;
+  relative_path: string;
+  is_directory: boolean;
+  size_bytes: number;
+  child_file_count: number;
+  child_folder_count: number;
+  created_at: string | null;
+  modified_at: string | null;
+  file_kind: "folder" | "text" | "binary";
+  line_count: number | null;
+};
+export type ProjectFileContent = { file_kind: "text" | "image"; content: string | null; data_url: string | null };
 export type FlowGraphInput = {
   name: string;
   nodes: Array<Pick<FlowNode, "id" | "command_id" | "position_x" | "position_y">>;
@@ -470,6 +483,26 @@ export const api = {
   updateProject: (id: number, input: ProjectInput) =>
     invokeDesktop<Project>("update_project", { id, input }),
   deleteProject: (id: number) => invokeDesktop<void>("delete_project", { id }),
+  listProjectFiles: (projectId: number, relativePath = "") =>
+    invokeDesktop<ProjectFileEntry[]>("list_project_files", { projectId, relativePath }),
+  getProjectFileInfo: (projectId: number, relativePath = "") =>
+    invokeDesktop<ProjectFileEntry>("get_project_file_info", { projectId, relativePath }),
+  createProjectFile: (projectId: number, parentRelativePath: string, name: string) =>
+    invokeDesktop<void>("create_project_file", { projectId, parentRelativePath, name }),
+  createProjectFolder: (projectId: number, parentRelativePath: string, name: string) =>
+    invokeDesktop<void>("create_project_folder", { projectId, parentRelativePath, name }),
+  pasteProjectFile: (projectId: number, sourceRelativePath: string, targetRelativePath: string, cut: boolean) =>
+    invokeDesktop<void>("paste_project_file", { projectId, sourceRelativePath, targetRelativePath, cut }),
+  renameProjectFile: (projectId: number, relativePath: string, name: string) =>
+    invokeDesktop<void>("rename_project_file", { projectId, relativePath, name }),
+  deleteProjectFile: (projectId: number, relativePath: string) =>
+    invokeDesktop<void>("delete_project_file", { projectId, relativePath }),
+  revealProjectFile: (projectId: number, relativePath: string) =>
+    invokeDesktop<void>("reveal_project_file", { projectId, relativePath }),
+  openProjectFile: (projectId: number, relativePath: string) =>
+    invokeDesktop<void>("open_project_file", { projectId, relativePath }),
+  readProjectFile: (projectId: number, relativePath: string) =>
+    invokeDesktop<ProjectFileContent>("read_project_file", { projectId, relativePath }),
   listCommands: (projectId: number) =>
     isDesktopRuntime()
       ? invokeDesktop<ProjectCommand[]>("list_commands", { projectId })

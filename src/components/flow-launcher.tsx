@@ -31,7 +31,7 @@ function FlowCommandNode({ data, selected }: NodeProps<Node<FlowCommandNodeData>
 
 const nodeTypes = { command: FlowCommandNode };
 
-export function FlowLauncher({ project, flow, commands, runs: _runs, flowRun, onRunFlow, onStopFlow, onOpenLogs, onDeleted }: {
+export function FlowLauncher({ project, flow, commands, runs: _runs, flowRun, onRunFlow, onStopFlow, onOpenLogs, onDeleted, onDirtyChange }: {
   project: Project;
   flow: ProjectFlow;
   commands: ProjectCommand[];
@@ -41,6 +41,7 @@ export function FlowLauncher({ project, flow, commands, runs: _runs, flowRun, on
   onStopFlow: (flowId: number) => void;
   onOpenLogs: (commandId: number) => void;
   onDeleted: () => void;
+  onDirtyChange?: (flowId: number, isDirty: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const detailQuery = useQuery({ queryKey: ["flow", flow.id], queryFn: () => api.getFlow(flow.id) });
@@ -92,6 +93,10 @@ export function FlowLauncher({ project, flow, commands, runs: _runs, flowRun, on
   }, [nodeStatus, openNodeLog]);
 
   useEffect(() => { setFlowName(flow.name); }, [flow.id, flow.name]);
+
+  useEffect(() => {
+    onDirtyChange?.(flow.id, isDirty);
+  }, [flow.id, isDirty, onDirtyChange]);
 
   const saveMutation = useMutation({
     mutationFn: () => api.saveFlowGraph(flow.id, { name: flowName.trim(), nodes: nodes.map((node) => ({ id: node.id, command_id: node.data.command.id, position_x: Math.round(node.position.x), position_y: Math.round(node.position.y) })), edges: edges.map((edge) => ({ id: edge.id, source_node_id: edge.source, target_node_id: edge.target })) }),
