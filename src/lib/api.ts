@@ -477,6 +477,7 @@ export const api = {
   listFlows: (projectId: number) => invokeDesktop<ProjectFlow[]>("list_flows", { projectId }),
   getFlow: (id: number) => invokeDesktop<FlowDetail>("get_flow", { id }),
   createFlow: (projectId: number, name: string) => invokeDesktop<ProjectFlow>("create_flow", { input: { project_id: projectId, name } }),
+  updateFlow: (id: number, name: string) => invokeDesktop<ProjectFlow>("update_flow", { id, input: { name } }),
   saveFlowGraph: (id: number, input: FlowGraphInput) => invokeDesktop<FlowDetail>("save_flow_graph", { id, input }),
   deleteFlow: (id: number) => invokeDesktop<void>("delete_flow", { id }),
   startFlowNode: (flowId: number, flowNodeId: string, cols = 120, rows = 32) =>

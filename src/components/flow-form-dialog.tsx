@@ -9,35 +9,42 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 
 export function FlowFormDialog({
+  mode = "create",
   open,
   projectName,
+  flowName,
   isPending,
   error,
   onOpenChange,
   onSubmit,
 }: {
+  mode?: "create" | "edit";
   open: boolean;
   projectName: string | null;
+  flowName?: string;
   isPending: boolean;
   error: string | null;
   onOpenChange: (open: boolean) => void;
   onSubmit: (name: string) => void;
 }) {
-  const [name, setName] = useState("Development stack");
+  const [name, setName] = useState(flowName ?? "Development stack");
 
   useEffect(() => {
-    if (open) setName("Development stack");
-  }, [open]);
+    if (open) setName(flowName ?? "Development stack");
+  }, [flowName, open]);
 
   const trimmedName = name.trim();
+  const isEditing = mode === "edit";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(460px,calc(100vw-20px))]">
         <DialogHeader>
-          <DialogTitle>Add flow</DialogTitle>
+          <DialogTitle>{isEditing ? "Edit flow" : "Add flow"}</DialogTitle>
           <DialogDescription>
-            Create a reusable sequence of commands for {projectName ?? "this project"}.
+            {isEditing
+              ? `Update the flow information for ${projectName ?? "this project"}.`
+              : `Create a reusable sequence of commands for ${projectName ?? "this project"}.`}
           </DialogDescription>
         </DialogHeader>
         <DialogForm onSubmit={(event) => { event.preventDefault(); if (trimmedName) onSubmit(trimmedName); }}>
@@ -55,8 +62,8 @@ export function FlowFormDialog({
           </DialogField>
           <DialogFooter>
             <Button type="button" variant="secondary" onClick={() => onOpenChange(false)} disabled={isPending}>Cancel</Button>
-            <StatefulButton type="submit" state={isPending ? "loading" : "idle"} icon={<Save size={16} />} disabled={!trimmedName} loadingText="Creating">
-              Create flow
+            <StatefulButton type="submit" state={isPending ? "loading" : "idle"} icon={<Save size={16} />} disabled={!trimmedName} loadingText={isEditing ? "Saving" : "Creating"}>
+              {isEditing ? "Save changes" : "Create flow"}
             </StatefulButton>
           </DialogFooter>
         </DialogForm>

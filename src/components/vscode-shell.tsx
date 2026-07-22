@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenText,
   ChevronDown,
@@ -54,6 +54,7 @@ import { api, type Project, type ProjectCommand, type ProjectFlow } from "../lib
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import type { UpdateStatus } from "../hooks/use-app-updater";
 import type { FlowRunState } from "../hooks/use-flow-runtime";
+import { ConfirmDialog } from "./process-dialogs";
 
 type SidebarView = "explorer" | "flows" | "notes" | "terminal" | "settings";
 
@@ -407,6 +408,7 @@ function TreeItem({
   title,
   trailing,
   menuItems,
+  editTitle,
 }: {
   level?: number;
   active?: boolean;
@@ -421,6 +423,13 @@ function TreeItem({
     disabled?: boolean;
     tone?: "default" | "danger";
   }[];
+  editTitle?: {
+    value: string;
+    onChange: (value: string) => void;
+    onSubmit: () => void;
+    onCancel: () => void;
+    isPending?: boolean;
+  };
 }) {
   const [menuState, setMenuState] = useState<
     | { mode: "anchor" }
@@ -433,8 +442,10 @@ function TreeItem({
   >(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const hasMenu = Boolean(menuItems?.length);
   const menuOpen = menuState !== null;
+  const isEditingTitle = Boolean(editTitle);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -480,6 +491,12 @@ function TreeItem({
     }
   }, [menuState]);
 
+  useEffect(() => {
+    if (!isEditingTitle) return;
+    titleInputRef.current?.focus();
+    titleInputRef.current?.select();
+  }, [isEditingTitle]);
+
   return (
     <div
       ref={containerRef}
@@ -505,16 +522,42 @@ function TreeItem({
         )}
       >
         {active ? <span className="absolute inset-y-1 left-0 w-[2px] rounded-r-full bg-primary" /> : null}
-        <button
-          type="button"
-          onClick={onClick}
-          className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-[6px] px-2 text-left"
-          style={{ paddingLeft: `${8 + level * 14}px` } as CSSProperties}
-        >
-          {icon ? <span className={cn("shrink-0 text-[var(--vscode-icon)]", active && "text-primary")}>{icon}</span> : null}
-          <span className="truncate">{title}</span>
-          {trailing ? <span className={cn("ml-auto shrink-0 text-[11px] text-muted-foreground", active && "text-foreground/80")}>{trailing}</span> : null}
-        </button>
+        {editTitle ? (
+          <div className="flex min-w-0 flex-1 items-center gap-2 self-stretch px-2" style={{ paddingLeft: `${8 + level * 14}px` } as CSSProperties}>
+            {icon ? <span className={cn("shrink-0 text-[var(--vscode-icon)]", active && "text-primary")}>{icon}</span> : null}
+            <input
+              ref={titleInputRef}
+              value={editTitle.value}
+              disabled={editTitle.isPending}
+              onChange={(event) => editTitle.onChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  editTitle.onSubmit();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  editTitle.onCancel();
+                }
+              }}
+              onBlur={editTitle.onSubmit}
+              onClick={(event) => event.stopPropagation()}
+              className="h-5 min-w-0 flex-1 rounded-[3px] border border-primary bg-[var(--vscode-input-background)] px-1 text-[12px] text-foreground outline-none"
+              aria-label={`Rename ${title}`}
+            />
+            {trailing ? <span className={cn("shrink-0 text-[11px] text-muted-foreground", active && "text-foreground/80")}>{trailing}</span> : null}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onClick}
+            className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-[6px] px-2 text-left"
+            style={{ paddingLeft: `${8 + level * 14}px` } as CSSProperties}
+          >
+            {icon ? <span className={cn("shrink-0 text-[var(--vscode-icon)]", active && "text-primary")}>{icon}</span> : null}
+            <span className="truncate">{title}</span>
+            {trailing ? <span className={cn("ml-auto shrink-0 text-[11px] text-muted-foreground", active && "text-foreground/80")}>{trailing}</span> : null}
+          </button>
+        )}
       </div>
       {hasMenu && menuOpen ? (
         <div
@@ -1160,11 +1203,11 @@ function NoteDetailPane({
   }, [note.content, note.id, note.title]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-4">
       <div className="mx-auto flex w-full max-w-[1200px] flex-col">
-        <section className="py-1">
+        <section>
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="py-4">
+            <div className="py-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-[22px] font-semibold text-foreground">{title}</h2>
                 {note.pinned ? <Badge variant="muted">Pinned</Badge> : null}
@@ -1178,7 +1221,7 @@ function NoteDetailPane({
                 Updated {formatDateTime(note.updatedAt)}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2 py-4">
+            <div className="flex flex-wrap gap-2 py-1">
               <Button variant="secondary" onClick={() => onTogglePinned(note.id)}>
                 {note.pinned ? <PinOff size={14} /> : <Pin size={14} />}
                 {note.pinned ? "Unpin" : "Pin"}
@@ -1196,14 +1239,14 @@ function NoteDetailPane({
                 Copy content
               </Button>
               <Button variant="danger" onClick={() => onDelete(note.id)}>
-                <Trash2 size={14} className="text-[var(--vscode-danger)]" />
+                <Trash2 size={14} />
                 Delete
               </Button>
             </div>
           </div>
         </section>
 
-        <div className="my-5 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
+        <div className="my-4 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
 
         <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
           <section className="py-1">
@@ -1401,6 +1444,19 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const [flowDialogProject, setFlowDialogProject] = useState<Project | null>(null);
   const [isCreatingFlow, setIsCreatingFlow] = useState(false);
   const [flowCreationError, setFlowCreationError] = useState<string | null>(null);
+  const [editingFlow, setEditingFlow] = useState<ProjectFlow | null>(null);
+  const [editingSidebarNote, setEditingSidebarNote] = useState<{ project: Project; note: ProjectNote } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<
+    | { kind: "flow"; project: Project; flow: ProjectFlow }
+    | { kind: "note"; project: Project; note: ProjectNote }
+    | { kind: "terminal"; command: ProjectCommand }
+    | null
+  >(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [terminalNames, setTerminalNames] = useState<Record<number, string>>({});
+  const renameSubmittingRef = useRef(false);
+  const renameCancelledRef = useRef(false);
+  const [flowToDelete, setFlowToDelete] = useState<ProjectFlow | null>(null);
   const [commandsExpanded, setCommandsExpanded] = useState(true);
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [flowsExpanded, setFlowsExpanded] = useState(true);
@@ -1411,6 +1467,75 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const selectedProjectCommands = activeContextProject ? commandsByProjectId[activeContextProject.id] ?? [] : [];
   const selectedProjectNotes = activeContextProject ? sortedProjectNotesByProjectId[activeContextProject.id] ?? [] : [];
   const selectedProjectFlows = activeContextProject ? flowsByProjectId[activeContextProject.id] ?? [] : [];
+  const updateFlowMutation = useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) => api.updateFlow(id, name),
+    onSuccess: (flow) => {
+      renameSubmittingRef.current = false;
+      renameCancelledRef.current = false;
+      setEditingFlow(null);
+      setRenameTarget(null);
+      setRenameValue("");
+      void queryClient.invalidateQueries({ queryKey: ["flows", flow.project_id] });
+      void queryClient.invalidateQueries({ queryKey: ["flow", flow.id] });
+    },
+    onError: () => {
+      renameSubmittingRef.current = false;
+    },
+  });
+
+  function beginRename(target: NonNullable<typeof renameTarget>, value: string) {
+    renameSubmittingRef.current = false;
+    renameCancelledRef.current = false;
+    setRenameValue(value);
+    setRenameTarget(target);
+  }
+
+  function cancelRename() {
+    if (updateFlowMutation.isPending) return;
+    renameSubmittingRef.current = false;
+    renameCancelledRef.current = true;
+    setRenameTarget(null);
+    setRenameValue("");
+  }
+
+  function submitRename() {
+    if (renameSubmittingRef.current || renameCancelledRef.current) return;
+    const name = renameValue.trim();
+    if (!renameTarget || !name) {
+      cancelRename();
+      return;
+    }
+    renameSubmittingRef.current = true;
+    if (renameTarget.kind === "flow") {
+      updateFlowMutation.mutate({ id: renameTarget.flow.id, name });
+      return;
+    }
+    if (renameTarget.kind === "note") {
+      onEditProjectNote(renameTarget.project.id, renameTarget.note.id, name, renameTarget.note.content);
+    } else {
+      setTerminalNames((current) => ({ ...current, [renameTarget.command.id]: name }));
+    }
+    setRenameTarget(null);
+    setRenameValue("");
+  }
+
+  function renameEditorFor(kind: "flow" | "note" | "terminal", id: number | string) {
+    const targetId = renameTarget?.kind === "flow"
+      ? renameTarget.flow.id
+      : renameTarget?.kind === "note"
+        ? renameTarget.note.id
+        : renameTarget?.kind === "terminal"
+          ? renameTarget.command.id
+          : null;
+    if (renameTarget?.kind !== kind || targetId !== id) return undefined;
+    return {
+      value: renameValue,
+      onChange: setRenameValue,
+      onSubmit: submitRename,
+      onCancel: cancelRename,
+      isPending: kind === "flow" && updateFlowMutation.isPending,
+    };
+  }
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_VIEW_KEY, activeSidebarView);
@@ -1800,9 +1925,61 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         onSelect: () => onToggleProjectNoteVisibility(project.id, note.id),
       },
       {
+        label: "Rename note",
+        icon: <Pencil size={13} />,
+        onSelect: () => beginRename({ kind: "note", project, note }, noteTitle(note)),
+      },
+      {
+        label: "Edit note",
+        icon: <FilePenLine size={13} />,
+        onSelect: () => setEditingSidebarNote({ project, note }),
+      },
+      {
         label: "Delete note",
         icon: <Trash2 size={13} className="text-[var(--vscode-danger)]" />,
         onSelect: () => onDeleteProjectNote(project.id, note.id),
+        tone: "danger" as const,
+      },
+    ];
+  }
+
+  function getFlowMenuItems(project: Project, flow: ProjectFlow) {
+    return [
+      {
+        label: "Open flow",
+        icon: <GitBranch size={13} />,
+        onSelect: () => handleOpenFlowTab(project, flow),
+      },
+      {
+        label: "Rename flow",
+        icon: <Pencil size={13} />,
+        onSelect: () => beginRename({ kind: "flow", project, flow }, flow.name),
+      },
+      {
+        label: "Edit flow",
+        icon: <FilePenLine size={13} />,
+        onSelect: () => setEditingFlow(flow),
+      },
+      {
+        label: "Delete flow",
+        icon: <Trash2 size={13} className="text-[var(--vscode-danger)]" />,
+        onSelect: () => setFlowToDelete(flow),
+        tone: "danger" as const,
+      },
+    ];
+  }
+
+  function getTerminalMenuItems(command: ProjectCommand) {
+    return [
+      {
+        label: "Rename terminal",
+        icon: <Pencil size={13} />,
+        onSelect: () => beginRename({ kind: "terminal", command }, terminalNames[command.id] ?? command.name),
+      },
+      {
+        label: "Kill terminal",
+        icon: <X size={13} />,
+        onSelect: () => onCloseLogTab(command.id),
         tone: "danger" as const,
       },
     ];
@@ -1956,6 +2133,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       const flow = (flowsByProjectId[tabProject.id] ?? []).find((item) => item.id === activeTab.flowId);
       if (!flow) return <WelcomeEditor onAddProject={onAddProject} onImportProject={onImportProject} />;
       return <FlowLauncher
+        project={tabProject}
         flow={flow}
         commands={commandsByProjectId[tabProject.id] ?? []}
         runs={runs}
@@ -2052,7 +2230,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
               {openCommands.map((command) => (
                 <TreeItem
                   key={command.id}
-                  title={command.name}
+                  title={terminalNames[command.id] ?? command.name}
                   icon={<TerminalSquare size={14} />}
                   active={activeLogCommandId === command.id}
                   trailing={runs[command.id]?.status === "running" ? "running" : undefined}
@@ -2060,6 +2238,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                     onOpenLogs(command.id);
                     onActiveLogCommandChange(command.id);
                   }}
+                  menuItems={getTerminalMenuItems(command)}
+                  editTitle={renameEditorFor("terminal", command.id)}
                 />
               ))}
             </div>
@@ -2094,6 +2274,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                   active={activeTab.kind === "note" && activeTab.noteId === note.id}
                   trailing={note.pinned ? "pin" : undefined}
                   onClick={() => activeContextProject && handleOpenNoteTab(activeContextProject, note)}
+                  menuItems={getNoteMenuItems(activeContextProject, note)}
+                  editTitle={renameEditorFor("note", note.id)}
                 />
               ))}
             </div>
@@ -2127,6 +2309,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                   title={flow.name}
                   active={activeTab.kind === "flow" && activeTab.flowId === flow.id}
                   onClick={() => handleOpenFlowTab(activeContextProject, flow)}
+                  menuItems={getFlowMenuItems(activeContextProject, flow)}
+                  editTitle={renameEditorFor("flow", flow.id)}
                 />
               ))}
             </div>
@@ -2258,9 +2442,9 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                     />
                     {flowsExpanded ? (
                       <>
-                        <TreeItem title="Open flows view" level={2} icon={<LayoutGrid size={12} />} active={activeTab.kind === "flows-overview"} onClick={handleOpenFlowsOverview} />
+                        <TreeItem title="Open flows view" level={2} active={activeTab.kind === "flows-overview"} onClick={handleOpenFlowsOverview} />
                         {(flowsByProjectId[project.id] ?? []).map((flow) => (
-                          <TreeItem key={flow.id} level={2} title={flow.name} icon={<GitBranch size={12} />} active={activeTab.kind === "flow" && activeTab.flowId === flow.id} onClick={() => handleOpenFlowTab(project, flow)} />
+                          <TreeItem key={flow.id} level={2} title={flow.name} icon={<GitBranch size={12} />} active={activeTab.kind === "flow" && activeTab.flowId === flow.id} onClick={() => handleOpenFlowTab(project, flow)} menuItems={getFlowMenuItems(project, flow)} editTitle={renameEditorFor("flow", flow.id)} />
                         ))}
                       </>
                     ) : null}
@@ -2298,6 +2482,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                             trailing={note.pinned ? "pin" : undefined}
                             onClick={() => handleOpenNoteTab(project, note)}
                             menuItems={getNoteMenuItems(project, note)}
+                            editTitle={renameEditorFor("note", note.id)}
                           />
                         ))}
                       </>
@@ -2475,6 +2660,45 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         onSubmit={(name) => {
           if (flowDialogProject) void submitFlow(flowDialogProject, name);
         }}
+      />
+      <FlowFormDialog
+        mode="edit"
+        open={editingFlow !== null}
+        projectName={editingFlow ? findProjectById(projects, editingFlow.project_id)?.name ?? null : null}
+        flowName={editingFlow?.name}
+        isPending={updateFlowMutation.isPending}
+        error={updateFlowMutation.error instanceof Error ? updateFlowMutation.error.message : null}
+        onOpenChange={(open) => {
+          if (!open && !updateFlowMutation.isPending) setEditingFlow(null);
+        }}
+        onSubmit={(name) => {
+          if (editingFlow) updateFlowMutation.mutate({ id: editingFlow.id, name });
+        }}
+      />
+      <ProjectNoteDialog
+        mode="edit"
+        open={editingSidebarNote !== null}
+        onOpenChange={(open) => { if (!open) setEditingSidebarNote(null); }}
+        projectName={editingSidebarNote?.project.name ?? "this project"}
+        value={editingSidebarNote ? { title: editingSidebarNote.note.title, content: editingSidebarNote.note.content } : { title: "", content: "" }}
+        onValueChange={(field, value) => {
+          setEditingSidebarNote((current) => current ? { ...current, note: { ...current.note, [field]: value } } : current);
+        }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!editingSidebarNote || !editingSidebarNote.note.title.trim() || !editingSidebarNote.note.content.trim()) return;
+          onEditProjectNote(editingSidebarNote.project.id, editingSidebarNote.note.id, editingSidebarNote.note.title, editingSidebarNote.note.content);
+          setEditingSidebarNote(null);
+        }}
+        isSaving={isSavingNotes}
+      />
+      <ConfirmDialog
+        open={flowToDelete !== null}
+        onOpenChange={(open) => { if (!open) setFlowToDelete(null); }}
+        title="Delete flow"
+        description={`Delete flow “${flowToDelete?.name ?? ""}”? This cannot be undone.`}
+        confirmLabel="Delete flow"
+        onConfirm={() => { if (flowToDelete) onDeleteFlow(flowToDelete); }}
       />
     </>
   );

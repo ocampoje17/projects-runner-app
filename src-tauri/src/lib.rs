@@ -185,6 +185,9 @@ struct FlowDetail { flow: Flow, nodes: Vec<FlowNode>, edges: Vec<FlowEdge> }
 struct FlowInput { project_id: i64, name: String }
 
 #[derive(Debug, Deserialize)]
+struct FlowUpdateInput { name: String }
+
+#[derive(Debug, Deserialize)]
 struct FlowGraphInput { name: String, nodes: Vec<FlowNodeInput>, edges: Vec<FlowEdgeInput> }
 
 #[derive(Debug, Deserialize)]
@@ -668,8 +671,7 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
             FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
             FOREIGN KEY(source_node_id) REFERENCES flow_nodes(id) ON DELETE CASCADE,
             FOREIGN KEY(target_node_id) REFERENCES flow_nodes(id) ON DELETE CASCADE,
-            UNIQUE(flow_id, source_node_id),
-            UNIQUE(flow_id, target_node_id)
+            UNIQUE(flow_id, source_node_id, target_node_id)
         );",
     )
     .map_err(|error| error.to_string())?;
@@ -713,7 +715,7 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     ensure_column(&mut conn, "command_runs", "flow_node_id", "TEXT")?;
-    migrate_flow_nodes_allow_duplicates(&mut conn)?;
+    migrate_flow_graph_schema(&mut conn)?;
 
     sql_query(format!(
         "UPDATE commands SET runtime_mode = '{}' WHERE runtime_mode IS NULL OR TRIM(runtime_mode) = ''",
@@ -746,19 +748,27 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     Ok(())
 }
 
-fn migrate_flow_nodes_allow_duplicates(conn: &mut SqliteConnection) -> Result<(), String> {
+fn migrate_flow_graph_schema(conn: &mut SqliteConnection) -> Result<(), String> {
     #[derive(QueryableByName)]
     struct TableSql {
         #[diesel(sql_type = Text)]
         sql: String,
     }
 
-    let schema = sql_query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'flow_nodes'")
+    let node_schema = sql_query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'flow_nodes'")
         .get_result::<TableSql>(conn)
         .optional()
         .map_err(|error| error.to_string())?;
-    let Some(schema) = schema else { return Ok(()); };
-    if !schema.sql.contains("UNIQUE(flow_id, command_id)") {
+    let edge_schema = sql_query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'flow_edges'")
+        .get_result::<TableSql>(conn)
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let Some(node_schema) = node_schema else { return Ok(()); };
+    let Some(edge_schema) = edge_schema else { return Ok(()); };
+    let nodes_allow_duplicate_commands = !node_schema.sql.contains("UNIQUE(flow_id, command_id)");
+    let edges_allow_multiple_connections = !edge_schema.sql.contains("UNIQUE(flow_id, source_node_id)")
+        && !edge_schema.sql.contains("UNIQUE(flow_id, target_node_id)");
+    if nodes_allow_duplicate_commands && edges_allow_multiple_connections {
         return Ok(());
     }
 
@@ -786,8 +796,7 @@ fn migrate_flow_nodes_allow_duplicates(conn: &mut SqliteConnection) -> Result<()
             FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
             FOREIGN KEY(source_node_id) REFERENCES flow_nodes_next(id) ON DELETE CASCADE,
             FOREIGN KEY(target_node_id) REFERENCES flow_nodes_next(id) ON DELETE CASCADE,
-            UNIQUE(flow_id, source_node_id),
-            UNIQUE(flow_id, target_node_id)
+            UNIQUE(flow_id, source_node_id, target_node_id)
         );
         INSERT INTO flow_edges_next (id, flow_id, source_node_id, target_node_id)
             SELECT id, flow_id, source_node_id, target_node_id FROM flow_edges;
@@ -1410,7 +1419,7 @@ mod tests {
     }
 
     #[test]
-    fn flow_graph_requires_one_connected_sequence() {
+    fn flow_graph_allows_branches_but_rejects_duplicate_pairs_and_cycles() {
         let nodes = vec![
             FlowNodeInput { id: "a".to_string(), command_id: 1, position_x: 0, position_y: 0 },
             FlowNodeInput { id: "b".to_string(), command_id: 2, position_x: 0, position_y: 100 },
@@ -1418,10 +1427,14 @@ mod tests {
         ];
         let edges = vec![
             FlowEdgeInput { id: "ab".to_string(), source_node_id: "a".to_string(), target_node_id: "b".to_string() },
-            FlowEdgeInput { id: "bc".to_string(), source_node_id: "b".to_string(), target_node_id: "c".to_string() },
+            FlowEdgeInput { id: "ac".to_string(), source_node_id: "a".to_string(), target_node_id: "c".to_string() },
         ];
         assert!(validate_flow_graph(&nodes, &edges).is_ok());
-        assert!(validate_flow_graph(&nodes, &edges[..1]).is_err());
+        let duplicate_pair = vec![
+            FlowEdgeInput { id: "ab".to_string(), source_node_id: "a".to_string(), target_node_id: "b".to_string() },
+            FlowEdgeInput { id: "ba".to_string(), source_node_id: "b".to_string(), target_node_id: "a".to_string() },
+        ];
+        assert!(validate_flow_graph(&nodes[..2], &duplicate_pair).is_err());
         let cyclic = vec![
             FlowEdgeInput { id: "ab".to_string(), source_node_id: "a".to_string(), target_node_id: "b".to_string() },
             FlowEdgeInput { id: "ba".to_string(), source_node_id: "b".to_string(), target_node_id: "a".to_string() },
@@ -1444,7 +1457,7 @@ mod tests {
     }
 
     #[test]
-    fn init_db_migrates_flow_nodes_that_prevent_command_reuse() {
+    fn init_db_migrates_flow_graph_constraints() {
         let paths = temp_test_paths("flow-node-duplicates");
         fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
         let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
@@ -1465,6 +1478,15 @@ mod tests {
         sql_query("INSERT INTO flow_nodes (id, flow_id, command_id, position_x, position_y) VALUES ('second', 1, 1, 0, 100)")
             .execute(&mut verify)
             .expect("allow a repeated command in a flow");
+        sql_query("INSERT INTO flow_nodes (id, flow_id, command_id, position_x, position_y) VALUES ('third', 1, 1, 0, 200)")
+            .execute(&mut verify)
+            .expect("create a third graph node");
+        sql_query("INSERT INTO flow_edges (id, flow_id, source_node_id, target_node_id) VALUES ('first-second', 1, 'first', 'second')")
+            .execute(&mut verify)
+            .expect("create the first branch");
+        sql_query("INSERT INTO flow_edges (id, flow_id, source_node_id, target_node_id) VALUES ('first-third', 1, 'first', 'third')")
+            .execute(&mut verify)
+            .expect("allow multiple connections from one node");
     }
 
     #[test]
@@ -2887,12 +2909,10 @@ fn validate_flow_graph(nodes: &[FlowNodeInput], edges: &[FlowEdgeInput]) -> Resu
     if nodes.is_empty() {
         return if edges.is_empty() { Ok(()) } else { Err("An empty flow cannot have connections".to_string()) };
     }
-    if edges.len() != nodes.len().saturating_sub(1) {
-        return Err("A flow must be one continuous sequence".to_string());
-    }
-    let mut incoming = HashMap::<&str, &str>::new();
-    let mut outgoing = HashMap::<&str, &str>::new();
+    let mut incoming = HashMap::<&str, usize>::new();
+    let mut outgoing = HashMap::<&str, Vec<&str>>::new();
     let mut edge_ids = HashSet::new();
+    let mut connected_pairs = HashSet::new();
     for edge in edges {
         if edge.id.trim().is_empty() || !edge_ids.insert(edge.id.as_str()) {
             return Err("Each connection needs a unique id".to_string());
@@ -2900,17 +2920,30 @@ fn validate_flow_graph(nodes: &[FlowNodeInput], edges: &[FlowEdgeInput]) -> Resu
         if edge.source_node_id == edge.target_node_id || !ids.contains(edge.source_node_id.as_str()) || !ids.contains(edge.target_node_id.as_str()) {
             return Err("Connections must join two different nodes in this flow".to_string());
         }
-        if outgoing.insert(edge.source_node_id.as_str(), edge.target_node_id.as_str()).is_some() || incoming.insert(edge.target_node_id.as_str(), edge.source_node_id.as_str()).is_some() {
-            return Err("Each node can have only one predecessor and one successor".to_string());
+        let pair = if edge.source_node_id < edge.target_node_id {
+            (edge.source_node_id.as_str(), edge.target_node_id.as_str())
+        } else {
+            (edge.target_node_id.as_str(), edge.source_node_id.as_str())
+        };
+        if !connected_pairs.insert(pair) {
+            return Err("Only one connection can exist between a pair of flow nodes".to_string());
+        }
+        *incoming.entry(edge.target_node_id.as_str()).or_insert(0) += 1;
+        outgoing.entry(edge.source_node_id.as_str()).or_default().push(edge.target_node_id.as_str());
+    }
+    let mut ready = ids.iter().copied().filter(|id| !incoming.contains_key(*id)).collect::<Vec<_>>();
+    let mut visited = 0;
+    while let Some(current) = ready.pop() {
+        visited += 1;
+        for next in outgoing.get(current).into_iter().flatten() {
+            let degree = incoming.get_mut(next).expect("target node must have an incoming edge");
+            *degree -= 1;
+            if *degree == 0 {
+                ready.push(next);
+            }
         }
     }
-    let start = ids.iter().find(|id| !incoming.contains_key(**id)).ok_or_else(|| "The flow contains a cycle".to_string())?;
-    let mut visited = HashSet::new();
-    let mut current = *start;
-    while visited.insert(current) {
-        match outgoing.get(current) { Some(next) => current = next, None => break }
-    }
-    if visited.len() != nodes.len() { return Err("The flow must be a single connected sequence".to_string()); }
+    if visited != nodes.len() { return Err("The flow contains a cycle".to_string()); }
     Ok(())
 }
 
@@ -2941,6 +2974,19 @@ fn create_flow(input: FlowInput, state: State<AppState>) -> Result<Flow, String>
     sql_query(format!("INSERT INTO flows (project_id, name, created_at, updated_at) VALUES ({}, '{}', '{}', '{}')", input.project_id, quote_sql(name), timestamp, timestamp))
         .execute(&mut conn).map_err(|error| error.to_string())?;
     sql_query("SELECT * FROM flows WHERE id = last_insert_rowid()").get_result::<Flow>(&mut conn).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn update_flow(id: i64, input: FlowUpdateInput, state: State<AppState>) -> Result<Flow, String> {
+    let name = input.name.trim();
+    if name.is_empty() { return Err("Flow name is required".to_string()); }
+    let mut conn = connect(&state.paths)?;
+    sql_query(format!("UPDATE flows SET name = '{}', updated_at = '{}' WHERE id = {}", quote_sql(name), now(), id))
+        .execute(&mut conn)
+        .map_err(|error| error.to_string())?;
+    sql_query(format!("SELECT * FROM flows WHERE id = {}", id))
+        .get_result::<Flow>(&mut conn)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -4720,6 +4766,7 @@ pub fn run() {
             list_flows,
             get_flow,
             create_flow,
+            update_flow,
             save_flow_graph,
             delete_flow,
             start_flow_node,

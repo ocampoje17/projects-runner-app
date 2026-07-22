@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Background, Controls, Handle, MiniMap, Position, ReactFlow, type Edge, type Node, type NodeProps, type OnConnect, type OnEdgesChange, type OnNodesChange, addEdge, applyEdgeChanges, applyNodeChanges } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { AlertTriangle, CircleStop, GitBranch, LoaderCircle, Play, Plus, Save, Trash2, X } from "lucide-react";
+import { AlertTriangle, CircleStop, GitBranch, LoaderCircle, Pencil, Play, Plus, Save, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type FlowDetail, type ProjectCommand, type ProjectFlow } from "../lib/api";
+import { api, type FlowDetail, type Project, type ProjectCommand, type ProjectFlow } from "../lib/api";
 import type { RunState } from "./project-runtime";
 import type { FlowNodeRunStatus, FlowRunState } from "../hooks/use-flow-runtime";
 import { ConfirmDialog } from "./process-dialogs";
+import { FlowFormDialog } from "./flow-form-dialog";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { formatDateTime } from "../lib/date-time";
 
 type FlowCommandNodeData = { nodeId: string; command: ProjectCommand; displayName: string; status: "idle" | FlowNodeRunStatus; onOpenLog: (nodeId: string) => void };
 
@@ -27,7 +31,8 @@ function FlowCommandNode({ data, selected }: NodeProps<Node<FlowCommandNodeData>
 
 const nodeTypes = { command: FlowCommandNode };
 
-export function FlowLauncher({ flow, commands, runs: _runs, flowRun, onRunFlow, onStopFlow, onOpenLogs, onDeleted }: {
+export function FlowLauncher({ project, flow, commands, runs: _runs, flowRun, onRunFlow, onStopFlow, onOpenLogs, onDeleted }: {
+  project: Project;
   flow: ProjectFlow;
   commands: ProjectCommand[];
   runs: Record<number, RunState>;
@@ -45,6 +50,7 @@ export function FlowLauncher({ flow, commands, runs: _runs, flowRun, onRunFlow, 
   const [flowName, setFlowName] = useState(flow.name);
   const [isDirty, setIsDirty] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const detail = detailQuery.data;
 
   const nodeStatus = useCallback((nodeId: string): FlowCommandNodeData["status"] => {
@@ -91,6 +97,15 @@ export function FlowLauncher({ flow, commands, runs: _runs, flowRun, onRunFlow, 
     mutationFn: () => api.saveFlowGraph(flow.id, { name: flowName.trim(), nodes: nodes.map((node) => ({ id: node.id, command_id: node.data.command.id, position_x: Math.round(node.position.x), position_y: Math.round(node.position.y) })), edges: edges.map((edge) => ({ id: edge.id, source_node_id: edge.source, target_node_id: edge.target })) }),
     onSuccess: (value) => { queryClient.setQueryData(["flow", flow.id], value); queryClient.invalidateQueries({ queryKey: ["flows", flow.project_id] }); hydrate(value); },
   });
+  const editMutation = useMutation({
+    mutationFn: (name: string) => api.updateFlow(flow.id, name),
+    onSuccess: (value) => {
+      setFlowName(value.name);
+      setEditDialogOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["flows", flow.project_id] });
+      void queryClient.invalidateQueries({ queryKey: ["flow", flow.id] });
+    },
+  });
 
   const onNodesChange: OnNodesChange<Node<FlowCommandNodeData>> = useCallback((changes) => {
     // Selection and measured dimensions are UI-only React Flow changes. They must
@@ -102,7 +117,18 @@ export function FlowLauncher({ flow, commands, runs: _runs, flowRun, onRunFlow, 
     if (changes.some((change) => ["add", "remove", "replace"].includes(change.type))) setIsDirty(true);
     setEdges((current) => applyEdgeChanges(changes, current));
   }, []);
-  const onConnect: OnConnect = useCallback((connection) => { setIsDirty(true); setEdges((current) => addEdge({ ...connection, id: crypto.randomUUID(), type: "smoothstep" }, current)); }, []);
+  const onConnect: OnConnect = useCallback((connection) => {
+    if (!connection.source || !connection.target || connection.source === connection.target) return;
+    setEdges((current) => {
+      const hasConnection = current.some((edge) =>
+        (edge.source === connection.source && edge.target === connection.target)
+        || (edge.source === connection.target && edge.target === connection.source),
+      );
+      if (hasConnection) return current;
+      setIsDirty(true);
+      return addEdge({ ...connection, id: crypto.randomUUID(), type: "smoothstep" }, current);
+    });
+  }, []);
   const selectedNodeIds = useMemo(() => new Set(nodes.filter((node) => node.selected).map((node) => node.id)), [nodes]);
   const isActive = ["starting", "running", "degraded"].includes(flowRun?.status ?? "idle");
 
@@ -124,23 +150,37 @@ export function FlowLauncher({ flow, commands, runs: _runs, flowRun, onRunFlow, 
   if (detailQuery.isLoading) return <div className="flex h-full items-center justify-center text-sm opacity-70"><LoaderCircle className="mr-2 animate-spin" size={16} /> Loading flow…</div>;
   if (detailQuery.isError || !detail) return <div className="p-5 text-sm text-[var(--vscode-danger)]">Could not load this flow.</div>;
   return <section className="flex h-full min-h-0 flex-col bg-[var(--vscode-editor)]">
-    <header className="flex shrink-0 items-center gap-2 border-b border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-3 py-2">
-      <GitBranch size={15} className="opacity-70" /><input value={flowName} onChange={(event) => { setFlowName(event.target.value); setIsDirty(true); }} disabled={isActive} aria-label="Flow name" className="mr-auto min-w-0 max-w-[320px] flex-1 bg-transparent text-[12px] font-semibold outline-none disabled:opacity-70" />
-      <button type="button" title={isDirty ? "Save flow changes before running." : undefined} disabled={isActive || nodes.length === 0 || isDirty} onClick={() => onRunFlow(flow)} className="flow-toolbar-button"><Play size={13} /> Run flow</button>
-      <button type="button" disabled={!isActive} onClick={() => onStopFlow(flow.id)} className="flow-toolbar-button"><CircleStop size={13} /> Stop</button>
-      <button type="button" disabled={isActive || selectedNodeIds.size === 0} onClick={removeSelectedNodes} className="flow-toolbar-button text-[var(--vscode-danger)] disabled:opacity-45"><Trash2 size={13} /> Remove node</button>
-      <button type="button" disabled={isActive || saveMutation.isPending || !flowName.trim()} onClick={() => saveMutation.mutate()} className="flow-toolbar-button"><Save size={13} /> Save</button>
-      <button type="button" disabled={isActive} onClick={() => setDeleteDialogOpen(true)} className="flow-toolbar-button text-[var(--vscode-danger)]"><X size={13} /></button>
+    <header className="shrink-0 border-b border-[var(--vscode-border)] bg-[var(--vscode-panel)] px-6 py-4">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-start justify-between gap-4">
+        <div className="py-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <GitBranch size={19} className="opacity-70" />
+            <h2 className="text-[22px] font-semibold text-foreground">{flowName}</h2>
+            <Badge variant={isActive ? "success" : "muted"}>{isActive ? "Running" : "Ready"}</Badge>
+            <Badge variant="muted">{project.name}</Badge>
+          </div>
+          <p className="mt-1 text-[12px] text-[var(--vscode-foreground)]/68">Updated {formatDateTime(flow.updated_at)}</p>
+        </div>
+        <div className="flex flex-wrap gap-2 py-1">
+          <Button title={isDirty ? "Save flow changes before running." : undefined} disabled={isActive || nodes.length === 0 || isDirty} onClick={() => onRunFlow(flow)}><Play size={14} /> Run flow</Button>
+          <Button variant="outline" disabled={!isActive} onClick={() => onStopFlow(flow.id)}><CircleStop size={14} /> Stop</Button>
+          <Button variant="secondary" disabled={isActive} onClick={() => setEditDialogOpen(true)}><Pencil size={14} /> Edit</Button>
+          <Button variant="secondary" disabled={isActive || selectedNodeIds.size === 0} onClick={removeSelectedNodes}><Trash2 size={14} /> Remove node</Button>
+          <Button variant="secondary" disabled={isActive || saveMutation.isPending || !flowName.trim() || !isDirty} onClick={() => saveMutation.mutate()}><Save size={14} /> Save changes</Button>
+          <Button variant="danger" disabled={isActive} onClick={() => setDeleteDialogOpen(true)}><Trash2 size={14} /> Delete</Button>
+        </div>
+      </div>
     </header>
     <div className="flex min-h-0 flex-1">
       <aside className="w-52 shrink-0 overflow-y-auto border-r border-[var(--vscode-border)] bg-[var(--vscode-sidebar)] p-2">
         <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide opacity-55">Add command</div>
         {commands.map((command) => <button key={command.id} type="button" disabled={isActive} onClick={() => addCommand(command)} className="mb-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-[var(--vscode-list-hover)] disabled:opacity-45"><Plus size={12} className="shrink-0" /><span className="min-w-0 truncate">{command.name}</span></button>)}
-        <div className="mt-5 border-t border-[var(--vscode-border)] pt-3 text-[10px] leading-4 opacity-60">Select a node, then use Remove node to take it out of the flow. Connect nodes into one chain. Each node gets its own execution and terminal tab.</div>
+        <div className="mt-5 border-t border-[var(--vscode-border)] pt-3 text-[10px] leading-4 opacity-60">Select a node, then use Remove node to take it out of the flow. A node can connect to multiple different nodes, but each pair can have only one connection.</div>
       </aside>
       <div className="min-w-0 flex-1"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} nodesDraggable={!isActive} nodesConnectable={!isActive} elementsSelectable={!isActive} fitView><Background gap={18} size={1} color="var(--vscode-border)" /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={(node) => node.data.status === "failed" ? "#f14c4c" : node.data.status === "running" ? "#89d185" : "#007acc"} /></ReactFlow></div>
     </div>
     {saveMutation.isError ? <div className="border-t border-[var(--vscode-danger)] bg-[color-mix(in_srgb,var(--vscode-danger)_12%,transparent)] px-3 py-2 text-[11px] text-[var(--vscode-danger)]">{saveMutation.error instanceof Error ? saveMutation.error.message : "Unable to save flow."}</div> : null}
+    <FlowFormDialog mode="edit" open={editDialogOpen} projectName={project.name} flowName={flowName} isPending={editMutation.isPending} error={editMutation.error instanceof Error ? editMutation.error.message : null} onOpenChange={setEditDialogOpen} onSubmit={(name) => editMutation.mutate(name)} />
     <ConfirmDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} title="Delete flow" description={`Delete flow “${flow.name}”? This cannot be undone.`} confirmLabel="Delete flow" onConfirm={onDeleted} />
   </section>;
 }
