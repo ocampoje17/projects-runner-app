@@ -210,6 +210,15 @@ export type ProjectCommand = {
   run_count: number;
 };
 
+export type ProjectCommandSection = {
+  id: number;
+  project_id: number;
+  name: string;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type CommandRun = {
   id: number;
   command_id: number;
@@ -291,6 +300,12 @@ export type CommandInput = {
   run_in_external_terminal?: boolean;
   external_terminal_kind?: ExternalTerminalKind | null;
   interactive_terminal_kind?: InteractiveTerminalKind | null;
+};
+
+export type CommandSectionInput = {
+  project_id: number;
+  name: string;
+  order_index?: number | null;
 };
 
 export type AppInfo = {
@@ -513,6 +528,27 @@ export const api = {
     isDesktopRuntime()
       ? invokeDesktop<ProjectCommand[]>("list_commands", { projectId })
       : readBrowserMockPayloadAsync().then((payload) => payload?.commandsByProjectId[projectId] ?? []),
+  listCommandSections: (projectId: number) =>
+    isDesktopRuntime()
+      ? invokeDesktop<ProjectCommandSection[]>("list_command_sections", { projectId })
+      : readBrowserMockPayloadAsync().then((payload) => {
+          const names = Array.from(
+            new Set((payload?.commandsByProjectId[projectId] ?? []).map((command) => command.section || "General")),
+          );
+          return (names.length ? names : ["General"]).map((name, index) => ({
+            id: -(projectId * 1000 + index + 1),
+            project_id: projectId,
+            name,
+            order_index: index,
+            created_at: "",
+            updated_at: "",
+          }));
+        }),
+  createCommandSection: (input: CommandSectionInput) =>
+    invokeDesktop<ProjectCommandSection>("create_command_section", { input }),
+  renameCommandSection: (id: number, name: string) =>
+    invokeDesktop<ProjectCommandSection>("rename_command_section", { id, input: { name } }),
+  deleteCommandSection: (id: number) => invokeDesktop<void>("delete_command_section", { id }),
   listFlows: (projectId: number) => invokeDesktop<ProjectFlow[]>("list_flows", { projectId }),
   getFlow: (id: number) => invokeDesktop<FlowDetail>("get_flow", { id }),
   createFlow: (projectId: number, name: string) => invokeDesktop<ProjectFlow>("create_flow", { input: { project_id: projectId, name } }),

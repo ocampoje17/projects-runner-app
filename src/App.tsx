@@ -686,6 +686,7 @@ function App() {
       id ? api.updateCommand(id, input) : api.createCommand(input),
     onSuccess: (_command, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["commands", variables.input.project_id] });
+      void queryClient.invalidateQueries({ queryKey: ["command-sections", variables.input.project_id] });
       setCommandDialogOpen(false);
       setEditingCommand(null);
       setCommandDialogProjectId(null);
@@ -724,6 +725,7 @@ function App() {
     onSuccess: (project) => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
       void queryClient.invalidateQueries({ queryKey: ["commands"] });
+      void queryClient.invalidateQueries({ queryKey: ["command-sections"] });
       setSelectedProjectId(project.id);
       resetImportFlow();
       showSuccess("Project imported", project.name);
@@ -748,7 +750,13 @@ function App() {
     },
   });
 
-  const { commandSectionsByProjectId } = useCommandSections({
+  const {
+    commandSectionsByProjectId,
+    createSection,
+    renameSection,
+    deleteSection,
+    isMutatingSection,
+  } = useCommandSections({
     projects,
     selectedProjectId: selectedProject?.id ?? null,
     commandsByProjectId,
@@ -1112,9 +1120,13 @@ function App() {
               setSelectedProjectId(project.id);
               openProjectDialog(project);
             }}
-            onAddCommand={(projectId, preset) => {
-              openCommandDialog(undefined, undefined, projectId, preset ?? null);
+            onAddCommand={(projectId, defaultSectionName, preset) => {
+              openCommandDialog(undefined, defaultSectionName, projectId, preset ?? null);
             }}
+            onAddSection={createSection}
+            onRenameSection={renameSection}
+            onDeleteSection={deleteSection}
+            isMutatingSection={isMutatingSection}
             onEditCommand={openCommandDialog}
             interactiveTerminalOptions={interactiveTerminalOptions}
             defaultInteractiveTerminalKind={defaultInteractiveTerminalKind}

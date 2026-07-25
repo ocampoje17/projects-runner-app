@@ -126,6 +126,22 @@ struct ProjectCommand {
 }
 
 #[derive(Debug, Serialize, QueryableByName, Clone)]
+struct CommandSection {
+    #[diesel(sql_type = BigInt)]
+    id: i64,
+    #[diesel(sql_type = BigInt)]
+    project_id: i64,
+    #[diesel(sql_type = Text)]
+    name: String,
+    #[diesel(sql_type = Integer)]
+    order_index: i32,
+    #[diesel(sql_type = Text)]
+    created_at: String,
+    #[diesel(sql_type = Text)]
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize, QueryableByName, Clone)]
 struct CommandRun {
     #[diesel(sql_type = BigInt)]
     id: i64,
@@ -320,6 +336,18 @@ struct CommandInput {
     interactive_terminal_kind: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct CommandSectionInput {
+    project_id: i64,
+    name: String,
+    order_index: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommandSectionUpdateInput {
+    name: String,
+}
+
 #[derive(Debug, Serialize)]
 struct InteractiveTerminalOption {
     id: String,
@@ -424,6 +452,8 @@ struct PrdFileV2 {
     exported_at: String,
     project: PrdProjectV2,
     commands: Vec<PrdCommandV2>,
+    #[serde(default)]
+    sections: Vec<String>,
     assets: Vec<PrdAsset>,
 }
 
@@ -454,6 +484,7 @@ struct NormalizedPrdFile {
     exported_at: String,
     project: NormalizedPrdProject,
     commands: Vec<NormalizedPrdCommand>,
+    sections: Vec<String>,
     assets: HashMap<String, PrdAsset>,
 }
 
@@ -674,6 +705,20 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
 
     conn.batch_execute(
+        "CREATE TABLE IF NOT EXISTS command_sections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            project_id INTEGER NOT NULL,
+            name TEXT COLLATE NOCASE NOT NULL,
+            order_index INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            UNIQUE(project_id, name)
+        );",
+    )
+    .map_err(|error| error.to_string())?;
+
+    conn.batch_execute(
         "CREATE TABLE IF NOT EXISTS flows (
             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             project_id INTEGER NOT NULL,
@@ -744,6 +789,7 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     )?;
     ensure_column(&mut conn, "command_runs", "flow_node_id", "TEXT")?;
     migrate_flow_graph_schema(&mut conn)?;
+    migrate_command_sections(&mut conn)?;
 
     sql_query(format!(
         "UPDATE commands SET runtime_mode = '{}' WHERE runtime_mode IS NULL OR TRIM(runtime_mode) = ''",
@@ -774,6 +820,40 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
 
     Ok(())
+}
+
+fn migrate_command_sections(conn: &mut SqliteConnection) -> Result<(), String> {
+    let timestamp = now();
+    sql_query(format!(
+        "INSERT OR IGNORE INTO command_sections (project_id, name, order_index, created_at, updated_at)
+         SELECT project_id, TRIM(section), MIN(order_index), '{}', '{}'
+         FROM commands
+         WHERE TRIM(section) <> ''
+         GROUP BY project_id, TRIM(section) COLLATE NOCASE",
+        timestamp, timestamp
+    ))
+    .execute(conn)
+    .map_err(|error| error.to_string())?;
+    sql_query(format!(
+        "UPDATE command_sections SET name = 'General', updated_at = '{}' WHERE name = 'General' COLLATE NOCASE AND name COLLATE BINARY <> 'General'",
+        timestamp
+    ))
+    .execute(conn)
+    .map_err(|error| error.to_string())?;
+    sql_query(format!(
+        "UPDATE commands SET section = 'General', updated_at = '{}' WHERE section = 'General' COLLATE NOCASE AND section <> 'General'",
+        timestamp
+    ))
+    .execute(conn)
+    .map_err(|error| error.to_string())?;
+    sql_query(format!(
+        "INSERT OR IGNORE INTO command_sections (project_id, name, order_index, created_at, updated_at)
+         SELECT id, 'General', -1, '{}', '{}' FROM projects",
+        timestamp, timestamp
+    ))
+    .execute(conn)
+    .map(|_| ())
+    .map_err(|error| error.to_string())
 }
 
 fn migrate_flow_graph_schema(conn: &mut SqliteConnection) -> Result<(), String> {
@@ -1446,6 +1526,154 @@ mod tests {
         }
     }
 
+    fn seed_test_project(paths: &AppPaths) -> SqliteConnection {
+        init_db(paths).expect("initialize test database");
+        let mut conn = connect(paths).expect("open test database");
+        sql_query(
+            "INSERT INTO projects (id, name, path, avatar_path, description, notes, created_at, updated_at)
+             VALUES (1, 'Demo', '.', NULL, NULL, NULL, 'now', 'now')",
+        )
+        .execute(&mut conn)
+        .expect("seed project");
+        migrate_command_sections(&mut conn).expect("create default section");
+        conn
+    }
+
+    #[test]
+    fn project_file_entry_calculates_recursive_folder_metadata() {
+        let root =
+            std::env::temp_dir().join(format!("projects-runner-file-metadata-{}", Uuid::new_v4()));
+        let selected = root.join("selected");
+        fs::create_dir_all(selected.join("nested").join("empty"))
+            .expect("create nested test folders");
+        fs::write(selected.join("root.txt"), b"abc").expect("write root test file");
+        fs::write(selected.join("nested").join("child.txt"), b"12345")
+            .expect("write nested test file");
+
+        let info = project_file_entry(&root, &selected).expect("read folder metadata");
+
+        assert!(info.is_directory);
+        assert_eq!(info.file_kind, "folder");
+        assert_eq!(info.child_folder_count, 2);
+        assert_eq!(info.child_file_count, 2);
+        assert_eq!(info.size_bytes, 8);
+
+        fs::remove_dir_all(&root).expect("remove test folder");
+    }
+
+    #[test]
+    fn command_section_migration_discovers_existing_names_and_general() {
+        let paths = temp_test_paths("command-section-migration");
+        let mut conn = seed_test_project(&paths);
+        sql_query(
+            "INSERT INTO commands (project_id, name, script, section, order_index, created_at, updated_at)
+             VALUES
+             (1, 'Dev', 'echo dev', 'Development', 2, 'now', 'now'),
+             (1, 'Release', 'echo release', 'release', 3, 'now', 'now'),
+             (1, 'General command', 'echo general', 'general', 4, 'now', 'now')",
+        )
+        .execute(&mut conn)
+        .expect("seed commands");
+        migrate_command_sections(&mut conn).expect("migrate command sections");
+
+        let sections = sql_query(
+            "SELECT * FROM command_sections WHERE project_id = 1 ORDER BY order_index ASC, id ASC",
+        )
+        .load::<CommandSection>(&mut conn)
+        .expect("load sections");
+        let names = sections.into_iter().map(|section| section.name).collect::<Vec<_>>();
+        assert_eq!(names, vec!["General", "Development", "release"]);
+        let general_command = sql_query(
+            "SELECT * FROM commands WHERE project_id = 1 AND name = 'General command'",
+        )
+        .get_result::<ProjectCommand>(&mut conn)
+        .expect("load canonicalized command");
+        assert_eq!(general_command.section, "General");
+    }
+
+    #[test]
+    fn command_section_crud_is_case_insensitive_atomic_and_requires_empty_section() {
+        let paths = temp_test_paths("command-section-crud");
+        let mut conn = seed_test_project(&paths);
+        let development =
+            ensure_command_section(&mut conn, 1, "Development", None).expect("create section");
+        let same =
+            ensure_command_section(&mut conn, 1, "development", None).expect("reuse section");
+        assert_eq!(development.id, same.id);
+
+        sql_query(
+            "INSERT INTO commands (project_id, name, script, section, order_index, created_at, updated_at)
+             VALUES (1, 'Dev', 'echo dev', 'Development', 0, 'now', 'now')",
+        )
+        .execute(&mut conn)
+        .expect("seed section command");
+        let renamed = rename_command_section_in_conn(&mut conn, development.id, "Build")
+            .expect("rename section");
+        assert_eq!(renamed.name, "Build");
+        let command = sql_query("SELECT * FROM commands WHERE project_id = 1")
+            .get_result::<ProjectCommand>(&mut conn)
+            .expect("load renamed command");
+        assert_eq!(command.section, "Build");
+
+        let release = ensure_command_section(&mut conn, 1, "Release", None).expect("create release");
+        assert!(rename_command_section_in_conn(&mut conn, development.id, "release").is_err());
+        let unchanged = sql_query(format!(
+            "SELECT * FROM command_sections WHERE id = {}",
+            development.id
+        ))
+        .get_result::<CommandSection>(&mut conn)
+        .expect("load unchanged section");
+        assert_eq!(unchanged.name, "Build");
+        assert!(delete_command_section_in_conn(&mut conn, development.id).is_err());
+        sql_query("DELETE FROM commands WHERE project_id = 1")
+            .execute(&mut conn)
+            .expect("remove command");
+        delete_command_section_in_conn(&mut conn, development.id).expect("delete empty section");
+        delete_command_section_in_conn(&mut conn, release.id).expect("delete second empty section");
+        let general = load_command_section(&mut conn, 1, "General")
+            .expect("load general")
+            .expect("general exists");
+        assert!(delete_command_section_in_conn(&mut conn, general.id).is_err());
+    }
+
+    #[test]
+    fn prd_v2_without_sections_remains_compatible_and_derives_sections() {
+        let json = r#"{
+            "format":"projects-runner.prd.v2",
+            "exported_at":"2026-07-25T00:00:00Z",
+            "project":{"name":"Demo","path":".","avatar":null,"description":null,"notes":[]},
+            "commands":[{"name":"Dev","script":"echo ok","avatar":null,"ports":[],"section":"Development","order_index":0,"runtime_mode":"internal_headless","run_in_external_terminal":false}],
+            "assets":[]
+        }"#;
+        let normalized =
+            normalize_prd_file_v2(serde_json::from_str(json).expect("parse legacy v2 file"));
+        assert_eq!(sections_from_prd(&normalized), vec!["General", "Development"]);
+    }
+
+    #[test]
+    fn prd_export_keeps_empty_sections() {
+        let project = Project {
+            id: 1,
+            name: "Demo".to_string(),
+            path: ".".to_string(),
+            avatar_path: None,
+            description: None,
+            notes: None,
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+        };
+        let sections = vec![CommandSection {
+            id: 1,
+            project_id: 1,
+            name: "Empty".to_string(),
+            order_index: 0,
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+        }];
+        let exported = build_export_prd(&project, &[], &sections).expect("build export");
+        assert_eq!(exported.sections, vec!["Empty"]);
+    }
+
     #[test]
     fn flow_graph_allows_branches_but_rejects_duplicate_pairs_and_cycles() {
         let nodes = vec![
@@ -1800,13 +2028,24 @@ fn serialize_project_notes(notes: &[ProjectNoteItem]) -> Result<Option<String>, 
 }
 
 fn sections_from_prd(prd: &NormalizedPrdFile) -> Vec<String> {
-    let mut sections = prd
-        .commands
+    let mut sections = Vec::<String>::new();
+    for name in prd
+        .sections
         .iter()
-        .map(|command| command.section.clone())
-        .collect::<Vec<_>>();
-    sections.sort();
-    sections.dedup();
+        .chain(prd.commands.iter().map(|command| &command.section))
+    {
+        let clean_name = name.trim();
+        if !clean_name.is_empty()
+            && !sections
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(clean_name))
+        {
+            sections.push(clean_name.to_string());
+        }
+    }
+    if !sections.iter().any(|name| name.eq_ignore_ascii_case("General")) {
+        sections.insert(0, "General".to_string());
+    }
     sections
 }
 
@@ -2307,7 +2546,11 @@ impl ExportAssetRegistry {
     }
 }
 
-fn build_export_prd(project: &Project, commands: &[ProjectCommand]) -> Result<PrdFileV2, String> {
+fn build_export_prd(
+    project: &Project,
+    commands: &[ProjectCommand],
+    sections: &[CommandSection],
+) -> Result<PrdFileV2, String> {
     let mut assets = ExportAssetRegistry::new();
     Ok(PrdFileV2 {
         format: PRD_V2_FORMAT.to_string(),
@@ -2334,6 +2577,7 @@ fn build_export_prd(project: &Project, commands: &[ProjectCommand]) -> Result<Pr
                 })
             })
             .collect::<Result<Vec<_>, String>>()?,
+        sections: sections.iter().map(|section| section.name.clone()).collect(),
         assets: assets.assets,
     })
 }
@@ -2372,6 +2616,13 @@ fn import_prd_as_new_project(
         },
         state.clone(),
     )?;
+
+    {
+        let mut conn = connect(&state.paths)?;
+        for (index, section) in sections_from_prd(prd).iter().enumerate() {
+            ensure_command_section(&mut conn, project.id, section, Some(index as i32))?;
+        }
+    }
 
     for (index, command) in prd.commands.iter().enumerate() {
         let avatar_path = restore_imported_avatar(
@@ -2416,6 +2667,12 @@ fn export_project(project_id: i64, state: State<AppState>) -> Result<Option<Stri
     let mut conn = connect(&state.paths)?;
     let project = load_project_by_id(&mut conn, project_id)?;
     let commands = load_commands_by_project_id(&mut conn, project_id)?;
+    let sections = sql_query(format!(
+        "SELECT * FROM command_sections WHERE project_id = {} ORDER BY order_index ASC, id ASC",
+        project_id
+    ))
+    .load::<CommandSection>(&mut conn)
+    .map_err(|error| error.to_string())?;
     let default_name = format!("{}.prd", sanitize_file_name(&project.name));
     let Some(path) = rfd::FileDialog::new()
         .add_filter("Project Runner Data", &["prd"])
@@ -2425,7 +2682,7 @@ fn export_project(project_id: i64, state: State<AppState>) -> Result<Option<Stri
         return Ok(None);
     };
 
-    let prd = build_export_prd(&project, &commands)?;
+    let prd = build_export_prd(&project, &commands, &sections)?;
     let content = serde_json::to_string_pretty(&prd).map_err(|error| error.to_string())?;
     fs::write(&path, content).map_err(|error| error.to_string())?;
     Ok(Some(path.to_string_lossy().to_string()))
@@ -2591,6 +2848,18 @@ fn apply_prd_import(
                 snapshot.project.clone()
             };
 
+            {
+                let mut conn = connect(&state.paths)?;
+                for (index, section) in sections_from_prd(&prd).iter().enumerate() {
+                    ensure_command_section(
+                        &mut conn,
+                        target_project_id,
+                        section,
+                        Some(index as i32),
+                    )?;
+                }
+            }
+
             for diff in &analysis.command_diffs {
                 if !selected_command_indexes.contains(&diff.index) {
                     continue;
@@ -2692,6 +2961,7 @@ fn normalize_legacy_prd_file(prd: LegacyPrdFile) -> NormalizedPrdFile {
                 run_in_external_terminal: command.run_in_external_terminal.unwrap_or(false),
             })
             .collect(),
+        sections: Vec::new(),
         assets: HashMap::new(),
     }
 }
@@ -2724,6 +2994,7 @@ fn normalize_prd_file_v2(prd: PrdFileV2) -> NormalizedPrdFile {
                 run_in_external_terminal: command.run_in_external_terminal,
             })
             .collect(),
+        sections: prd.sections,
         assets: prd
             .assets
             .into_iter()
@@ -3165,9 +3436,11 @@ fn create_project(input: ProjectInput, state: State<AppState>) -> Result<Project
     .execute(&mut conn)
     .map_err(|error| error.to_string())?;
 
-    sql_query("SELECT * FROM projects WHERE id = last_insert_rowid()")
+    let project = sql_query("SELECT * FROM projects WHERE id = last_insert_rowid()")
         .get_result::<Project>(&mut conn)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    ensure_command_section(&mut conn, project.id, "General", Some(-1))?;
+    Ok(project)
 }
 
 #[tauri::command]
@@ -3209,6 +3482,196 @@ fn list_commands(project_id: i64, state: State<AppState>) -> Result<Vec<ProjectC
     ))
     .load::<ProjectCommand>(&mut conn)
     .map_err(|error| error.to_string())
+}
+
+fn load_command_section(
+    conn: &mut SqliteConnection,
+    project_id: i64,
+    name: &str,
+) -> Result<Option<CommandSection>, String> {
+    sql_query(format!(
+        "SELECT * FROM command_sections WHERE project_id = {} AND name = '{}' COLLATE NOCASE",
+        project_id,
+        quote_sql(name)
+    ))
+    .get_result::<CommandSection>(conn)
+    .optional()
+    .map_err(|error| error.to_string())
+}
+
+fn ensure_command_section(
+    conn: &mut SqliteConnection,
+    project_id: i64,
+    name: &str,
+    order_index: Option<i32>,
+) -> Result<CommandSection, String> {
+    let clean_name = name.trim();
+    if clean_name.is_empty() {
+        return Err("Section name is required".to_string());
+    }
+    if let Some(section) = load_command_section(conn, project_id, clean_name)? {
+        return Ok(section);
+    }
+    let project_exists = sql_query(format!("SELECT * FROM projects WHERE id = {}", project_id))
+        .get_result::<Project>(conn)
+        .optional()
+        .map_err(|error| error.to_string())?
+        .is_some();
+    if !project_exists {
+        return Err("Project not found".to_string());
+    }
+    #[derive(QueryableByName)]
+    struct NextOrder {
+        #[diesel(sql_type = Integer)]
+        value: i32,
+    }
+    let next_order = match order_index {
+        Some(value) => value,
+        None => sql_query(format!(
+            "SELECT COALESCE(MAX(order_index), -1) + 1 AS value FROM command_sections WHERE project_id = {}",
+            project_id
+        ))
+        .get_result::<NextOrder>(conn)
+        .map_err(|error| error.to_string())?
+        .value,
+    };
+    let timestamp = now();
+    sql_query(format!(
+        "INSERT INTO command_sections (project_id, name, order_index, created_at, updated_at)
+         VALUES ({}, '{}', {}, '{}', '{}')",
+        project_id,
+        quote_sql(clean_name),
+        next_order,
+        timestamp,
+        timestamp
+    ))
+    .execute(conn)
+    .map_err(|error| error.to_string())?;
+    load_command_section(conn, project_id, clean_name)?
+        .ok_or_else(|| "Unable to create section".to_string())
+}
+
+#[tauri::command]
+fn list_command_sections(
+    project_id: i64,
+    state: State<AppState>,
+) -> Result<Vec<CommandSection>, String> {
+    let mut conn = connect(&state.paths)?;
+    sql_query(format!(
+        "SELECT * FROM command_sections WHERE project_id = {} ORDER BY order_index ASC, id ASC",
+        project_id
+    ))
+    .load::<CommandSection>(&mut conn)
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn create_command_section(
+    input: CommandSectionInput,
+    state: State<AppState>,
+) -> Result<CommandSection, String> {
+    let mut conn = connect(&state.paths)?;
+    if load_command_section(&mut conn, input.project_id, input.name.trim())?.is_some() {
+        return Err(format!("Section \"{}\" already exists.", input.name.trim()));
+    }
+    ensure_command_section(&mut conn, input.project_id, &input.name, input.order_index)
+}
+
+#[tauri::command]
+fn rename_command_section(
+    id: i64,
+    input: CommandSectionUpdateInput,
+    state: State<AppState>,
+) -> Result<CommandSection, String> {
+    rename_command_section_in_conn(&mut connect(&state.paths)?, id, &input.name)
+}
+
+fn rename_command_section_in_conn(
+    conn: &mut SqliteConnection,
+    id: i64,
+    name: &str,
+) -> Result<CommandSection, String> {
+    let clean_name = name.trim();
+    if clean_name.is_empty() {
+        return Err("Section name is required".to_string());
+    }
+    let current = sql_query(format!("SELECT * FROM command_sections WHERE id = {}", id))
+        .get_result::<CommandSection>(conn)
+        .map_err(|error| error.to_string())?;
+    if current.name.eq_ignore_ascii_case("General") && !clean_name.eq_ignore_ascii_case("General") {
+        return Err("The General section cannot be renamed.".to_string());
+    }
+    if let Some(existing) = load_command_section(conn, current.project_id, clean_name)? {
+        if existing.id != id {
+            return Err(format!("Section \"{}\" already exists.", clean_name));
+        }
+    }
+    conn.batch_execute("BEGIN IMMEDIATE TRANSACTION;")
+        .map_err(|error| error.to_string())?;
+    let result = (|| -> Result<(), String> {
+        let timestamp = now();
+        sql_query(format!(
+            "UPDATE command_sections SET name = '{}', updated_at = '{}' WHERE id = {}",
+            quote_sql(clean_name),
+            timestamp,
+            id
+        ))
+        .execute(&mut *conn)
+        .map_err(|error| error.to_string())?;
+        sql_query(format!(
+            "UPDATE commands SET section = '{}', updated_at = '{}' WHERE project_id = {} AND section = '{}' COLLATE NOCASE",
+            quote_sql(clean_name),
+            timestamp,
+            current.project_id,
+            quote_sql(&current.name)
+        ))
+        .execute(&mut *conn)
+        .map_err(|error| error.to_string())?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = conn.batch_execute("ROLLBACK;");
+        return Err(error);
+    }
+    conn.batch_execute("COMMIT;")
+        .map_err(|error| error.to_string())?;
+    sql_query(format!("SELECT * FROM command_sections WHERE id = {}", id))
+        .get_result::<CommandSection>(conn)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn delete_command_section(id: i64, state: State<AppState>) -> Result<(), String> {
+    delete_command_section_in_conn(&mut connect(&state.paths)?, id)
+}
+
+fn delete_command_section_in_conn(conn: &mut SqliteConnection, id: i64) -> Result<(), String> {
+    #[derive(QueryableByName)]
+    struct CountRow {
+        #[diesel(sql_type = BigInt)]
+        count: i64,
+    }
+    let section = sql_query(format!("SELECT * FROM command_sections WHERE id = {}", id))
+        .get_result::<CommandSection>(conn)
+        .map_err(|error| error.to_string())?;
+    if section.name.eq_ignore_ascii_case("General") {
+        return Err("The General section cannot be deleted.".to_string());
+    }
+    let command_count = sql_query(format!(
+        "SELECT COUNT(*) AS count FROM commands WHERE project_id = {} AND section = '{}' COLLATE NOCASE",
+        section.project_id,
+        quote_sql(&section.name)
+    ))
+    .get_result::<CountRow>(&mut *conn)
+    .map_err(|error| error.to_string())?
+    .count;
+    if command_count > 0 {
+        return Err("Only empty sections can be deleted.".to_string());
+    }
+    sql_query(format!("DELETE FROM command_sections WHERE id = {}", id))
+        .execute(conn)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 fn load_flow_detail(conn: &mut SqliteConnection, id: i64) -> Result<FlowDetail, String> {
@@ -3394,7 +3857,8 @@ fn create_command(input: CommandInput, state: State<AppState>) -> Result<Project
     let timestamp = now();
     let order_index = input.order_index.unwrap_or(0);
     let ports = ports_to_json(&input.ports.unwrap_or_default())?;
-    let section = clean_section(input.section);
+    let section_name = clean_section(input.section);
+    let section = ensure_command_section(&mut conn, input.project_id, &section_name, None)?.name;
     let runtime_mode = normalize_runtime_mode(
         input.runtime_mode.as_deref(),
         input.run_in_external_terminal,
@@ -3442,7 +3906,8 @@ fn update_command(
     let mut conn = connect(&state.paths)?;
     let order_index = input.order_index.unwrap_or(0);
     let ports = ports_to_json(&input.ports.unwrap_or_default())?;
-    let section = clean_section(input.section);
+    let section_name = clean_section(input.section);
+    let section = ensure_command_section(&mut conn, input.project_id, &section_name, None)?.name;
     let runtime_mode = normalize_runtime_mode(
         input.runtime_mode.as_deref(),
         input.run_in_external_terminal,
@@ -5100,6 +5565,10 @@ pub fn run() {
             open_project_file,
             read_project_file,
             list_commands,
+            list_command_sections,
+            create_command_section,
+            rename_command_section,
+            delete_command_section,
             list_flows,
             get_flow,
             create_flow,

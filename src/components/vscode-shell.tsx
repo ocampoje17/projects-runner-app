@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenText,
@@ -55,6 +55,7 @@ import type { CommandSection, ProjectNote } from "./project-detail-types";
 import { CommandCard, LogPanel, type RunState } from "./project-runtime";
 import { FlowLauncher } from "./flow-launcher";
 import { FlowFormDialog } from "./flow-form-dialog";
+import { CommandSectionDialog } from "./command-section-dialog";
 import { FlowsOverviewPane } from "./flows-overview";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -834,7 +835,7 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<FileClipboard>(null);
-  const [selected, setSelected] = useState<import("../lib/api").ProjectFileEntry | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedQuickAccessPath, setSelectedQuickAccessPath] = useState<string | null>(null);
   const [collapseVersion, setCollapseVersion] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<import("../lib/api").ProjectFileEntry | null>(null);
@@ -845,13 +846,26 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
   const panelGroupElementRef = useRef<HTMLDivElement | null>(null);
   const quickAccessValidationRequest = useRef(0);
   const rootDirectory = useProjectDirectoryEntries(project?.id, "", Boolean(project), refreshVersion);
-  const rootInfoQuery = useQuery({ queryKey: ["project-file-info", project?.id, ""], queryFn: () => api.getProjectFileInfo(project!.id), enabled: Boolean(project) });
-  const invalidate = () => {
+  const selectedInfoQuery = useQuery({
+    queryKey: ["project-file-info", project?.id, selectedPath ?? ""],
+    queryFn: () => api.getProjectFileInfo(project!.id, selectedPath ?? ""),
+    enabled: Boolean(project),
+  });
+  const invalidate = async () => {
     setRefreshVersion((current) => current + 1);
-    return project ? queryClient.invalidateQueries({ queryKey: ["project-file-info", project.id] }) : Promise.resolve();
+    if (!project) return;
+    if (selectedPath) {
+      const selectedStillExists = await api.projectFileExists(project.id, selectedPath).catch(() => true);
+      if (!selectedStillExists) {
+        queryClient.removeQueries({ queryKey: ["project-file-info", project.id, selectedPath], exact: true });
+        setSelectedPath(null);
+        setSelectedQuickAccessPath(null);
+      }
+    }
+    await queryClient.invalidateQueries({ queryKey: ["project-file-info", project.id] });
   };
   const run = (operation: Promise<unknown>) => void operation.then(invalidate).catch((value: unknown) => setError(value instanceof Error ? value.message : "File operation failed."));
-  useEffect(() => { setError(null); setClipboard(null); setSelected(null); setSelectedQuickAccessPath(null); setMissingQuickAccessEntry(null); quickAccessValidationRequest.current += 1; }, [project?.id]);
+  useEffect(() => { setError(null); setClipboard(null); setSelectedPath(null); setSelectedQuickAccessPath(null); setMissingQuickAccessEntry(null); quickAccessValidationRequest.current += 1; }, [project?.id]);
   useEffect(() => { localStorage.setItem(FILE_EXPLORER_PREFERENCES_KEY, JSON.stringify(preferences)); }, [preferences]);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -877,9 +891,27 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
     return () => window.cancelAnimationFrame(frame);
   }, [preferences.detailsCollapsed, preferences.detailsExpandedSize, preferences.quickAccessCollapsed, preferences.quickAccessExpandedSize]);
   if (!project) return <div className="p-4 text-[12px] text-[var(--vscode-foreground)]/60">Select a project to browse its files.</div>;
-  const selectedInfo = selected ?? rootInfoQuery.data ?? null;
+  const selectedInfo = selectedInfoQuery.data ?? null;
+  const selectedInfoError = selectedInfoQuery.error instanceof Error ? selectedInfoQuery.error.message : selectedInfoQuery.error ? "Unable to load file details." : null;
+  const selectEntry = (entry: import("../lib/api").ProjectFileEntry) => {
+    setSelectedPath(entry.relative_path);
+    setSelectedQuickAccessPath(null);
+  };
   const create = (parentPath: string, kind: "file" | "folder") => { const name = window.prompt(kind === "file" ? "New file name" : "New folder name"); if (name?.trim()) run((kind === "file" ? api.createProjectFile : api.createProjectFolder)(project.id, parentPath, name.trim())); };
-  const rename = (entry: import("../lib/api").ProjectFileEntry) => { const name = window.prompt("New name", entry.name); if (name?.trim() && name.trim() !== entry.name) run(api.renameProjectFile(project.id, entry.relative_path, name.trim())); };
+  const rename = (entry: import("../lib/api").ProjectFileEntry) => {
+    const name = window.prompt("New name", entry.name);
+    if (!name?.trim() || name.trim() === entry.name) return;
+    const affectsSelection = selectedPath === entry.relative_path || selectedPath?.startsWith(`${entry.relative_path}/`);
+    void api.renameProjectFile(project.id, entry.relative_path, name.trim())
+      .then(() => {
+        if (affectsSelection) {
+          setSelectedPath(null);
+          setSelectedQuickAccessPath(null);
+        }
+        return invalidate();
+      })
+      .catch((value: unknown) => setError(value instanceof Error ? value.message : "File operation failed."));
+  };
   const paste = (targetPath: string) => { if (clipboard) run(api.pasteProjectFile(project.id, clipboard.relativePath, targetPath, clipboard.cut)); if (clipboard?.cut) setClipboard(null); };
   const quickAccess = preferences.quickAccess.filter((entry) => entry.projectId === project.id);
   const pinnedPaths = new Set(quickAccess.map((entry) => entry.relativePath));
@@ -898,11 +930,16 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
     void api.deleteProjectFile(project.id, entry.relative_path)
       .then(() => {
         removeQuickAccess(entry.relative_path, entry.is_directory);
+        if (selectedPath === entry.relative_path || selectedPath?.startsWith(`${entry.relative_path}/`)) {
+          setSelectedPath(null);
+          setSelectedQuickAccessPath(null);
+        }
         return invalidate();
       })
       .catch((value: unknown) => setError(value instanceof Error ? value.message : "File operation failed."));
   };
   const selectQuickAccess = (entry: QuickAccessEntry) => {
+    setSelectedPath(entry.relativePath);
     setSelectedQuickAccessPath(entry.relativePath);
     const request = ++quickAccessValidationRequest.current;
     void api.projectFileExists(project.id, entry.relativePath)
@@ -925,12 +962,12 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
       <Panel id="file-tree" minSize="35%" className="min-h-0 overflow-y-auto px-2 py-2">
         {error ? <div className="mb-2 text-[11px] text-[var(--vscode-danger)]">{error}</div> : null}
         {rootDirectory.error ? <div className="mb-2 text-[11px] text-[var(--vscode-danger)]">{rootDirectory.error}</div> : null}
-        {rootDirectory.entries.map((entry) => <ProjectFileTree key={entry.relative_path} project={project} entry={entry} level={0} selectedPath={selected?.relative_path ?? ""} onSelect={setSelected} clipboard={clipboard} collapseVersion={collapseVersion} refreshVersion={refreshVersion} onCreate={create} onCopy={(relativePath) => setClipboard({ relativePath, cut: false })} onCut={(relativePath) => setClipboard({ relativePath, cut: true })} onPaste={paste} onRename={rename} onDelete={setDeleteTarget} onReveal={(relativePath) => run(api.revealProjectFile(project.id, relativePath))} onOpenTerminal={onOpenTerminal} onView={(entry) => { if (!entry.is_directory) onView(entry.relative_path); }} onOpenExternal={(relativePath) => run(api.openProjectFile(project.id, relativePath))} onToggleQuickAccess={toggleQuickAccess} pinnedPaths={pinnedPaths} />)}
+        {rootDirectory.entries.map((entry) => <ProjectFileTree key={entry.relative_path} project={project} entry={entry} level={0} selectedPath={selectedPath ?? ""} onSelect={selectEntry} clipboard={clipboard} collapseVersion={collapseVersion} refreshVersion={refreshVersion} onCreate={create} onCopy={(relativePath) => setClipboard({ relativePath, cut: false })} onCut={(relativePath) => setClipboard({ relativePath, cut: true })} onPaste={paste} onRename={rename} onDelete={setDeleteTarget} onReveal={(relativePath) => run(api.revealProjectFile(project.id, relativePath))} onOpenTerminal={onOpenTerminal} onView={(entry) => { if (!entry.is_directory) onView(entry.relative_path); }} onOpenExternal={(relativePath) => run(api.openProjectFile(project.id, relativePath))} onToggleQuickAccess={toggleQuickAccess} pinnedPaths={pinnedPaths} />)}
       </Panel>
       <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
       <Panel id="file-details" defaultSize="25%" minSize="18%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.detailsCollapsed || Math.abs(current.detailsExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, detailsExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.detailsCollapsed ? { overflow: "hidden" } : undefined}>
         <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55"><span>Details</span><button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleDetailsPanel} aria-label="Toggle details"><ChevronDown size={14} className={cn(preferences.detailsCollapsed && "-rotate-90")} /></button></div>
-        {!preferences.detailsCollapsed ? <div className="overflow-y-auto px-3 pb-3">{selectedInfo ? <div className="grid gap-1.5 text-[11px] text-[var(--vscode-foreground)]/72"><div className="flex items-center gap-2 truncate font-medium text-foreground"><ProjectFileIcon name={selectedInfo.name} isDirectory={selectedInfo.is_directory} />{selectedInfo.name || project.name}</div><FileDetailRow icon={selectedInfo.file_kind === "folder" ? <Folder size={13} /> : <FileText size={13} />}>{selectedInfo.file_kind === "folder" ? "Folder" : `${selectedInfo.file_kind === "text" ? "Text" : "Binary"} file`}</FileDetailRow><FileDetailRow icon={<HardDrive size={13} />}>Size: {formatFileSize(selectedInfo.size_bytes)} ({selectedInfo.size_bytes.toLocaleString()} bytes)</FileDetailRow>{selectedInfo.file_kind === "folder" ? <FileDetailRow icon={<Folder size={13} />}>{selectedInfo.child_folder_count.toLocaleString()} folders · {selectedInfo.child_file_count.toLocaleString()} files</FileDetailRow> : null}{selectedInfo.line_count !== null ? <FileDetailRow icon={<List size={13} />}>Lines: {selectedInfo.line_count.toLocaleString()}</FileDetailRow> : null}<FileDetailRow icon={<CalendarDays size={13} />}>Created: {selectedInfo.created_at ? formatDateTime(selectedInfo.created_at) : "—"}</FileDetailRow><FileDetailRow icon={<CalendarDays size={13} />}>Modified: {selectedInfo.modified_at ? formatDateTime(selectedInfo.modified_at) : "—"}</FileDetailRow></div> : <div className="text-[11px] text-[var(--vscode-foreground)]/55">Select a file or folder.</div>}</div> : null}
+        {!preferences.detailsCollapsed ? <div className="overflow-y-auto px-3 pb-3">{selectedInfoQuery.isPending ? <div className="flex items-center gap-2 text-[11px] text-[var(--vscode-foreground)]/55"><LoaderCircle size={12} className="animate-spin" />Loading details…</div> : selectedInfoError ? <div className="text-[11px] text-[var(--vscode-danger)]">{selectedInfoError}</div> : selectedInfo ? <div className="grid gap-1.5 text-[11px] text-[var(--vscode-foreground)]/72"><div className="flex items-center gap-2 truncate font-medium text-foreground"><ProjectFileIcon name={selectedInfo.name} isDirectory={selectedInfo.is_directory} />{selectedInfo.name || project.name}</div><FileDetailRow icon={selectedInfo.file_kind === "folder" ? <Folder size={13} /> : <FileText size={13} />}>{selectedInfo.file_kind === "folder" ? "Folder" : `${selectedInfo.file_kind === "text" ? "Text" : "Binary"} file`}</FileDetailRow><FileDetailRow icon={<HardDrive size={13} />}>Size: {formatFileSize(selectedInfo.size_bytes)} ({selectedInfo.size_bytes.toLocaleString()} bytes)</FileDetailRow>{selectedInfo.file_kind === "folder" ? <FileDetailRow icon={<Folder size={13} />}>{selectedInfo.child_folder_count.toLocaleString()} folders · {selectedInfo.child_file_count.toLocaleString()} files</FileDetailRow> : null}{selectedInfo.line_count !== null ? <FileDetailRow icon={<List size={13} />}>Lines: {selectedInfo.line_count.toLocaleString()}</FileDetailRow> : null}<FileDetailRow icon={<CalendarDays size={13} />}>Created: {selectedInfo.created_at ? formatDateTime(selectedInfo.created_at) : "—"}</FileDetailRow><FileDetailRow icon={<CalendarDays size={13} />}>Modified: {selectedInfo.modified_at ? formatDateTime(selectedInfo.modified_at) : "—"}</FileDetailRow></div> : <div className="text-[11px] text-[var(--vscode-foreground)]/55">Select a file or folder.</div>}</div> : null}
       </Panel>
       <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
       <Panel id="quick-access" defaultSize="23%" minSize="14%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.quickAccessCollapsed || Math.abs(current.quickAccessExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, quickAccessExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.quickAccessCollapsed ? { overflow: "hidden" } : undefined}>
@@ -939,7 +976,7 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
       </Panel>
     </Group>
     <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }} title="Delete file or folder" description={`Delete “${deleteTarget?.name ?? ""}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (deleteTarget) deleteEntry(deleteTarget); setDeleteTarget(null); }} />
-    <ConfirmDialog open={missingQuickAccessEntry !== null} onOpenChange={(open) => { if (!open) setMissingQuickAccessEntry(null); }} title="Quick Access item is unavailable" description={`“${missingQuickAccessEntry?.name ?? ""}” no longer exists in this project. Remove it from Quick Access?`} confirmLabel="Remove" onConfirm={() => { if (missingQuickAccessEntry) removeQuickAccess(missingQuickAccessEntry.relativePath); setMissingQuickAccessEntry(null); }} />
+    <ConfirmDialog open={missingQuickAccessEntry !== null} onOpenChange={(open) => { if (!open) setMissingQuickAccessEntry(null); }} title="Quick Access item is unavailable" description={`“${missingQuickAccessEntry?.name ?? ""}” no longer exists in this project. Remove it from Quick Access?`} confirmLabel="Remove" onConfirm={() => { if (missingQuickAccessEntry) { removeQuickAccess(missingQuickAccessEntry.relativePath); if (selectedPath === missingQuickAccessEntry.relativePath) setSelectedPath(null); } setMissingQuickAccessEntry(null); }} />
   </div>;
 }
 
@@ -1324,6 +1361,7 @@ function CommandsOverviewPane({
   onKillPorts,
   onOpenLogs,
   onAddCommand,
+  onAddSection,
 }: {
   project: Project;
   commands: ProjectCommand[];
@@ -1338,7 +1376,8 @@ function CommandsOverviewPane({
   onDeleteCommand: (command: ProjectCommand) => void;
   onKillPorts: (command: ProjectCommand) => void;
   onOpenLogs: (commandId: number) => void;
-  onAddCommand: () => void;
+  onAddCommand: (section?: string) => void;
+  onAddSection: () => void;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<CommandSortField>("runCount");
@@ -1361,7 +1400,7 @@ function CommandsOverviewPane({
           .sort((left, right) => compareCommandOverviewMeta(left.meta, right.meta, sortField, sortDirection))
           .map(({ command }) => command),
       }))
-      .filter(({ commands }) => commands.length > 0);
+      .filter(({ commands }) => !normalizedSearch || commands.length > 0);
   }, [commandSections, searchQuery, sectionFilter, sortDirection, sortField]);
   const visibleCommandCount = useMemo(
     () => visibleSections.reduce((total, section) => total + section.commands.length, 0),
@@ -1376,10 +1415,16 @@ function CommandsOverviewPane({
             <h2 className="text-[20px] font-semibold text-foreground">{project.name} Commands</h2>
             <p className="text-[12px] text-[var(--vscode-foreground)]/64">Browse reusable commands grouped by section.</p>
           </div>
-          <Button onClick={onAddCommand}>
-            <Plus size={15} />
-            Add command
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={onAddSection}>
+              <ListTree size={15} />
+              Add section
+            </Button>
+            <Button onClick={() => onAddCommand()}>
+              <Plus size={15} />
+              Add command
+            </Button>
+          </div>
         </div>
 
         <div className="py-4">
@@ -1444,6 +1489,10 @@ function CommandsOverviewPane({
                 <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/82">{section}</h3>
                 <Badge variant="muted">{commands.length}</Badge>
               </div>
+              <Button size="sm" variant="ghost" onClick={() => onAddCommand(section)}>
+                <Plus size={14} />
+                Add command
+              </Button>
             </div>
             <div className="mt-3 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
             <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3 pt-4">
@@ -1464,10 +1513,15 @@ function CommandsOverviewPane({
                   />
                 </div>
               ))}
+              {commands.length === 0 ? (
+                <div className="col-span-full rounded-[8px] border border-dashed border-[var(--vscode-border)] px-4 py-6 text-center text-[12px] text-muted-foreground">
+                  No commands in this section yet.
+                </div>
+              ) : null}
             </div>
           </section>
         ))}
-        {visibleCommandCount === 0 ? (
+        {visibleSections.length === 0 ? (
           <div className="mt-4 rounded-[8px] border border-dashed border-[var(--vscode-border)] px-4 py-10 text-center text-[13px] text-[var(--vscode-foreground)]/68">
             No commands match the current search or filter.
           </div>
@@ -1812,11 +1866,16 @@ type VSCodeShellProps = {
   onEditProject: (project: Project) => void;
   onAddCommand: (
     projectId: number,
+    defaultSection?: string,
     preset?: {
       interactive_terminal_kind?: InteractiveTerminalKind | null;
       runtime_mode?: "internal_interactive" | "internal_headless" | "external_terminal" | null;
     } | null,
   ) => void;
+  onAddSection: (projectId: number, name: string) => Promise<void>;
+  onRenameSection: (projectId: number, sectionId: number, name: string) => Promise<void>;
+  onDeleteSection: (projectId: number, sectionId: number) => Promise<void>;
+  isMutatingSection: boolean;
   interactiveTerminalOptions: InteractiveTerminalOption[];
   defaultInteractiveTerminalKind: InteractiveTerminalKind;
   onRequestCloseAllLogTabs: (commandIds: number[]) => void;
@@ -1877,6 +1936,10 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   onShareProject,
   onEditProject,
   onAddCommand,
+  onAddSection,
+  onRenameSection,
+  onDeleteSection,
+  isMutatingSection,
   interactiveTerminalOptions,
   defaultInteractiveTerminalKind,
   onRequestCloseAllLogTabs,
@@ -1908,17 +1971,21 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const [isSecondarySidebarVisible, setIsSecondarySidebarVisible] = useState(() => readFileExplorerSidebar().secondarySidebarVisible);
   const [isFileExplorerVisible, setIsFileExplorerVisible] = useState(() => readFileExplorerSidebar().fileExplorerVisible);
   const [fileExplorerWidth, setFileExplorerWidth] = useState(() => readFileExplorerSidebar().fileExplorerWidth);
-  const [groupLayoutVersion, setGroupLayoutVersion] = useState(0);
-  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const sidebarGroupRef = useRef<GroupImperativeHandle | null>(null);
+  const sidebarGroupElementRef = useRef<HTMLDivElement | null>(null);
+  const pendingFileExplorerLayoutRef = useRef<{ previousWidth: number; sidebar: number } | null>(null);
   const [flowDialogProject, setFlowDialogProject] = useState<Project | null>(null);
   const [isCreatingFlow, setIsCreatingFlow] = useState(false);
   const [flowCreationError, setFlowCreationError] = useState<string | null>(null);
+  const [sectionDialogProject, setSectionDialogProject] = useState<Project | null>(null);
+  const [sectionCreationError, setSectionCreationError] = useState<string | null>(null);
   const [editingFlow, setEditingFlow] = useState<ProjectFlow | null>(null);
   const [editingSidebarNote, setEditingSidebarNote] = useState<{ project: Project; note: ProjectNote } | null>(null);
   const [renameTarget, setRenameTarget] = useState<
     | { kind: "flow"; project: Project; flow: ProjectFlow }
     | { kind: "note"; project: Project; note: ProjectNote }
     | { kind: "terminal"; command: ProjectCommand }
+    | { kind: "section"; project: Project; section: CommandSection }
     | null
   >(null);
   const [renameValue, setRenameValue] = useState("");
@@ -1926,6 +1993,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const renameSubmittingRef = useRef(false);
   const renameCancelledRef = useRef(false);
   const [flowToDelete, setFlowToDelete] = useState<ProjectFlow | null>(null);
+  const [sectionToDelete, setSectionToDelete] = useState<{ project: Project; section: CommandSection } | null>(null);
   const [commandsExpanded, setCommandsExpanded] = useState(() => localStorage.getItem("vscodeCommandsExpanded") !== "false");
   const [notesExpanded, setNotesExpanded] = useState(() => localStorage.getItem("vscodeNotesExpanded") !== "false");
   const [flowsExpanded, setFlowsExpanded] = useState(() => localStorage.getItem("vscodeFlowsExpanded") !== "false");
@@ -1937,18 +2005,29 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const selectedProjectNotes = activeContextProject ? sortedProjectNotesByProjectId[activeContextProject.id] ?? [] : [];
   const selectedProjectFlows = activeContextProject ? flowsByProjectId[activeContextProject.id] ?? [] : [];
 
+  useLayoutEffect(() => {
+    const pendingLayout = pendingFileExplorerLayoutRef.current;
+    if (!pendingLayout) return;
+    pendingFileExplorerLayoutRef.current = null;
+
+    const nextWidth = sidebarGroupElementRef.current?.getBoundingClientRect().width ?? 0;
+    if (!pendingLayout.previousWidth || !nextWidth) return;
+
+    const sidebar = Math.max(
+      SIDEBAR_MIN_LAYOUT,
+      Math.min(SIDEBAR_MAX_LAYOUT, pendingLayout.sidebar * pendingLayout.previousWidth / nextWidth),
+    );
+    const nextLayout = { sidebar, editor: 100 - sidebar };
+    sidebarGroupRef.current?.setLayout(nextLayout);
+    setSidebarLayout(nextLayout);
+  }, [isFileExplorerVisible]);
+
   function toggleFileExplorer() {
-    const previousWidth = workspaceRef.current?.getBoundingClientRect().width ?? 0;
+    // The file explorer sits beside (not inside) the resizable group. Preserve
+    // the primary sidebar's pixel width before the browser paints the new layout.
+    const previousWidth = sidebarGroupElementRef.current?.getBoundingClientRect().width ?? 0;
+    pendingFileExplorerLayoutRef.current = { previousWidth, sidebar: sidebarLayout.sidebar };
     setIsFileExplorerVisible((current) => !current);
-    window.requestAnimationFrame(() => {
-      const nextWidth = workspaceRef.current?.getBoundingClientRect().width ?? 0;
-      if (!previousWidth || !nextWidth) return;
-      setSidebarLayout((current) => {
-        const sidebar = Math.max(SIDEBAR_MIN_LAYOUT, Math.min(SIDEBAR_MAX_LAYOUT, current.sidebar * previousWidth / nextWidth));
-        return { sidebar, editor: 100 - sidebar };
-      });
-      setGroupLayoutVersion((current) => current + 1);
-    });
   }
 
   function startFileExplorerResize(event: React.PointerEvent<HTMLDivElement>) {
@@ -1987,7 +2066,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   }
 
   function cancelRename() {
-    if (updateFlowMutation.isPending) return;
+    if (updateFlowMutation.isPending || isMutatingSection) return;
     renameSubmittingRef.current = false;
     renameCancelledRef.current = true;
     setRenameTarget(null);
@@ -2006,6 +2085,18 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       updateFlowMutation.mutate({ id: renameTarget.flow.id, name });
       return;
     }
+    if (renameTarget.kind === "section") {
+      void onRenameSection(renameTarget.project.id, renameTarget.section.id, name)
+        .then(() => {
+          renameSubmittingRef.current = false;
+          setRenameTarget(null);
+          setRenameValue("");
+        })
+        .catch(() => {
+          renameSubmittingRef.current = false;
+        });
+      return;
+    }
     if (renameTarget.kind === "note") {
       onEditProjectNote(renameTarget.project.id, renameTarget.note.id, name, renameTarget.note.content);
     } else {
@@ -2015,13 +2106,15 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     setRenameValue("");
   }
 
-  function renameEditorFor(kind: "flow" | "note" | "terminal", id: number | string) {
+  function renameEditorFor(kind: "flow" | "note" | "terminal" | "section", id: number | string) {
     const targetId = renameTarget?.kind === "flow"
       ? renameTarget.flow.id
       : renameTarget?.kind === "note"
         ? renameTarget.note.id
         : renameTarget?.kind === "terminal"
           ? renameTarget.command.id
+          : renameTarget?.kind === "section"
+            ? renameTarget.section.id
           : null;
     if (renameTarget?.kind !== kind || targetId !== id) return undefined;
     return {
@@ -2029,7 +2122,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       onChange: setRenameValue,
       onSubmit: submitRename,
       onCancel: cancelRename,
-      isPending: kind === "flow" && updateFlowMutation.isPending,
+      isPending: (kind === "flow" && updateFlowMutation.isPending) || (kind === "section" && isMutatingSection),
     };
   }
 
@@ -2383,6 +2476,40 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         icon: <CopyPlus size={13} />,
         onSelect: () => onAddCommand(project.id),
       },
+      {
+        label: "Add section",
+        icon: <ListTree size={13} />,
+        onSelect: () => {
+          setSectionCreationError(null);
+          setSectionDialogProject(project);
+        },
+      },
+    ];
+  }
+
+  function getSectionMenuItems(project: Project, section: CommandSection) {
+    const isGeneral = section.section.toLowerCase() === "general";
+    const isEmpty = section.commands.length === 0;
+    return [
+      {
+        label: "Add command",
+        icon: <CopyPlus size={13} />,
+        onSelect: () => onAddCommand(project.id, section.section),
+      },
+      { separator: true },
+      {
+        label: "Rename section",
+        icon: <Pencil size={13} />,
+        onSelect: () => beginRename({ kind: "section", project, section }, section.section),
+        disabled: isGeneral,
+      },
+      {
+        label: "Delete section",
+        icon: <Trash2 size={13} className="text-[var(--vscode-danger)]" />,
+        onSelect: () => setSectionToDelete({ project, section }),
+        disabled: isGeneral || !isEmpty,
+        tone: "danger" as const,
+      },
     ];
   }
 
@@ -2628,7 +2755,11 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
           onDeleteCommand={onDeleteCommand}
           onKillPorts={onKillPorts}
           onOpenLogs={handleOpenLogs}
-          onAddCommand={() => onAddCommand(tabProject.id)}
+          onAddCommand={(section) => onAddCommand(tabProject.id, section)}
+          onAddSection={() => {
+            setSectionCreationError(null);
+            setSectionDialogProject(tabProject);
+          }}
         />
       );
     }
@@ -2966,7 +3097,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                               level={2}
                               icon={<ListTree size={12} />}
                               trailing={section.commands.length}
-                              menuItems={getCommandsMenuItems(project)}
+                              menuItems={getSectionMenuItems(project, section)}
+                              editTitle={renameEditorFor("section", section.id)}
                             />
                             {section.commands.map((command) => (
                               <TreeItem
@@ -3084,10 +3216,11 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         </div>
       </aside>
 
-      <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1">
       <Group
-        key={groupLayoutVersion}
         orientation="horizontal"
+        groupRef={sidebarGroupRef}
+        elementRef={sidebarGroupElementRef}
         defaultLayout={sidebarLayout}
         onLayoutChanged={(layout) =>
           setSidebarLayout({
@@ -3254,6 +3387,27 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
           ]}
         />;
       })() : null}
+      <CommandSectionDialog
+        open={sectionDialogProject !== null}
+        projectName={sectionDialogProject?.name ?? null}
+        isPending={isMutatingSection}
+        error={sectionCreationError}
+        onOpenChange={(open) => {
+          if (!open && !isMutatingSection) {
+            setSectionDialogProject(null);
+            setSectionCreationError(null);
+          }
+        }}
+        onSubmit={(name) => {
+          if (!sectionDialogProject) return;
+          setSectionCreationError(null);
+          void onAddSection(sectionDialogProject.id, name)
+            .then(() => setSectionDialogProject(null))
+            .catch((error: unknown) => {
+              setSectionCreationError(error instanceof Error ? error.message : "Unable to create section.");
+            });
+        }}
+      />
       <FlowFormDialog
         open={flowDialogProject !== null}
         projectName={flowDialogProject?.name ?? null}
@@ -3307,6 +3461,21 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         description={`Delete flow “${flowToDelete?.name ?? ""}”? This cannot be undone.`}
         confirmLabel="Delete flow"
         onConfirm={() => { if (flowToDelete) onDeleteFlow(flowToDelete); }}
+      />
+      <ConfirmDialog
+        open={sectionToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !isMutatingSection) setSectionToDelete(null);
+        }}
+        title="Delete section"
+        description={`Delete the empty section “${sectionToDelete?.section.section ?? ""}”?`}
+        confirmLabel="Delete section"
+        onConfirm={() => {
+          if (!sectionToDelete) return;
+          void onDeleteSection(sectionToDelete.project.id, sectionToDelete.section.id)
+            .then(() => setSectionToDelete(null))
+            .catch(() => undefined);
+        }}
       />
       <ConfirmDialog
         open={pendingTabCloseIds !== null}

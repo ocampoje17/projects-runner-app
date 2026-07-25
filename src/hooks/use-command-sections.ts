@@ -1,27 +1,26 @@
-import type { FormEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useMutation, useQueries } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
-import { api, type Project, type ProjectCommand } from "../lib/api";
-import { commandPorts, DEFAULT_SECTION } from "../lib/command-utils";
+import { api, isDesktopRuntime, type Project, type ProjectCommand, type ProjectCommandSection } from "../lib/api";
+import { DEFAULT_SECTION } from "../lib/command-utils";
 import type { CommandSection } from "../components/project-detail-types";
 
 type CommandsByProjectId = Record<number, ProjectCommand[]>;
 
-function buildCommandSections(commands: ProjectCommand[], persistedEmptySections: string[] | undefined) {
-  const sections = new Map<string, ProjectCommand[]>();
-
+function buildCommandSections(commands: ProjectCommand[], persistedSections: ProjectCommandSection[]) {
+  const commandsBySection = new Map<string, ProjectCommand[]>();
   for (const command of commands) {
     const section = command.section?.trim() || DEFAULT_SECTION;
-    sections.set(section, [...(sections.get(section) ?? []), command]);
+    commandsBySection.set(section.toLowerCase(), [...(commandsBySection.get(section.toLowerCase()) ?? []), command]);
   }
 
-  for (const section of persistedEmptySections ?? [DEFAULT_SECTION]) {
-    if (!sections.has(section)) {
-      sections.set(section, []);
-    }
-  }
-
-  return Array.from(sections.entries()).map<CommandSection>(([section, items]) => ({ section, commands: items }));
+  return persistedSections.map<CommandSection>((section) => ({
+    id: section.id,
+    project_id: section.project_id,
+    order_index: section.order_index,
+    section: section.name,
+    commands: commandsBySection.get(section.name.toLowerCase()) ?? [],
+  }));
 }
 
 export function useCommandSections({
@@ -37,166 +36,118 @@ export function useCommandSections({
   queryClient: QueryClient;
   onError: (error: unknown) => void;
 }) {
-  const [emptySections, setEmptySections] = useState<Record<number, string[]>>(() => {
-    try {
-      const saved = localStorage.getItem("empty_sections");
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
+  const migrationStartedRef = useRef(false);
+  const sectionQueries = useQueries({
+    queries: projects.map((project) => ({
+      queryKey: ["command-sections", project.id],
+      queryFn: () => api.listCommandSections(project.id),
+      enabled: true,
+    })),
   });
-  const [isAddingSection, setIsAddingSection] = useState(false);
-  const [newSectionName, setNewSectionName] = useState("");
-  const [renamingSection, setRenamingSection] = useState<string | null>(null);
-  const [renameSectionValue, setRenameSectionValue] = useState("");
-  const addSectionInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    localStorage.setItem("empty_sections", JSON.stringify(emptySections));
-  }, [emptySections]);
-
-  useEffect(() => {
-    if (isAddingSection) {
-      addSectionInputRef.current?.focus();
-    }
-  }, [isAddingSection]);
+  const persistedSectionsByProjectId = useMemo(
+    () =>
+      projects.reduce<Record<number, ProjectCommandSection[]>>((acc, project, index) => {
+        acc[project.id] = sectionQueries[index]?.data ?? [];
+        return acc;
+      }, {}),
+    [projects, sectionQueries],
+  );
 
   const commandSectionsByProjectId = useMemo(
     () =>
       projects.reduce<Record<number, CommandSection[]>>((acc, project) => {
-        acc[project.id] = buildCommandSections(commandsByProjectId[project.id] ?? [], emptySections[project.id]);
+        acc[project.id] = buildCommandSections(
+          commandsByProjectId[project.id] ?? [],
+          persistedSectionsByProjectId[project.id] ?? [],
+        );
         return acc;
       }, {}),
-    [commandsByProjectId, emptySections, projects],
+    [commandsByProjectId, persistedSectionsByProjectId, projects],
   );
 
-  const commandSections = selectedProjectId !== null ? commandSectionsByProjectId[selectedProjectId] ?? [] : [];
-
-  function handleAddSectionSubmit(event: FormEvent, projectId = selectedProjectId) {
-    event.preventDefault();
-    if (projectId === null) {
+  useEffect(() => {
+    if (!isDesktopRuntime() || migrationStartedRef.current || sectionQueries.some((query) => query.isPending)) {
+      return;
+    }
+    const saved = localStorage.getItem("empty_sections");
+    if (!saved) {
+      migrationStartedRef.current = true;
       return;
     }
 
-    const name = newSectionName.trim();
-    if (!name) return;
-
-    const projectSections = commandSectionsByProjectId[projectId] ?? [];
-    const exists = projectSections.some((section) => section.section.toLowerCase() === name.toLowerCase());
-    if (exists) {
-      onError(new Error(`Section "${name}" already exists.`));
-      return;
-    }
-
-    setEmptySections((current) => {
-      const existingSections = current[projectId] !== undefined ? current[projectId] : [DEFAULT_SECTION];
-      if (existingSections.includes(name)) {
-        return current;
-      }
-
-      return {
-        ...current,
-        [projectId]: [...existingSections, name],
-      };
-    });
-
-    setIsAddingSection(false);
-    setNewSectionName("");
-  }
-
-  async function handleRenameSection(oldName: string, newName: string, projectId = selectedProjectId) {
-    if (projectId === null) {
-      return;
-    }
-
-    const cleanNewName = newName.trim();
-    if (!cleanNewName || cleanNewName === oldName) {
-      setRenamingSection(null);
-      return;
-    }
-
-    const projectSections = commandSectionsByProjectId[projectId] ?? [];
-    const exists = projectSections.some(
-      (section) => section.section.toLowerCase() === cleanNewName.toLowerCase() && section.section !== oldName,
-    );
-    if (exists) {
-      onError(new Error(`Section "${cleanNewName}" already exists.`));
-      return;
-    }
-
+    let legacySections: Record<number, string[]>;
     try {
-      const oldSectionCommands = projectSections.find((section) => section.section === oldName)?.commands ?? [];
-      for (const command of oldSectionCommands) {
-        await api.updateCommand(command.id, {
-          project_id: command.project_id,
-          name: command.name,
-          script: command.script,
-          avatar_path: command.avatar_path,
-          ports: commandPorts(command),
-          section: cleanNewName,
-          order_index: command.order_index,
-          runtime_mode: command.runtime_mode,
-          run_in_external_terminal: command.run_in_external_terminal,
-        });
-      }
-
-      setEmptySections((current) => {
-        const existingSections = current[projectId];
-        if (!existingSections) {
-          return current;
-        }
-
-        return {
-          ...current,
-          [projectId]: existingSections.map((section) => (section === oldName ? cleanNewName : section)),
-        };
-      });
-
-      void queryClient.invalidateQueries({ queryKey: ["commands", projectId] });
-    } catch (error) {
-      onError(error);
-    } finally {
-      setRenamingSection(null);
-    }
-  }
-
-  function handleDeleteSection(sectionName: string, projectId = selectedProjectId) {
-    if (projectId === null) {
+      legacySections = JSON.parse(saved) as Record<number, string[]>;
+    } catch {
+      localStorage.removeItem("empty_sections");
+      migrationStartedRef.current = true;
       return;
     }
 
-    setEmptySections((current) => {
-      const existingSections = current[projectId] !== undefined ? current[projectId] : [DEFAULT_SECTION];
-      return {
-        ...current,
-        [projectId]: existingSections.filter((section) => section !== sectionName),
-      };
-    });
-  }
+    migrationStartedRef.current = true;
+    const activeProjectIds = new Set(projects.map((project) => project.id));
+    void Promise.all(
+      Object.entries(legacySections).flatMap(([projectId, names]) =>
+        names.map(async (name) => {
+          const numericProjectId = Number(projectId);
+          if (!activeProjectIds.has(numericProjectId)) return;
+          const exists = (persistedSectionsByProjectId[numericProjectId] ?? []).some(
+            (section) => section.name.toLowerCase() === name.trim().toLowerCase(),
+          );
+          if (!exists && name.trim()) {
+            await api.createCommandSection({ project_id: numericProjectId, name: name.trim() });
+          }
+        }),
+      ),
+    )
+      .then(() => {
+        localStorage.removeItem("empty_sections");
+        void queryClient.invalidateQueries({ queryKey: ["command-sections"] });
+      })
+      .catch(onError);
+  }, [onError, persistedSectionsByProjectId, projects, queryClient, sectionQueries]);
+
+  const createMutation = useMutation({
+    mutationFn: ({ projectId, name }: { projectId: number; name: string }) =>
+      api.createCommandSection({ project_id: projectId, name }),
+    onSuccess: (section) => {
+      void queryClient.invalidateQueries({ queryKey: ["command-sections", section.project_id] });
+    },
+    onError,
+  });
+
+  const renameMutation = useMutation({
+    mutationFn: ({ sectionId, name }: { sectionId: number; projectId: number; name: string }) =>
+      api.renameCommandSection(sectionId, name),
+    onSuccess: (section) => {
+      void queryClient.invalidateQueries({ queryKey: ["command-sections", section.project_id] });
+      void queryClient.invalidateQueries({ queryKey: ["commands", section.project_id] });
+    },
+    onError,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: ({ sectionId }: { sectionId: number; projectId: number }) => api.deleteCommandSection(sectionId),
+    onSuccess: (_, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ["command-sections", variables.projectId] });
+    },
+    onError,
+  });
 
   return {
-    commandSections,
+    commandSections:
+      selectedProjectId !== null ? commandSectionsByProjectId[selectedProjectId] ?? [] : [],
     commandSectionsByProjectId,
-    emptySections,
-    isAddingSection,
-    newSectionName,
-    setNewSectionName,
-    renamingSection,
-    renameSectionValue,
-    setRenameSectionValue,
-    addSectionInputRef,
-    handleAddSectionSubmit,
-    handleRenameSection,
-    handleDeleteSection,
-    startAddSection: () => setIsAddingSection(true),
-    cancelAddSection: () => {
-      setIsAddingSection(false);
-      setNewSectionName("");
+    createSection: async (projectId: number, name: string) => {
+      await createMutation.mutateAsync({ projectId, name: name.trim() });
     },
-    startRenameSection: (section: string) => {
-      setRenamingSection(section);
-      setRenameSectionValue(section);
+    renameSection: async (projectId: number, sectionId: number, name: string) => {
+      await renameMutation.mutateAsync({ projectId, sectionId, name: name.trim() });
     },
-    cancelRenameSection: () => setRenamingSection(null),
+    deleteSection: async (projectId: number, sectionId: number) => {
+      await deleteMutation.mutateAsync({ projectId, sectionId });
+    },
+    isMutatingSection: createMutation.isPending || renameMutation.isPending || deleteMutation.isPending,
   };
 }
