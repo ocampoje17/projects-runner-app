@@ -1516,6 +1516,53 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
 mod tests {
     use super::*;
 
+    fn decode_utf8_chunks(chunks: &[&[u8]]) -> String {
+        let mut decoder = Utf8StreamDecoder::default();
+        let mut output = String::new();
+        for chunk in chunks {
+            output.push_str(&decoder.push(chunk));
+        }
+        output.push_str(&decoder.finish());
+        output
+    }
+
+    #[test]
+    fn utf8_stream_decoder_preserves_vietnamese_across_chunk_boundaries() {
+        let expected = "Tiếng Việt: Trường hợp gõ bằng UniKey";
+        let bytes = expected.as_bytes();
+
+        for split in 0..=bytes.len() {
+            assert_eq!(
+                decode_utf8_chunks(&[&bytes[..split], &bytes[split..]]),
+                expected,
+                "failed at byte split {split}",
+            );
+        }
+
+        let byte_chunks = bytes.iter().map(std::slice::from_ref).collect::<Vec<_>>();
+        assert_eq!(decode_utf8_chunks(&byte_chunks), expected);
+    }
+
+    #[test]
+    fn utf8_stream_decoder_preserves_ansi_and_replaces_invalid_sequences() {
+        let ansi_text = "\u{1b}[32mViệt Nam\u{1b}[0m\r\n";
+        let ansi_bytes = ansi_text.as_bytes();
+        assert_eq!(
+            decode_utf8_chunks(&[
+                &ansi_bytes[..8],
+                &ansi_bytes[8..11],
+                &ansi_bytes[11..],
+            ]),
+            ansi_text,
+        );
+
+        assert_eq!(
+            decode_utf8_chunks(&[&[b'a', 0xF0], &[0x28, 0x8C, 0x28, b'b']]),
+            "a\u{FFFD}(\u{FFFD}(b",
+        );
+        assert_eq!(decode_utf8_chunks(&[&[b'a', 0xE1, 0xBB]]), "a\u{FFFD}");
+    }
+
     fn temp_test_paths(name: &str) -> AppPaths {
         let root =
             std::env::temp_dir().join(format!("projects-runner-tests-{}-{}", name, Uuid::new_v4()));
@@ -4531,7 +4578,7 @@ fn start_interactive_command_instance(
         run_id: run.id,
         command_id,
         flow_node_id: run.flow_node_id.clone(),
-        cols: cols.max(20),
+        cols: cols.max(2),
         rows: rows.max(1),
         started_at: run.started_at.clone(),
     };
@@ -4709,7 +4756,7 @@ fn start_project_interactive_terminal(
         run_id,
         command_id: terminal_id,
         flow_node_id: None,
-        cols: cols.max(20),
+        cols: cols.max(2),
         rows: rows.max(1),
         started_at: started_at.clone(),
     };
@@ -4837,28 +4884,44 @@ fn resize_interactive_terminal(
 }
 
 #[tauri::command]
-fn stop_interactive_command(session_id: String, state: State<AppState>) -> Result<(), String> {
+fn stop_interactive_command(
+    session_id: String,
+    state: State<AppState>,
+) -> Result<StopCommandResult, String> {
     let session = state
         .interactive_sessions
         .lock()
         .map_err(|_| "Interactive session registry lock poisoned".to_string())?
         .get(&session_id)
-        .cloned()
-        .ok_or_else(|| "Interactive session not found".to_string())?;
+        .cloned();
+    let Some(session) = session else {
+        return Ok(StopCommandResult { was_active: false });
+    };
 
-    state
+    let was_new_stop = state
         .stopped_runs
         .lock()
         .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
         .insert(session.run_id);
+    if !was_new_stop {
+        return Ok(StopCommandResult { was_active: false });
+    }
 
     let kill_result = session
         .killer
         .lock()
-        .map_err(|_| "Interactive killer lock poisoned".to_string())?
-        .kill()
-        .map_err(|error| error.to_string());
-    kill_result
+        .map_err(|_| "Interactive killer lock poisoned".to_string())
+        .and_then(|mut killer| killer.kill().map_err(|error| error.to_string()));
+    if let Err(error) = kill_result {
+        state
+            .stopped_runs
+            .lock()
+            .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
+            .remove(&session.run_id);
+        return Err(error);
+    }
+
+    Ok(StopCommandResult { was_active: true })
 }
 
 #[tauri::command]
@@ -5258,7 +5321,7 @@ fn build_pty_command(script_path: &Path) -> PtyCommandBuilder {
 fn pty_size(cols: u16, rows: u16) -> PtySize {
     PtySize {
         rows: rows.max(1),
-        cols: cols.max(20),
+        cols: cols.max(2),
         pixel_width: 0,
         pixel_height: 0,
     }
@@ -5266,6 +5329,61 @@ fn pty_size(cols: u16, rows: u16) -> PtySize {
 
 fn interactive_exit_code(status: portable_pty::ExitStatus) -> Option<i32> {
     Some(status.exit_code() as i32)
+}
+
+#[derive(Default)]
+struct Utf8StreamDecoder {
+    pending: Vec<u8>,
+}
+
+impl Utf8StreamDecoder {
+    fn push(&mut self, bytes: &[u8]) -> String {
+        self.decode(bytes, false)
+    }
+
+    fn finish(&mut self) -> String {
+        self.decode(&[], true)
+    }
+
+    fn decode(&mut self, bytes: &[u8], end_of_stream: bool) -> String {
+        self.pending.extend_from_slice(bytes);
+        let mut output = String::new();
+        let mut cursor = 0;
+
+        while cursor < self.pending.len() {
+            match std::str::from_utf8(&self.pending[cursor..]) {
+                Ok(valid) => {
+                    output.push_str(valid);
+                    cursor = self.pending.len();
+                }
+                Err(error) => {
+                    let valid_end = cursor + error.valid_up_to();
+                    if valid_end > cursor {
+                        output.push_str(
+                            std::str::from_utf8(&self.pending[cursor..valid_end])
+                                .expect("UTF-8 valid prefix"),
+                        );
+                        cursor = valid_end;
+                    }
+
+                    if let Some(error_len) = error.error_len() {
+                        output.push('\u{FFFD}');
+                        cursor += error_len;
+                    } else if end_of_stream {
+                        output.push('\u{FFFD}');
+                        cursor = self.pending.len();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if cursor > 0 {
+            self.pending.drain(..cursor);
+        }
+        output
+    }
 }
 
 fn spawn_interactive_reader(
@@ -5278,21 +5396,24 @@ fn spawn_interactive_reader(
 ) {
     std::thread::spawn(move || {
         let mut buffer = [0u8; 4096];
+        let mut decoder = Utf8StreamDecoder::default();
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(length) => {
-                    let chunk = String::from_utf8_lossy(&buffer[..length]).to_string();
-                    let _ = app.emit(
-                        "pty://data",
-                        InteractiveDataPayload {
-                            session_id: session_id.clone(),
-                            run_id,
-                            command_id,
-                            flow_node_id: flow_node_id.clone(),
-                            data: chunk,
-                        },
-                    );
+                    let chunk = decoder.push(&buffer[..length]);
+                    if !chunk.is_empty() {
+                        let _ = app.emit(
+                            "pty://data",
+                            InteractiveDataPayload {
+                                session_id: session_id.clone(),
+                                run_id,
+                                command_id,
+                                flow_node_id: flow_node_id.clone(),
+                                data: chunk,
+                            },
+                        );
+                    }
                 }
                 Err(error) => {
                     if is_benign_interactive_read_error(&error) {
@@ -5312,6 +5433,20 @@ fn spawn_interactive_reader(
                     break;
                 }
             }
+        }
+
+        let final_chunk = decoder.finish();
+        if !final_chunk.is_empty() {
+            let _ = app.emit(
+                "pty://data",
+                InteractiveDataPayload {
+                    session_id,
+                    run_id,
+                    command_id,
+                    flow_node_id,
+                    data: final_chunk,
+                },
+            );
         }
     });
 }

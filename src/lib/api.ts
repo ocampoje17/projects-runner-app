@@ -576,7 +576,7 @@ export const api = {
   resizeInteractiveTerminal: (sessionId: string, cols: number, rows: number) =>
     invokeDesktop<void>("resize_interactive_terminal", { sessionId, cols, rows }),
   stopInteractiveCommand: (sessionId: string) =>
-    invokeDesktop<void>("stop_interactive_command", { sessionId }),
+    invokeDesktop<StopCommandResult>("stop_interactive_command", { sessionId }),
   restartInteractiveCommand: (commandId: number, cols: number, rows: number) =>
     invokeDesktop<InteractiveSession>("restart_interactive_command", { commandId, cols, rows }),
   listInteractiveTerminalOptions: () =>

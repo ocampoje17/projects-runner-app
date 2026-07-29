@@ -1108,25 +1108,25 @@ function EmptyEditorState({
   onImportProject: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-[var(--vscode-editor)] p-8">
-      <div className="w-full max-w-[720px] rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-8">
-        <div className="mb-4 flex items-center gap-3">
+    <div className="empty-editor-shell flex h-full min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-[var(--vscode-editor)] p-8">
+      <div className="empty-editor-card min-w-0 w-full max-w-[720px] overflow-hidden rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-panel)] p-8">
+        <div className="mb-4 flex min-w-0 items-center gap-3">
           <div className="rounded-[8px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-3 text-primary">
             <FolderKanban size={22} />
           </div>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-[24px] font-semibold tracking-[-0.02em] text-foreground">Projects Runner</h2>
-            <p className="text-[13px] text-[var(--vscode-foreground)]/70">
+            <p className="break-words text-[13px] text-[var(--vscode-foreground)]/70">
               Organize local projects, run commands, and keep terminal context in one desktop workspace.
             </p>
           </div>
         </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <Button variant="primary" className="justify-start" onClick={onAddProject}>
+        <div className="empty-editor-actions grid gap-3">
+          <Button variant="primary" className="min-w-0 justify-start whitespace-normal text-left leading-snug" onClick={onAddProject}>
             <Plus size={16} />
             Add a local project
           </Button>
-          <Button variant="secondary" className="justify-start" onClick={onImportProject}>
+          <Button variant="secondary" className="min-w-0 justify-start whitespace-normal text-left leading-snug" onClick={onImportProject}>
             <FileUp size={16} />
             Import a `.prd` workspace
           </Button>
@@ -1615,7 +1615,7 @@ function CommandDetailPane({
                 Edit
               </Button>
               <Button variant="danger" onClick={() => onDeleteCommand(command)}>
-                <Trash2 size={14} className="text-[var(--vscode-danger)]" />
+                <Trash2 size={14} />
                 Delete
               </Button>
             </div>
@@ -3216,7 +3216,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         </div>
       </aside>
 
-      <div className="flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
       <Group
         orientation="horizontal"
         groupRef={sidebarGroupRef}
@@ -3265,7 +3265,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         {isSecondarySidebarVisible ? <Separator className="relative -mx-1 w-2 cursor-col-resize bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-[var(--vscode-border)] before:transition-colors hover:before:bg-primary" /> : null}
 
         <Panel id="editor" minSize={EDITOR_MIN_SIZE} className="min-h-0 min-w-0">
-          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--vscode-editor)]">
+          <section className="editor-container flex h-full min-h-0 min-w-0 basis-0 flex-col overflow-hidden bg-[var(--vscode-editor)]">
             {activeTab.kind === "settings" ? null : (
               <header className="flex min-h-9 shrink-0 items-center border-b border-[var(--vscode-border)] bg-[var(--vscode-tabs)]">
                 <div className="flex min-w-0 flex-1 overflow-x-auto">
@@ -3305,7 +3305,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
               </header>
             )}
 
-            <div className="min-h-0 flex-1 overflow-hidden">{editorBody}</div>
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{editorBody}</div>
 
             {activeTab.kind === "settings" ? null : (
               <div className="shrink-0 border-t border-[var(--vscode-border)] bg-[var(--vscode-panel)]">

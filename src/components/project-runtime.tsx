@@ -818,8 +818,8 @@ export function LogPanel({
 
           {!isCollapsed && selectedCommand ? (
             activePanelView === "terminal" ? (
-              <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_240px] overflow-hidden bg-[var(--terminal-bg)]">
-                <div className="flex min-h-0 flex-1 border-r border-[var(--vscode-border)] bg-[var(--terminal-bg)]">
+              <div className="terminal-workspace grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_240px] overflow-hidden bg-[var(--terminal-bg)]">
+                <div className="terminal-workspace-screen flex min-h-0 min-w-0 flex-1 border-r border-[var(--vscode-border)] bg-[var(--terminal-bg)]">
                   <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" key={selectedCommand.id} ref={terminalRef}>
                     <XtermTerminal
                       content={selectedTerminalContent || "Waiting for output...\r\n"}
@@ -833,8 +833,8 @@ export function LogPanel({
                   </div>
                 </div>
 
-                <div className="flex min-h-0 flex-col overflow-hidden border-l-0 bg-[var(--vscode-panel)]">
-                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--vscode-panel)] py-0.5">
+                <div className="terminal-workspace-tabs flex min-h-0 min-w-0 flex-col overflow-hidden border-l-0 bg-[var(--vscode-panel)]">
+                  <div className="terminal-workspace-tab-list flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--vscode-panel)] py-0.5">
                     {filteredVisibleCommands.map((command) => {
                       const isActive = selectedCommandId === command.id;
                       const project = projects.find((item) => item.id === command.project_id);

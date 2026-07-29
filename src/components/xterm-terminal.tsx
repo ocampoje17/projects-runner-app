@@ -157,5 +157,5 @@ export function XtermTerminal({
     terminal.scrollToBottom();
   }, [content]);
 
-  return <div className="xterm-host h-full min-h-0 flex-1 overflow-hidden px-3 py-2.5" ref={containerRef} />;
+  return <div className="xterm-host h-full min-h-0 flex-1 overflow-hidden" ref={containerRef} />;
 }

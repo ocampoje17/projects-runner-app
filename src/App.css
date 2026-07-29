@@ -501,6 +501,7 @@ p {
 
 .log-terminal .xterm {
   height: 100%;
+  padding: 0.625rem 0.75rem;
 }
 
 .log-terminal .xterm-viewport,
@@ -515,6 +516,53 @@ p {
 
 .log-terminal .xterm-screen canvas {
   border-radius: 0;
+}
+
+.editor-container {
+  container-type: inline-size;
+}
+
+.empty-editor-actions {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+@container (max-width: 600px) {
+  .empty-editor-shell {
+    padding: 1rem;
+  }
+
+  .empty-editor-card {
+    padding: 1rem;
+  }
+
+  .terminal-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .terminal-workspace-screen {
+    grid-row: 2;
+    border-right: 0;
+  }
+
+  .terminal-workspace-tabs {
+    grid-row: 1;
+    max-height: 42px;
+    border-bottom: 1px solid var(--vscode-border);
+  }
+
+  .terminal-workspace-tab-list {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .terminal-workspace-tab-list .terminal-side-item {
+    width: auto;
+    min-width: min(200px, 70cqw);
+    max-width: 240px;
+    flex: 0 0 auto;
+  }
 }
 
 .flow-command-node {

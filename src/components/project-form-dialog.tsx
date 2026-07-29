@@ -123,7 +123,7 @@ export function ProjectDialog({
           <DialogFooter>
             {project && (
               <Button type="button" variant="danger" onClick={() => onDelete(project)}>
-                <Trash2 size={16} className="text-[var(--vscode-danger)]" />
+                <Trash2 size={16} />
                 Delete
               </Button>
             )}

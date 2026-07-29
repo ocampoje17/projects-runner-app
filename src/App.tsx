@@ -789,6 +789,7 @@ function App() {
     forceStopCommandByCommandId,
     clearCommandLogs,
     closeLogTabNow,
+    closeLogTabsNow,
     handleTerminalInput,
     handleTerminalResize,
   } = useCommandRuntime({
@@ -1028,7 +1029,7 @@ function App() {
       cancelLabel: "Cancel",
       isDestructive: true,
       onConfirm: () => {
-        commandIds.forEach((commandId) => closeLogTabNow(commandId));
+        void closeLogTabsNow(commandIds);
       },
     });
   }
