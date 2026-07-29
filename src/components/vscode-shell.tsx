@@ -443,6 +443,66 @@ function SidebarIconButton({
   );
 }
 
+function MiddleEllipsisText({
+  text,
+  endLength = 8,
+}: {
+  text: string;
+  endLength?: number;
+}) {
+  const containerRef = useRef<HTMLSpanElement | null>(null);
+  const measureRef = useRef<HTMLSpanElement | null>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const characters = useMemo(() => Array.from(text), [text]);
+  const safeEndLength = Math.min(endLength, Math.max(0, characters.length - 1));
+  const start = characters.slice(0, characters.length - safeEndLength).join("");
+  const end = characters.slice(characters.length - safeEndLength).join("");
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const measure = measureRef.current;
+    if (!container || !measure) {
+      return;
+    }
+
+    const updateOverflow = () => {
+      const nextOverflowing = measure.getBoundingClientRect().width > container.clientWidth + 0.5;
+      setIsOverflowing((current) => (current === nextOverflowing ? current : nextOverflowing));
+    };
+
+    updateOverflow();
+    const resizeObserver = new ResizeObserver(updateOverflow);
+    resizeObserver.observe(container);
+    resizeObserver.observe(measure);
+    return () => resizeObserver.disconnect();
+  }, [text]);
+
+  return (
+    <span
+      ref={containerRef}
+      className="relative flex min-w-0 flex-1 overflow-hidden whitespace-nowrap"
+      data-middle-ellipsis={isOverflowing ? "true" : "false"}
+      title={text}
+    >
+      <span
+        ref={measureRef}
+        aria-hidden="true"
+        className="pointer-events-none invisible absolute whitespace-nowrap"
+      >
+        {text}
+      </span>
+      {isOverflowing && safeEndLength > 0 ? (
+        <>
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{start}</span>
+          <span className="shrink-0 whitespace-nowrap">…{end}</span>
+        </>
+      ) : (
+        <span className="min-w-0 overflow-hidden whitespace-nowrap">{text}</span>
+      )}
+    </span>
+  );
+}
+
 function TreeItem({
   level = 0,
   active,
@@ -450,7 +510,6 @@ function TreeItem({
   onDoubleClick,
   icon,
   title,
-  preserveExtension = false,
   trailing,
   menuItems,
   editTitle,
@@ -461,7 +520,6 @@ function TreeItem({
   onDoubleClick?: () => void;
   icon?: React.ReactNode;
   title: string;
-  preserveExtension?: boolean;
   trailing?: React.ReactNode;
   menuItems?: {
     label?: string;
@@ -494,10 +552,6 @@ function TreeItem({
   const hasMenu = Boolean(menuItems?.some((item) => !item.separator));
   const menuOpen = menuState !== null;
   const isEditingTitle = Boolean(editTitle);
-  const titleLastDot = preserveExtension ? title.lastIndexOf(".") : -1;
-  const titleStem = titleLastDot > 0 ? title.slice(0, titleLastDot) : title;
-  const titleEnding = titleLastDot > 0 ? title.slice(titleLastDot) : "";
-  const shouldMiddleTruncate = title.length > 28;
 
   useEffect(() => {
     if (!menuOpen) {
@@ -607,7 +661,7 @@ function TreeItem({
             style={{ paddingLeft: `${8 + level * 14}px` } as CSSProperties}
           >
             {icon ? <span className={cn("shrink-0 text-[var(--vscode-icon)]", active && "text-primary")}>{icon}</span> : null}
-            {shouldMiddleTruncate ? <span className="flex min-w-0 flex-1"><span className="truncate">{titleStem}</span><span className="shrink-0">…{titleStem.slice(-3)}{titleEnding}</span></span> : <span className="truncate">{title}</span>}
+            <MiddleEllipsisText text={title} />
             {trailing ? <span className={cn("ml-auto shrink-0 text-[11px] text-muted-foreground", active && "text-foreground/80")}>{trailing}</span> : null}
           </button>
         )}
@@ -826,7 +880,7 @@ function ProjectFileTree({ project, entry, level, selectedPath, onSelect, clipbo
     { label: "Delete", icon: <Trash2 size={13} />, onSelect: () => onDelete(entry), tone: "danger" as const },
   ];
   return <div>
-    <TreeItem title={entry.name} preserveExtension={!entry.is_directory} level={level} active={selectedPath === entry.relative_path} icon={entry.is_directory ? (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <ProjectFileIcon name={entry.name} isDirectory={false} />} trailing={directoryEntries.isLoading ? <LoaderCircle size={12} className="animate-spin" /> : entry.line_count !== null ? <span className={cn(entry.line_count >= 1_000_000 ? "text-[var(--vscode-danger)]" : entry.line_count >= 1_000 ? "text-[#d7ba7d]" : "text-[var(--vscode-foreground)]/52")}>{formatCompactCount(entry.line_count)}</span> : undefined} onClick={() => { onSelect(entry); if (entry.is_directory) setIsExpanded((current) => !current); }} onDoubleClick={() => { if (!entry.is_directory) onOpenExternal(entry.relative_path); }} menuItems={menuItems} />
+    <TreeItem title={entry.name} level={level} active={selectedPath === entry.relative_path} icon={entry.is_directory ? (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <ProjectFileIcon name={entry.name} isDirectory={false} />} trailing={directoryEntries.isLoading ? <LoaderCircle size={12} className="animate-spin" /> : entry.line_count !== null ? <span className={cn(entry.line_count >= 1_000_000 ? "text-[var(--vscode-danger)]" : entry.line_count >= 1_000 ? "text-[#d7ba7d]" : "text-[var(--vscode-foreground)]/52")}>{formatCompactCount(entry.line_count)}</span> : undefined} onClick={() => { onSelect(entry); if (entry.is_directory) setIsExpanded((current) => !current); }} onDoubleClick={() => { if (!entry.is_directory) onOpenExternal(entry.relative_path); }} menuItems={menuItems} />
     {entry.is_directory && isExpanded ? <div>{directoryEntries.error ? <div className="px-3 py-1 text-[11px] text-[var(--vscode-danger)]" style={{ paddingLeft: `${24 + (level + 1) * 14}px` }}>{directoryEntries.error}</div> : null}{directoryEntries.entries.map((child) => <ProjectFileTree key={child.relative_path} project={project} entry={child} level={level + 1} selectedPath={selectedPath} onSelect={onSelect} clipboard={clipboard} collapseVersion={collapseVersion} refreshVersion={refreshVersion} onCreate={onCreate} onCopy={onCopy} onCut={onCut} onPaste={onPaste} onRename={onRename} onDelete={onDelete} onReveal={onReveal} onOpenTerminal={onOpenTerminal} onView={onView} onOpenExternal={onOpenExternal} onToggleQuickAccess={onToggleQuickAccess} pinnedPaths={pinnedPaths} />)}</div> : null}
   </div>;
 }
@@ -972,7 +1026,7 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
       <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
       <Panel id="quick-access" defaultSize="23%" minSize="14%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.quickAccessCollapsed || Math.abs(current.quickAccessExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, quickAccessExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.quickAccessCollapsed ? { overflow: "hidden" } : undefined}>
         <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55"><span>Quick Access</span><button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleQuickAccessPanel} aria-label="Toggle quick access"><ChevronDown size={14} className={cn(preferences.quickAccessCollapsed && "-rotate-90")} /></button></div>
-        {!preferences.quickAccessCollapsed ? <div className="overflow-y-auto px-2 pb-2">{quickAccess.length === 0 ? <div className="px-1 py-1 text-[11px] text-[var(--vscode-foreground)]/55">Pin a file or folder to open it quickly.</div> : quickAccess.map((entry) => <TreeItem key={entry.relativePath} title={entry.name} preserveExtension={!entry.isDirectory} active={selectedQuickAccessPath === entry.relativePath} icon={<ProjectFileIcon name={entry.name} isDirectory={entry.isDirectory} />} onClick={() => selectQuickAccess(entry)} onDoubleClick={() => { void api.openProjectFile(project.id, entry.relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to open Quick Access item.")); }} menuItems={[{ label: "Remove from Quick Access", icon: <PinOff size={13} />, onSelect: () => removeQuickAccess(entry.relativePath), tone: "danger" }]} />)}</div> : null}
+        {!preferences.quickAccessCollapsed ? <div className="overflow-y-auto px-2 pb-2">{quickAccess.length === 0 ? <div className="px-1 py-1 text-[11px] text-[var(--vscode-foreground)]/55">Pin a file or folder to open it quickly.</div> : quickAccess.map((entry) => <TreeItem key={entry.relativePath} title={entry.name} active={selectedQuickAccessPath === entry.relativePath} icon={<ProjectFileIcon name={entry.name} isDirectory={entry.isDirectory} />} onClick={() => selectQuickAccess(entry)} onDoubleClick={() => { void api.openProjectFile(project.id, entry.relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to open Quick Access item.")); }} menuItems={[{ label: "Remove from Quick Access", icon: <PinOff size={13} />, onSelect: () => removeQuickAccess(entry.relativePath), tone: "danger" }]} />)}</div> : null}
       </Panel>
     </Group>
     <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }} title="Delete file or folder" description={`Delete “${deleteTarget?.name ?? ""}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (deleteTarget) deleteEntry(deleteTarget); setDeleteTarget(null); }} />
