@@ -21,7 +21,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
@@ -66,10 +66,16 @@ struct RunProcess {
 
 struct InteractiveSession {
     run_id: i64,
+    pid: Option<u32>,
+    lifecycle: AtomicU8,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
 }
+
+const INTERACTIVE_RUNNING: u8 = 1;
+const INTERACTIVE_STOPPING: u8 = 2;
+const INTERACTIVE_EXITED: u8 = 3;
 
 #[derive(Debug, Serialize, QueryableByName, Clone)]
 struct Project {
@@ -4549,9 +4555,12 @@ fn start_interactive_command_instance(
         .take_writer()
         .map_err(|error| error.to_string())?;
     let killer = child.clone_killer();
+    let child_pid = child.process_id();
     let session_id = Uuid::new_v4().to_string();
     let session = Arc::new(InteractiveSession {
         run_id: run.id,
+        pid: child_pid,
+        lifecycle: AtomicU8::new(INTERACTIVE_RUNNING),
         killer: Mutex::new(killer),
         master: Mutex::new(pair.master),
         writer: Mutex::new(writer),
@@ -4603,9 +4612,11 @@ fn start_interactive_command_instance(
     );
 
     let paths = state.paths.clone();
+    let session_for_wait = session.clone();
     let app_for_wait = app.clone();
     std::thread::spawn(move || {
         let wait_result = child.wait();
+        session_for_wait.lifecycle.store(INTERACTIVE_EXITED, Ordering::SeqCst);
         let exit_code = wait_result.ok().and_then(interactive_exit_code);
         let was_stopped = app_for_wait
             .try_state::<AppState>()
@@ -4725,11 +4736,14 @@ fn start_project_interactive_terminal(
         .take_writer()
         .map_err(|error| error.to_string())?;
     let killer = child.clone_killer();
+    let child_pid = child.process_id();
     let session_id = Uuid::new_v4().to_string();
     let run_id = NEXT_AD_HOC_RUN_ID.fetch_sub(1, Ordering::SeqCst);
     let started_at = now();
     let session = Arc::new(InteractiveSession {
         run_id,
+        pid: child_pid,
+        lifecycle: AtomicU8::new(INTERACTIVE_RUNNING),
         killer: Mutex::new(killer),
         master: Mutex::new(pair.master),
         writer: Mutex::new(writer),
@@ -4781,8 +4795,10 @@ fn start_project_interactive_terminal(
     );
 
     let app_for_wait = app.clone();
+    let session_for_wait = session.clone();
     std::thread::spawn(move || {
         let wait_result = child.wait();
+        session_for_wait.lifecycle.store(INTERACTIVE_EXITED, Ordering::SeqCst);
         let exit_code = wait_result.ok().and_then(interactive_exit_code);
         let was_stopped = app_for_wait
             .try_state::<AppState>()
@@ -4842,6 +4858,7 @@ fn write_interactive_terminal(
     data: String,
     state: State<AppState>,
 ) -> Result<(), String> {
+    debug_pty_io(&session_id, "input", data.as_bytes());
     let session = state
         .interactive_sessions
         .lock()
@@ -4898,21 +4915,28 @@ fn stop_interactive_command(
         return Ok(StopCommandResult { was_active: false });
     };
 
-    let was_new_stop = state
+    if session
+        .lifecycle
+        .compare_exchange(
+            INTERACTIVE_RUNNING,
+            INTERACTIVE_STOPPING,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        )
+        .is_err()
+    {
+        return Ok(StopCommandResult { was_active: false });
+    }
+
+    state
         .stopped_runs
         .lock()
         .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
         .insert(session.run_id);
-    if !was_new_stop {
-        return Ok(StopCommandResult { was_active: false });
-    }
 
-    let kill_result = session
-        .killer
-        .lock()
-        .map_err(|_| "Interactive killer lock poisoned".to_string())
-        .and_then(|mut killer| killer.kill().map_err(|error| error.to_string()));
+    let kill_result = kill_interactive_process(&session);
     if let Err(error) = kill_result {
+        session.lifecycle.store(INTERACTIVE_RUNNING, Ordering::SeqCst);
         state
             .stopped_runs
             .lock()
@@ -4925,12 +4949,12 @@ fn stop_interactive_command(
 }
 
 #[tauri::command]
-fn restart_interactive_command(
+async fn restart_interactive_command(
     command_id: i64,
     cols: u16,
     rows: u16,
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<InteractiveSessionInfo, String> {
     let existing_session_id = state
         .interactive_sessions_by_command
@@ -4950,11 +4974,53 @@ fn restart_interactive_command(
             if !still_running {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(25));
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        let still_running = state
+            .interactive_sessions_by_command
+            .lock()
+            .map_err(|_| "Interactive command registry lock poisoned".to_string())?
+            .contains_key(&command_id);
+        if still_running {
+            return Err("Timed out while stopping the previous interactive session".to_string());
         }
     }
 
     start_interactive_command(command_id, cols, rows, app, state)
+}
+
+#[cfg(target_os = "windows")]
+fn kill_interactive_process(session: &InteractiveSession) -> Result<(), String> {
+    if let Some(pid) = session.pid {
+        let mut command = Command::new("taskkill");
+        command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        configure_command(&mut command);
+        let status = command
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|error| error.to_string())?;
+        if status.success() {
+            return Ok(());
+        }
+    }
+
+    session
+        .killer
+        .lock()
+        .map_err(|_| "Interactive killer lock poisoned".to_string())?
+        .kill()
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_interactive_process(session: &InteractiveSession) -> Result<(), String> {
+    session
+        .killer
+        .lock()
+        .map_err(|_| "Interactive killer lock poisoned".to_string())?
+        .kill()
+        .map_err(|error| error.to_string())
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -5401,6 +5467,7 @@ fn spawn_interactive_reader(
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(length) => {
+                    debug_pty_io(&session_id, "output", &buffer[..length]);
                     let chunk = decoder.push(&buffer[..length]);
                     if !chunk.is_empty() {
                         let _ = app.emit(
@@ -5449,6 +5516,22 @@ fn spawn_interactive_reader(
             );
         }
     });
+}
+
+fn debug_pty_io(session_id: &str, direction: &str, bytes: &[u8]) {
+    if !cfg!(debug_assertions)
+        || std::env::var_os("PROJECTS_RUNNER_DEBUG_PTY") != Some(OsString::from("1"))
+    {
+        return;
+    }
+
+    let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
+    eprintln!(
+        "[pty:{session_id}] {direction} {} bytes: {}{}",
+        bytes.len(),
+        preview.escape_debug(),
+        if bytes.len() > 512 { "…" } else { "" },
+    );
 }
 
 fn is_benign_interactive_read_error(error: &std::io::Error) -> bool {
@@ -5659,6 +5742,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let paths = app_paths(app.handle())?;
             init_db(&paths).map_err(|error| Box::<dyn std::error::Error>::from(error))?;

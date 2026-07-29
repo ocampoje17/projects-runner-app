@@ -18,6 +18,11 @@ import {
 import { commandPorts } from "../lib/command-utils";
 import { formatTime } from "../lib/date-time";
 import type { InteractiveTerminalKind } from "../lib/interactive-terminal";
+import {
+  clearRegisteredTerminal,
+  publishTerminalOutput,
+  removeRegisteredTerminal,
+} from "../lib/terminal-registry";
 import type { LogLine, RunState } from "../components/project-runtime";
 
 const ANSI_ESCAPE_PATTERN =
@@ -30,6 +35,8 @@ function cleanTerminalLine(line: string) {
 const DEFAULT_INTERACTIVE_COLS = 120;
 const DEFAULT_INTERACTIVE_ROWS = 32;
 const FLOW_TERMINAL_ID_OFFSET = 1_000_000_000;
+const MAX_HEADLESS_TERMINAL_CHARS = 1024 * 1024;
+const MAX_LOG_LINES = 10_000;
 let nextAdHocTerminalId = -1;
 
 type InteractiveTerminalSize = {
@@ -39,6 +46,13 @@ type InteractiveTerminalSize = {
 
 function terminalIdForEvent(commandId: number, runId: number, flowNodeId: string | null) {
   return flowNodeId ? -(FLOW_TERMINAL_ID_OFFSET + runId) : commandId;
+}
+
+function appendBoundedTerminalContent(current: string, next: string) {
+  const combined = `${current}${next}`;
+  return combined.length <= MAX_HEADLESS_TERMINAL_CHARS
+    ? combined
+    : combined.slice(combined.length - MAX_HEADLESS_TERMINAL_CHARS);
 }
 
 async function waitForMeasuredTerminalSize(
@@ -106,6 +120,9 @@ export function useCommandRuntime({
   const interactiveSessionsByCommandIdRef = useRef<Record<number, InteractiveSession>>({});
   const interactiveSizesByCommandIdRef = useRef<Record<number, InteractiveTerminalSize>>({});
   const stoppingInteractiveSessionIdsRef = useRef<Set<string>>(new Set());
+  const inputQueuesRef = useRef<Map<string, Promise<void>>>(new Map());
+  const pendingResizeBySessionRef = useRef<Map<string, { commandId: number; cols: number; rows: number }>>(new Map());
+  const resizingSessionIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
@@ -207,7 +224,7 @@ export function useCommandRuntime({
         const cleanedLine = cleanTerminalLine(event.payload.line);
         const timestamp = formatTime(new Date());
         setLogs((current) => [
-          ...current,
+          ...current.slice(-(MAX_LOG_LINES - 1)),
           {
             id: `${event.payload.run_id}-out-${current.length}`,
             runId: event.payload.run_id,
@@ -219,7 +236,10 @@ export function useCommandRuntime({
         ]);
         setTerminalContentByCommandId((current) => ({
           ...current,
-          [terminalId]: `${current[terminalId] ?? ""}${formatHeadlessTerminalLine("stdout", cleanedLine, timestamp)}\r\n`,
+          [terminalId]: appendBoundedTerminalContent(
+            current[terminalId] ?? "",
+            `${formatHeadlessTerminalLine("stdout", cleanedLine, timestamp)}\r\n`,
+          ),
         }));
       }),
       listen<RunOutputPayload>("command://stderr", (event) => {
@@ -227,7 +247,7 @@ export function useCommandRuntime({
         const cleanedLine = cleanTerminalLine(event.payload.line);
         const timestamp = formatTime(new Date());
         setLogs((current) => [
-          ...current,
+          ...current.slice(-(MAX_LOG_LINES - 1)),
           {
             id: `${event.payload.run_id}-err-${current.length}`,
             runId: event.payload.run_id,
@@ -239,7 +259,10 @@ export function useCommandRuntime({
         ]);
         setTerminalContentByCommandId((current) => ({
           ...current,
-          [terminalId]: `${current[terminalId] ?? ""}${formatHeadlessTerminalLine("stderr", cleanedLine, timestamp)}\r\n`,
+          [terminalId]: appendBoundedTerminalContent(
+            current[terminalId] ?? "",
+            `${formatHeadlessTerminalLine("stderr", cleanedLine, timestamp)}\r\n`,
+          ),
         }));
       }),
       listen<RunFinishedPayload>("command://finished", (event) => {
@@ -268,6 +291,7 @@ export function useCommandRuntime({
 
           if (autoClearLogs) {
             setLogs((lines) => lines.filter((line) => line.commandId !== event.payload.command_id));
+            clearRegisteredTerminal(event.payload.command_id);
             setTerminalContentByCommandId((terminalContent) => ({
               ...terminalContent,
               [event.payload.command_id]: "",
@@ -318,17 +342,24 @@ export function useCommandRuntime({
       }),
       listen<InteractiveSessionDataPayload>("pty://data", (event) => {
         const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
-        setTerminalContentByCommandId((current) => ({
-          ...current,
-          [terminalId]: `${current[terminalId] ?? ""}${event.payload.data}`,
-        }));
+        const activeSession = interactiveSessionsByCommandIdRef.current[terminalId];
+        if (activeSession?.session_id !== event.payload.session_id) {
+          return;
+        }
+        publishTerminalOutput(terminalId, event.payload.data);
       }),
       listen<InteractiveSessionExitedPayload>("pty://exit", (event) => {
         stoppingInteractiveSessionIdsRef.current.delete(event.payload.session_id);
         const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
+        const activeSession = interactiveSessionsByCommandIdRef.current[terminalId];
+        if (activeSession?.session_id !== event.payload.session_id) {
+          return;
+        }
         const nextSessions = { ...interactiveSessionsByCommandIdRef.current };
         delete nextSessions[terminalId];
         interactiveSessionsByCommandIdRef.current = nextSessions;
+        pendingResizeBySessionRef.current.delete(event.payload.session_id);
+        inputQueuesRef.current.delete(event.payload.session_id);
         setInteractiveSessionsByCommandId((current) => {
           const next = { ...current };
           delete next[terminalId];
@@ -340,7 +371,7 @@ export function useCommandRuntime({
           return;
         }
         const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
-        if (!interactiveSessionsByCommandIdRef.current[terminalId]) {
+        if (interactiveSessionsByCommandIdRef.current[terminalId]?.session_id !== event.payload.session_id) {
           return;
         }
         onErrorRef.current(new Error(event.payload.error));
@@ -395,6 +426,7 @@ export function useCommandRuntime({
 
     if (autoClearLogs) {
       setLogs((current) => current.filter((line) => line.commandId !== command.id));
+      clearRegisteredTerminal(command.id);
       setTerminalContentByCommandId((current) => ({
         ...current,
         [command.id]: "",
@@ -460,6 +492,7 @@ export function useCommandRuntime({
           rows: DEFAULT_INTERACTIVE_ROWS,
         };
         if (autoClearLogs) {
+          clearRegisteredTerminal(command.id);
           setTerminalContentByCommandId((current) => ({ ...current, [command.id]: "" }));
         }
         await api.restartInteractiveCommand(command.id, size.cols, size.rows);
@@ -576,6 +609,7 @@ export function useCommandRuntime({
   }, [interactiveSessionsByCommandId, runs, stopInteractiveSession, stopMutation, stoppingRunIds]);
 
   function clearCommandLogs(commandId: number) {
+    clearRegisteredTerminal(commandId);
     setLogs((current) => current.filter((line) => line.commandId !== commandId));
     setTerminalContentByCommandId((current) => ({
       ...current,
@@ -621,6 +655,7 @@ export function useCommandRuntime({
     setAdHocInteractiveCommands((current) => current.filter((command) => command.id !== commandId));
     setFlowExecutionCommands((current) => current.filter((command) => command.id !== commandId));
     setActiveLogCommandId((current) => (current === commandId ? nextActiveLogCommandId : current));
+    removeRegisteredTerminal(commandId);
     return interactiveStop ?? Promise.resolve();
   }, [interactiveSessionsByCommandId, runs, stopInteractiveSession, stopMutation, stoppingRunIds]);
 
@@ -642,15 +677,37 @@ export function useCommandRuntime({
   }, [closeLogTabNow]);
 
   const handleTerminalInput = useCallback((commandId: number, data: string) => {
-    const interactiveSession = interactiveSessionsByCommandId[commandId];
+    const interactiveSession = interactiveSessionsByCommandIdRef.current[commandId];
     if (
       !interactiveSession ||
       stoppingInteractiveSessionIdsRef.current.has(interactiveSession.session_id)
     ) {
       return;
     }
-    void api.writeInteractiveTerminal(interactiveSession.session_id, data).catch(onErrorRef.current);
-  }, [interactiveSessionsByCommandId]);
+
+    const sessionId = interactiveSession.session_id;
+    const previous = inputQueuesRef.current.get(sessionId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const activeSession = interactiveSessionsByCommandIdRef.current[commandId];
+        if (
+          activeSession?.session_id !== sessionId ||
+          stoppingInteractiveSessionIdsRef.current.has(sessionId)
+        ) {
+          return;
+        }
+        await api.writeInteractiveTerminal(sessionId, data);
+      })
+      .catch(onErrorRef.current)
+      .then(() => undefined);
+    inputQueuesRef.current.set(sessionId, next);
+    void next.finally(() => {
+      if (inputQueuesRef.current.get(sessionId) === next) {
+        inputQueuesRef.current.delete(sessionId);
+      }
+    });
+  }, []);
 
   const handleTerminalResize = useCallback((commandId: number, cols: number, rows: number) => {
     const previousSize = interactiveSizesByCommandIdRef.current[commandId];
@@ -670,7 +727,34 @@ export function useCommandRuntime({
     ) {
       return;
     }
-    void api.resizeInteractiveTerminal(interactiveSession.session_id, cols, rows).catch(onErrorRef.current);
+    const sessionId = interactiveSession.session_id;
+    pendingResizeBySessionRef.current.set(sessionId, { commandId, cols, rows });
+    if (resizingSessionIdsRef.current.has(sessionId)) {
+      return;
+    }
+
+    resizingSessionIdsRef.current.add(sessionId);
+    void (async () => {
+      try {
+        while (true) {
+          const pending = pendingResizeBySessionRef.current.get(sessionId);
+          if (!pending) break;
+          pendingResizeBySessionRef.current.delete(sessionId);
+          const activeSession = interactiveSessionsByCommandIdRef.current[pending.commandId];
+          if (
+            activeSession?.session_id !== sessionId ||
+            stoppingInteractiveSessionIdsRef.current.has(sessionId)
+          ) {
+            break;
+          }
+          await api.resizeInteractiveTerminal(sessionId, pending.cols, pending.rows);
+        }
+      } catch (error) {
+        onErrorRef.current(error);
+      } finally {
+        resizingSessionIdsRef.current.delete(sessionId);
+      }
+    })();
   }, []);
 
   return {

@@ -489,27 +489,8 @@ export function LogPanel({
   const selectedCommand = filteredVisibleCommands.find((command) => command.id === activeCommandId) ?? filteredVisibleCommands[0] ?? null;
   const selectedCommandId = selectedCommand?.id ?? null;
   const selectedProject = projects.find((project) => project.id === selectedCommand?.project_id) ?? null;
-  const selectedTerminalContent = selectedCommandId ? terminalContentByCommandId[selectedCommandId] ?? "" : "";
   const resolvedTerminalFontSize = Number.parseInt(terminalFontSize, 10) || 13;
   const selectedCommandPorts = selectedCommand ? commandPorts(selectedCommand) : [];
-  const handleSelectedTerminalInput = useCallback(
-    (data: string) => {
-      if (!selectedCommand || selectedCommand.runtime_mode !== "internal_interactive") {
-        return;
-      }
-      onTerminalInput(selectedCommand.id, data);
-    },
-    [onTerminalInput, selectedCommand],
-  );
-  const handleSelectedTerminalResize = useCallback(
-    (cols: number, rows: number) => {
-      if (!selectedCommand) {
-        return;
-      }
-      onTerminalResize(selectedCommand.id, cols, rows);
-    },
-    [onTerminalResize, selectedCommand],
-  );
 
   useEffect(() => {
     if (selectedCommandId && selectedCommandId !== activeCommandId) {
@@ -819,18 +800,36 @@ export function LogPanel({
           {!isCollapsed && selectedCommand ? (
             activePanelView === "terminal" ? (
               <div className="terminal-workspace grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_240px] overflow-hidden bg-[var(--terminal-bg)]">
-                <div className="terminal-workspace-screen flex min-h-0 min-w-0 flex-1 border-r border-[var(--vscode-border)] bg-[var(--terminal-bg)]">
-                  <div className="log-terminal flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" key={selectedCommand.id} ref={terminalRef}>
-                    <XtermTerminal
-                      content={selectedTerminalContent || "Waiting for output...\r\n"}
-                      fontFamily={terminalFontFamily}
-                      fontSize={resolvedTerminalFontSize}
-                      theme={theme}
-                      onData={selectedCommand.runtime_mode === "internal_interactive" ? handleSelectedTerminalInput : undefined}
-                      onSizeChange={handleSelectedTerminalResize}
-                      readOnly={selectedCommand.runtime_mode !== "internal_interactive"}
-                    />
-                  </div>
+                <div className="terminal-workspace-screen relative flex min-h-0 min-w-0 flex-1 border-r border-[var(--vscode-border)] bg-[var(--terminal-bg)]" ref={terminalRef}>
+                  {filteredVisibleCommands.map((command) => {
+                    const isActive = selectedCommandId === command.id;
+                    return (
+                      <div
+                        aria-hidden={!isActive}
+                        className={cn(
+                          "log-terminal absolute inset-0 h-full min-h-0 overflow-hidden bg-[var(--terminal-bg)]",
+                          isActive ? "flex" : "invisible pointer-events-none",
+                        )}
+                        key={command.id}
+                      >
+                        <XtermTerminal
+                          active={isActive && activePanelView === "terminal" && !isCollapsed}
+                          content={terminalContentByCommandId[command.id] ?? ""}
+                          fontFamily={terminalFontFamily}
+                          fontSize={resolvedTerminalFontSize}
+                          onData={
+                            command.runtime_mode === "internal_interactive"
+                              ? (data) => onTerminalInput(command.id, data)
+                              : undefined
+                          }
+                          onSizeChange={(cols, rows) => onTerminalResize(command.id, cols, rows)}
+                          readOnly={command.runtime_mode !== "internal_interactive"}
+                          terminalId={command.id}
+                          theme={theme}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <div className="terminal-workspace-tabs flex min-h-0 min-w-0 flex-col overflow-hidden border-l-0 bg-[var(--vscode-panel)]">

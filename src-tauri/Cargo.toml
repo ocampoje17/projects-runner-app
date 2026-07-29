@@ -38,3 +38,5 @@ semver = "1.0.26"
 portable-pty = { git = "https://github.com/wezterm/wezterm.git", rev = "8afe0ad30739c5aa106c19e8a75b1dfc83bcfb56" }
 which = "8.0.4"
 walkdir = "2.5.0"
+tauri-plugin-clipboard-manager = "2"
+tokio = { version = "1", features = ["time"] }

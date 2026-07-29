@@ -32,6 +32,7 @@ import { useProjectNotes } from "./hooks/use-project-notes";
 import { useAppUpdater } from "./hooks/use-app-updater";
 import { buildTitlebarSearchCollections, type TitlebarSearchItem } from "./lib/titlebar-search";
 import { MotionLevelProvider } from "./lib/motion";
+import { getTerminalController } from "./lib/terminal-registry";
 import appIcon from "./assets/app-icon.png";
 import { UpdateDialog } from "./components/update-dialog";
 
@@ -477,6 +478,34 @@ function App() {
     }
 
     function buildContextMenuItems(target: HTMLElement) {
+      const terminalHost = target.closest<HTMLElement>("[data-terminal-id]");
+      const terminalId = terminalHost
+        ? Number.parseInt(terminalHost.dataset.terminalId ?? "", 10)
+        : Number.NaN;
+      const terminalController = Number.isFinite(terminalId)
+        ? getTerminalController(terminalId)
+        : undefined;
+      if (terminalController) {
+        return [
+          {
+            label: "Copy",
+            onSelect: async () => {
+              await terminalController.copySelection();
+            },
+            disabled: !terminalController.hasSelection(),
+          },
+          {
+            label: "Paste",
+            onSelect: () => terminalController.pasteFromClipboard(),
+          },
+          { separator: true },
+          {
+            label: "Select All",
+            onSelect: () => terminalController.selectAll(),
+          },
+        ] satisfies AppContextMenuItem[];
+      }
+
       const editable = isEditableTarget(target);
       const selected = hasSelection(target);
       const readOnly =
