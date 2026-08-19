@@ -158,13 +158,13 @@ export function DevProjectToolsDialogs({ project, request, onRequestChange, onCl
   const cacheCandidates = useMemo(() => {
     return candidates
       .filter((item) => !item.is_dependency)
-      .sort((a, b) => a.relative_path.localeCompare(b.relative_path));
+      .sort((a, b) => b.size_bytes - a.size_bytes || a.relative_path.localeCompare(b.relative_path));
   }, [candidates]);
 
   const dependencyCandidates = useMemo(() => {
     return candidates
       .filter((item) => item.is_dependency)
-      .sort((a, b) => a.relative_path.localeCompare(b.relative_path));
+      .sort((a, b) => b.size_bytes - a.size_bytes || a.relative_path.localeCompare(b.relative_path));
   }, [candidates]);
 
   const selectedBytes = candidates.filter((item) => selectedCandidates.has(item.id)).reduce((total, item) => total + item.size_bytes, 0);
