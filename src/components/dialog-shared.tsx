@@ -1,13 +1,24 @@
-import { useEffect, useMemo, useState, type UIEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus, Search, Shapes } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { allLucideIconOptions, EntityAvatar, getLucideIconOption, iconOptions, lucideIconId, type IconOption } from "./entity-avatar";
+import {
+  allLucideIconOptions,
+  buildSuggestedIconOptions,
+  EntityAvatar,
+  getLucideIconOption,
+  getRecentIconIds,
+  lucideIconId,
+  saveRecentIconId,
+  SUGGESTED_ICONS_COUNT,
+  type IconOption,
+} from "./entity-avatar";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { DialogErrorText, DialogSurface } from "./ui/dialog-form";
 import { Input } from "./ui/input";
 
-const ICON_PAGE_SIZE = 120;
+const INITIAL_PAGE_SIZE = 120;
+const BATCH_SIZE = 120;
 
 function IconPickerButton({
   option,
@@ -50,20 +61,41 @@ function IconPickerDialog({
   onSelect: (iconId: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [visibleCount, setVisibleCount] = useState(ICON_PAGE_SIZE);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_PAGE_SIZE);
+  const [recentIconIds, setRecentIconIds] = useState<string[]>(() => getRecentIconIds());
   const normalizedQuery = query.trim().toLowerCase();
-  const suggestedIconIds = useMemo(() => new Set(iconOptions.map((option) => option.id)), []);
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setRecentIconIds(getRecentIconIds());
+      setQuery("");
+      setVisibleCount(INITIAL_PAGE_SIZE);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    setVisibleCount(INITIAL_PAGE_SIZE);
+  }, [normalizedQuery]);
+
+  const baseSuggestedIcons = useMemo(() => {
+    return buildSuggestedIconOptions(recentIconIds, SUGGESTED_ICONS_COUNT);
+  }, [recentIconIds]);
+
+  const suggestedIconIds = useMemo(() => new Set(baseSuggestedIcons.map((option) => option.id)), [baseSuggestedIcons]);
 
   const suggestedIcons = useMemo(() => {
     if (!normalizedQuery) {
-      return iconOptions;
+      return baseSuggestedIcons;
     }
 
-    return iconOptions.filter((option) => {
+    return baseSuggestedIcons.filter((option) => {
       const haystack = `${option.label} ${option.id}`.toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [normalizedQuery]);
+  }, [baseSuggestedIcons, normalizedQuery]);
 
   const filteredAllIcons = useMemo(() => {
     const filtered = allLucideIconOptions.filter((option) => {
@@ -81,32 +113,45 @@ function IconPickerDialog({
     return filtered;
   }, [normalizedQuery, suggestedIconIds]);
 
-  const visibleIcons = filteredAllIcons.slice(0, visibleCount);
+  const visibleIcons = useMemo(() => {
+    return filteredAllIcons.slice(0, visibleCount);
+  }, [filteredAllIcons, visibleCount]);
+
+  const hasMore = visibleCount < filteredAllIcons.length;
 
   useEffect(() => {
-    if (!open) {
-      setQuery("");
-    }
-  }, [open]);
+    if (!open || !hasMore) return;
+    const sentinel = sentinelRef.current;
+    const container = containerRef.current;
+    if (!sentinel || !container) return;
 
-  useEffect(() => {
-    setVisibleCount(ICON_PAGE_SIZE);
-  }, [normalizedQuery]);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + BATCH_SIZE, filteredAllIcons.length));
+        }
+      },
+      {
+        root: container,
+        rootMargin: "160px",
+      },
+    );
 
-  function handleGridScroll(event: UIEvent<HTMLDivElement>) {
-    const element = event.currentTarget;
-    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
-    if (remaining > 240) {
-      return;
-    }
-
-    setVisibleCount((current) => Math.min(current + ICON_PAGE_SIZE, filteredAllIcons.length));
-  }
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [open, hasMore, filteredAllIcons.length, visibleCount]);
 
   function handleSelect(iconId: string) {
+    const updated = saveRecentIconId(iconId);
+    setRecentIconIds(updated);
     onSelect(iconId);
     onOpenChange(false);
   }
+
+  const normalizedSelectedId = useMemo(() => {
+    if (!selectedIconId) return null;
+    return getLucideIconOption(selectedIconId)?.id ?? selectedIconId;
+  }, [selectedIconId]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -135,7 +180,7 @@ function IconPickerDialog({
           <section className="flex flex-col gap-2">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Suggested</div>
-              <p className="text-[11.5px] text-muted-foreground">The icon set currently used throughout the app.</p>
+              <p className="text-[11.5px] text-muted-foreground">Recently used and suggested icons.</p>
             </div>
             {suggestedIcons.length > 0 ? (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(40px,1fr))] gap-1.5">
@@ -143,7 +188,11 @@ function IconPickerDialog({
                   <IconPickerButton
                     key={option.id}
                     option={option}
-                    isSelected={selectedIconId === option.id}
+                    isSelected={
+                      normalizedSelectedId
+                        ? option.id.toLowerCase() === normalizedSelectedId.toLowerCase()
+                        : false
+                    }
                     onSelect={handleSelect}
                   />
                 ))}
@@ -161,8 +210,8 @@ function IconPickerDialog({
               <p className="text-[11.5px] text-muted-foreground">Scroll to load more icons from the library.</p>
             </div>
             <div
-              className="h-[360px] min-h-[360px] overflow-y-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2"
-              onScroll={handleGridScroll}
+              ref={containerRef}
+              className="h-[360px] overflow-y-auto rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-2"
             >
               {visibleIcons.length > 0 ? (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(40px,1fr))] gap-1.5">
@@ -170,7 +219,11 @@ function IconPickerDialog({
                     <IconPickerButton
                       key={option.id}
                       option={option}
-                      isSelected={selectedIconId === option.id}
+                      isSelected={
+                        normalizedSelectedId
+                          ? option.id.toLowerCase() === normalizedSelectedId.toLowerCase()
+                          : false
+                      }
                       onSelect={handleSelect}
                     />
                   ))}
@@ -178,6 +231,7 @@ function IconPickerDialog({
               ) : (
                 <div className="px-2 py-8 text-center text-[12px] text-muted-foreground">No icons match this search.</div>
               )}
+              {hasMore && <div ref={sentinelRef} className="h-6 w-full" />}
             </div>
           </section>
         </div>

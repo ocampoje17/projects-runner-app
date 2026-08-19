@@ -13,6 +13,7 @@ import {
   LucideIcon,
   Monitor,
   Package,
+  Play,
   Rocket,
   Server,
   Settings,
@@ -41,6 +42,7 @@ export const iconOptions: IconOption[] = [
   { id: "wrench", label: "Wrench", Icon: Wrench },
   { id: "settings", label: "Settings", Icon: Settings },
   { id: "rocket", label: "Rocket", Icon: Rocket },
+  { id: "play", label: "Play", Icon: Play },
   { id: "ios", label: "iOS", Icon: Smartphone },
   { id: "windows", label: "Windows", Icon: Monitor },
   { id: "linux", label: "Linux", Icon: Terminal },
@@ -135,6 +137,7 @@ const lucideIconOptionsById = new Map<string, IconOption>();
 
 for (const option of allLucideIconOptions) {
   lucideIconOptionsById.set(option.id, option);
+  lucideIconOptionsById.set(option.id.toLowerCase(), option);
 }
 
 for (const [canonicalId, aliases] of lucideAliasesByCanonicalId.entries()) {
@@ -145,11 +148,13 @@ for (const [canonicalId, aliases] of lucideAliasesByCanonicalId.entries()) {
 
   for (const alias of aliases) {
     lucideIconOptionsById.set(alias, option);
+    lucideIconOptionsById.set(alias.toLowerCase(), option);
   }
 }
 
 for (const option of iconOptions) {
   lucideIconOptionsById.set(option.id, option);
+  lucideIconOptionsById.set(option.id.toLowerCase(), option);
 }
 
 export function lucideIconValue(id: string) {
@@ -161,7 +166,98 @@ export function lucideIconId(value: string | null | undefined) {
 }
 
 export function getLucideIconOption(id: string | null | undefined) {
-  return id ? lucideIconOptionsById.get(id) : undefined;
+  if (!id) {
+    return undefined;
+  }
+  const cleanId = lucideIconId(id) ?? id;
+  return lucideIconOptionsById.get(cleanId) ?? lucideIconOptionsById.get(cleanId.toLowerCase());
+}
+
+export const RECENT_ICONS_STORAGE_KEY = "projects-runner:recent-icons";
+export const SUGGESTED_ICONS_COUNT = 20;
+
+export function getRecentIconIds(): string[] {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return [];
+  }
+  try {
+    const raw = localStorage.getItem(RECENT_ICONS_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+    }
+  } catch {
+    // Ignore corrupted localStorage data
+  }
+  return [];
+}
+
+export function saveRecentIconId(iconId: string): string[] {
+  const normalizedId = lucideIconId(iconId) ?? iconId.trim();
+  if (!normalizedId) {
+    return getRecentIconIds();
+  }
+
+  const current = getRecentIconIds();
+  const filtered = current.filter((id) => id.toLowerCase() !== normalizedId.toLowerCase());
+  const updated = [normalizedId, ...filtered].slice(0, SUGGESTED_ICONS_COUNT);
+
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      localStorage.setItem(RECENT_ICONS_STORAGE_KEY, JSON.stringify(updated));
+    } catch {
+      // Ignore quota errors
+    }
+  }
+
+  return updated;
+}
+
+export function buildSuggestedIconOptions(
+  recentIds: string[] = getRecentIconIds(),
+  limit: number = SUGGESTED_ICONS_COUNT,
+): IconOption[] {
+  const result: IconOption[] = [];
+  const seenIds = new Set<string>();
+
+  // 1. Add recent icons first (most recent first)
+  for (const id of recentIds) {
+    const option = getLucideIconOption(id);
+    if (option && !seenIds.has(option.id)) {
+      seenIds.add(option.id);
+      result.push(option);
+      if (result.length >= limit) {
+        return result;
+      }
+    }
+  }
+
+  // 2. Fill remaining slots with default iconOptions
+  for (const option of iconOptions) {
+    if (!seenIds.has(option.id)) {
+      seenIds.add(option.id);
+      result.push(option);
+      if (result.length >= limit) {
+        return result;
+      }
+    }
+  }
+
+  // 3. If still below limit, fill from allLucideIconOptions
+  for (const option of allLucideIconOptions) {
+    if (!seenIds.has(option.id)) {
+      seenIds.add(option.id);
+      result.push(option);
+      if (result.length >= limit) {
+        return result;
+      }
+    }
+  }
+
+  return result;
 }
 
 function lucideIconOption(value: string | null | undefined) {
