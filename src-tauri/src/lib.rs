@@ -3462,18 +3462,27 @@ fn project_file_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry, Stri
     let mut child_folder_count = 0;
     if is_directory {
         size_bytes = 0;
-        if let Ok(read_dir) = fs::read_dir(path) {
-            for entry in read_dir.filter_map(Result::ok) {
-                if entry.file_name().to_string_lossy() == ".git" {
-                    continue;
-                }
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_dir() {
-                        child_folder_count += 1;
-                    } else if file_type.is_file() {
-                        child_file_count += 1;
-                        if let Ok(child_meta) = entry.metadata() {
-                            size_bytes += child_meta.len();
+        let mut stack = vec![path.to_path_buf()];
+        while let Some(current_dir) = stack.pop() {
+            if let Ok(read_dir) = fs::read_dir(&current_dir) {
+                for entry in read_dir.filter_map(Result::ok) {
+                    let file_name = entry.file_name();
+                    let name_str = file_name.to_string_lossy();
+                    if name_str == ".git" {
+                        continue;
+                    }
+                    if let Ok(file_type) = entry.file_type() {
+                        if file_type.is_symlink() {
+                            continue;
+                        }
+                        if file_type.is_dir() {
+                            child_folder_count += 1;
+                            stack.push(entry.path());
+                        } else if file_type.is_file() {
+                            child_file_count += 1;
+                            if let Ok(child_meta) = entry.metadata() {
+                                size_bytes += child_meta.len();
+                            }
                         }
                     }
                 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, LoaderCircle, RefreshCw, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, LoaderCircle, RefreshCw, Search, Trash2 } from "lucide-react";
 import { api, type DevCacheCandidate, type DevCacheCleanResult, type DevProjectType, type DevProjectTypeScan, type Project } from "../lib/api";
+import { ConfirmDialog } from "./process-dialogs";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
@@ -14,11 +15,12 @@ function formatBytes(value: number) {
   return `${(value / 1024 ** (unit + 1)).toFixed(1)} ${units[unit]}`;
 }
 
-export function DevProjectToolsDialogs({ project, request, onRequestChange, onCleaned }: {
+export function DevProjectToolsDialogs({ project, request, onRequestChange, onCleaned, onTypesSaved }: {
   project: Project;
   request: DevProjectToolsRequest;
   onRequestChange: (request: DevProjectToolsRequest) => void;
   onCleaned: () => void;
+  onTypesSaved?: () => void;
 }) {
   const [types, setTypes] = useState<DevProjectType[]>([]);
   const [scan, setScan] = useState<DevProjectTypeScan | null>(null);
@@ -29,6 +31,7 @@ export function DevProjectToolsDialogs({ project, request, onRequestChange, onCl
   const [typeError, setTypeError] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<DevCacheCandidate[]>([]);
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
+  const [dependencyConfirmTarget, setDependencyConfirmTarget] = useState<DevCacheCandidate | null>(null);
   const [isScanningCache, setIsScanningCache] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   const [cleanError, setCleanError] = useState<string | null>(null);
@@ -64,7 +67,7 @@ export function DevProjectToolsDialogs({ project, request, onRequestChange, onCl
     try {
       const next = await api.scanDevCache(project.id, path);
       setCandidates(next);
-      setSelectedCandidates(new Set(next.map((item) => item.id)));
+      setSelectedCandidates(new Set(next.filter((item) => !item.is_dependency).map((item) => item.id)));
     } catch (error) {
       setCleanError(error instanceof Error ? error.message : "Unable to scan development cache.");
     } finally {
@@ -101,6 +104,7 @@ export function DevProjectToolsDialogs({ project, request, onRequestChange, onCl
     setTypeError(null);
     try {
       const saved = await api.setFolderDevProjectTypes(project.id, path, [...selectedTypes]);
+      onTypesSaved?.();
       if (continueToClean && saved.length > 0) {
         setContinueToClean(false);
         onRequestChange({ mode: "clean", relativePath: path });
@@ -115,6 +119,24 @@ export function DevProjectToolsDialogs({ project, request, onRequestChange, onCl
     }
   };
 
+  const handleToggleCandidate = (item: DevCacheCandidate) => {
+    if (selectedCandidates.has(item.id)) {
+      setSelectedCandidates((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+    } else if (item.is_dependency) {
+      setDependencyConfirmTarget(item);
+    } else {
+      setSelectedCandidates((current) => {
+        const next = new Set(current);
+        next.add(item.id);
+        return next;
+      });
+    }
+  };
+
   const clean = async () => {
     if (selectedCandidates.size === 0) return;
     setIsCleaning(true);
@@ -125,7 +147,7 @@ export function DevProjectToolsDialogs({ project, request, onRequestChange, onCl
       onCleaned();
       const next = await api.scanDevCache(project.id, path);
       setCandidates(next);
-      setSelectedCandidates(new Set(next.map((item) => item.id)));
+      setSelectedCandidates(new Set(next.filter((item) => !item.is_dependency).map((item) => item.id)));
     } catch (error) {
       setCleanError(error instanceof Error ? error.message : "Unable to clean development cache.");
     } finally {
@@ -133,8 +155,20 @@ export function DevProjectToolsDialogs({ project, request, onRequestChange, onCl
     }
   };
 
+  const cacheCandidates = useMemo(() => {
+    return candidates
+      .filter((item) => !item.is_dependency)
+      .sort((a, b) => a.relative_path.localeCompare(b.relative_path));
+  }, [candidates]);
+
+  const dependencyCandidates = useMemo(() => {
+    return candidates
+      .filter((item) => item.is_dependency)
+      .sort((a, b) => a.relative_path.localeCompare(b.relative_path));
+  }, [candidates]);
+
   const selectedBytes = candidates.filter((item) => selectedCandidates.has(item.id)).reduce((total, item) => total + item.size_bytes, 0);
-  const close = () => { setContinueToClean(false); onRequestChange(null); };
+  const close = () => { setContinueToClean(false); setDependencyConfirmTarget(null); onRequestChange(null); };
 
   return (
     <>
@@ -155,17 +189,146 @@ export function DevProjectToolsDialogs({ project, request, onRequestChange, onCl
       <Dialog open={request?.mode === "clean"} onOpenChange={(open) => { if (!open) close(); }}>
         <DialogContent className="w-[min(680px,calc(100vw-20px))] overflow-hidden p-0">
           <div className="p-4">
-            <DialogHeader><DialogTitle>Clean Dev Cache</DialogTitle><DialogDescription>Select generated cache and build folders to remove from “{displayPath}”. Dependencies are never included.</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>Clean Dev Cache</DialogTitle><DialogDescription>Select generated cache, build, and installed dependency folders to remove from “{displayPath}”.</DialogDescription></DialogHeader>
             <div className="mb-3 flex items-center justify-between"><span className="text-[12px] text-muted-foreground">{selectedCandidates.size} selected · {formatBytes(selectedBytes)}</span><Button variant="secondary" onClick={() => void loadCache()} disabled={isScanningCache || isCleaning}><RefreshCw size={14} className={isScanningCache ? "animate-spin" : ""} />Rescan</Button></div>
             {cleanError ? <div className="mb-2 text-[12px] text-[var(--vscode-danger)]">{cleanError}</div> : null}
             {cleanResult ? <div className={`mb-2 rounded border px-3 py-2 text-[11px] ${cleanResult.failed_items.length ? "border-[var(--vscode-danger)]/40 text-[var(--vscode-danger)]" : "border-success/40 text-success"}`}>Freed {formatBytes(cleanResult.freed_bytes)}.{cleanResult.failed_items.length ? ` ${cleanResult.failed_items.length} item(s) could not be removed: ${cleanResult.failed_items.map((item) => `${item.relative_path || item.id}: ${item.error}`).join("; ")}` : ""}</div> : null}
             <div className="max-h-[52vh] overflow-y-auto rounded-[6px] border border-[var(--vscode-border)]">
-              {isScanningCache && candidates.length === 0 ? <div className="flex items-center justify-center gap-2 p-8 text-[12px] text-muted-foreground"><LoaderCircle size={15} className="animate-spin" />Scanning generated folders…</div> : candidates.length === 0 ? <div className="p-8 text-center text-[12px] text-muted-foreground">No generated cache or build folders found.</div> : candidates.map((item) => { const checked = selectedCandidates.has(item.id); return <button key={item.id} type="button" onClick={() => setSelectedCandidates((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} className="flex w-full items-center gap-3 border-b border-[var(--vscode-border)] px-3 py-2 text-left last:border-b-0 hover:bg-[var(--vscode-list-hover)]"><span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? "border-primary bg-primary text-primary-foreground" : "border-[var(--vscode-border)]"}`}>{checked ? <Check size={12} /> : null}</span><span className="min-w-0 flex-1"><span className="block truncate font-mono text-[11px] text-foreground">{item.relative_path}</span><span className="block text-[10px] text-muted-foreground">{item.project_type_ids.join(", ")}</span></span><span className="shrink-0 text-right text-[11px] text-muted-foreground">{formatBytes(item.size_bytes)}<span className="block text-[10px]">{item.file_count.toLocaleString()} files</span></span></button>; })}
+              {isScanningCache && candidates.length === 0 ? (
+                <div className="flex items-center justify-center gap-2 p-8 text-[12px] text-muted-foreground">
+                  <LoaderCircle size={15} className="animate-spin" />
+                  Scanning development folders…
+                </div>
+              ) : candidates.length === 0 ? (
+                <div className="p-8 text-center text-[12px] text-muted-foreground">
+                  No cache, build, or dependency folders found.
+                </div>
+              ) : (
+                <>
+                  {cacheCandidates.length > 0 && dependencyCandidates.length > 0 ? (
+                    <div className="sticky top-0 z-10 border-b border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      Generated Cache & Build ({cacheCandidates.length})
+                    </div>
+                  ) : null}
+                  {cacheCandidates.map((item) => {
+                    const checked = selectedCandidates.has(item.id);
+                    const segments = item.relative_path.split("/");
+                    const itemName = segments[segments.length - 1];
+                    const parentPath = segments.slice(0, -1).join("/");
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => handleToggleCandidate(item)}
+                        className="flex w-full items-center gap-3 border-b border-[var(--vscode-border)] px-3 py-2 text-left last:border-b-0 hover:bg-[var(--vscode-list-hover)]"
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            checked
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-[var(--vscode-border)]"
+                          }`}
+                        >
+                          {checked ? <Check size={12} /> : null}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1.5 truncate font-mono text-[11px] text-foreground">
+                            <span className="truncate">
+                              {parentPath ? (
+                                <span className="text-muted-foreground">{parentPath}/</span>
+                              ) : null}
+                              <span className="font-semibold">{itemName}</span>
+                            </span>
+                          </span>
+                          <span className="block text-[10px] text-muted-foreground">
+                            {item.project_type_ids.join(", ")}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-right text-[11px] text-muted-foreground">
+                          {formatBytes(item.size_bytes)}
+                          <span className="block text-[10px]">{item.file_count.toLocaleString()} files</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+
+                  {dependencyCandidates.length > 0 ? (
+                    <>
+                      {cacheCandidates.length > 0 ? (
+                        <div className="sticky top-0 z-10 flex items-center gap-1.5 border-y border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-danger)]">
+                          <AlertTriangle size={12} className="shrink-0" />
+                          <span>Installed Dependencies ({dependencyCandidates.length})</span>
+                        </div>
+                      ) : null}
+                      {dependencyCandidates.map((item) => {
+                        const checked = selectedCandidates.has(item.id);
+                        const segments = item.relative_path.split("/");
+                        const itemName = segments[segments.length - 1];
+                        const parentPath = segments.slice(0, -1).join("/");
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => handleToggleCandidate(item)}
+                            className="flex w-full items-center gap-3 border-b border-[var(--vscode-border)] px-3 py-2 text-left last:border-b-0 hover:bg-[var(--vscode-list-hover)]"
+                          >
+                            <span
+                              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                checked
+                                  ? "border-[var(--vscode-danger)] bg-[var(--vscode-danger)] text-white"
+                                  : "border-[var(--vscode-danger)]/50"
+                              }`}
+                            >
+                              {checked ? <Check size={12} /> : null}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-1.5 truncate font-mono text-[11px] text-foreground">
+                                <AlertTriangle size={13} className="shrink-0 text-[var(--vscode-danger)]" />
+                                <span className="truncate">
+                                  {parentPath ? (
+                                    <span className="text-muted-foreground">{parentPath}/</span>
+                                  ) : null}
+                                  <span className="font-semibold">{itemName}</span>
+                                </span>
+                                <span className="rounded bg-[var(--vscode-danger)]/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--vscode-danger)]">
+                                  Dependencies
+                                </span>
+                              </span>
+                              <span className="block text-[10px] text-muted-foreground">
+                                Installed packages / environment · {item.project_type_ids.join(", ")}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-right text-[11px] text-muted-foreground">
+                              {formatBytes(item.size_bytes)}
+                              <span className="block text-[10px]">{item.file_count.toLocaleString()} files</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
           <div className="flex justify-end gap-2 border-t border-[var(--vscode-border)] bg-[var(--vscode-editor)] px-4 py-3"><Button variant="ghost" onClick={close}>Close</Button><Button variant="danger" onClick={() => void clean()} disabled={isCleaning || selectedCandidates.size === 0}><Trash2 size={14} />{isCleaning ? "Cleaning…" : "Clean"}{isCleaning ? <LoaderCircle size={14} className="animate-spin" /> : null}</Button></div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={dependencyConfirmTarget !== null}
+        onOpenChange={(open) => { if (!open) setDependencyConfirmTarget(null); }}
+        title="Select installed dependency directory?"
+        description={`“${dependencyConfirmTarget?.relative_path ?? ""}” contains installed packages or virtual environment. If deleted, you will need to re-install dependencies before running your project again.\n\nAre you sure you want to select it for deletion?`}
+        confirmLabel="Select for deletion"
+        cancelLabel="Cancel"
+        onConfirm={() => {
+          if (dependencyConfirmTarget) {
+            setSelectedCandidates((current) => new Set(current).add(dependencyConfirmTarget.id));
+            setDependencyConfirmTarget(null);
+          }
+        }}
+      />
     </>
   );
 }

@@ -77,6 +77,7 @@ import type { UpdateStatus } from "../hooks/use-app-updater";
 import type { FlowRunState } from "../hooks/use-flow-runtime";
 import { ConfirmDialog } from "./process-dialogs";
 import { DevProjectToolsDialogs, type DevProjectToolsRequest } from "./dev-project-tools-dialogs";
+import { QuickAccessAddDialog, type QuickAccessEntry } from "./quick-access-dialog";
 import { VscFile, VscFileCode, VscFileMedia, VscFilePdf, VscFileZip, VscJson, VscMarkdown } from "react-icons/vsc";
 
 type SidebarView = "explorer" | "flows" | "notes" | "terminal" | "settings";
@@ -114,7 +115,6 @@ const EDITOR_MIN_SIZE = "30%";
 const FILE_EXPLORER_SIDEBAR_KEY = "vscodeFileExplorerSidebar";
 const FILE_EXPLORER_PREFERENCES_KEY = "vscodeFileExplorerPreferences";
 
-type QuickAccessEntry = { projectId: number; relativePath: string; name: string; isDirectory: boolean };
 type FileExplorerPreferences = { quickAccess: QuickAccessEntry[]; detailsCollapsed: boolean; quickAccessCollapsed: boolean; detailsExpandedSize: number; quickAccessExpandedSize: number; showSizeBars: boolean; panelLayout: Layout };
 const DEFAULT_FILE_EXPLORER_PREFERENCES: FileExplorerPreferences = { quickAccess: [], detailsCollapsed: false, quickAccessCollapsed: false, detailsExpandedSize: 25, quickAccessExpandedSize: 23, showSizeBars: false, panelLayout: { "file-tree": 52, "file-details": 25, "quick-access": 23 } };
 
@@ -1022,6 +1022,7 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
   const [rootMenu, setRootMenu] = useState<{ x: number; y: number } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<import("../lib/api").ProjectFileEntry | null>(null);
   const [missingQuickAccessEntry, setMissingQuickAccessEntry] = useState<QuickAccessEntry | null>(null);
+  const [isAddQuickAccessOpen, setIsAddQuickAccessOpen] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [preferences, setPreferences] = useState<FileExplorerPreferences>(() => readFileExplorerPreferences());
   const [discoveredMaxSize, setDiscoveredMaxSize] = useState(1);
@@ -1056,6 +1057,39 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
     queryFn: () => api.getProjectFileInfo(project!.id, selectedPath ?? ""),
     enabled: Boolean(project && selectedPath !== null),
   });
+  const selectedInfo = selectedInfoQuery.data ?? null;
+  const selectedInfoError = selectedInfoQuery.error instanceof Error ? selectedInfoQuery.error.message : selectedInfoQuery.error ? "Unable to load file details." : null;
+
+  const devProjectTypesCatalogQuery = useQuery({
+    queryKey: ["dev-project-types-catalog"],
+    queryFn: () => api.listDevProjectTypes(),
+    staleTime: Infinity,
+  });
+
+  const selectedDevPath = selectedInfo ? (selectedInfo.is_directory ? (selectedPath ?? "") : ((selectedPath ?? "").split("/").slice(0, -1).join("/"))) : null;
+
+  const folderDevTypesQuery = useQuery({
+    queryKey: ["folder-dev-project-types", project?.id, selectedDevPath, refreshVersion],
+    queryFn: async () => {
+      if (!project || selectedDevPath === null) return [];
+      const [stored, detected] = await Promise.all([
+        api.getFolderDevProjectTypes(project.id, selectedDevPath),
+        api.scanDevProjectTypes(project.id, selectedDevPath),
+      ]);
+      return stored.length > 0 ? stored : detected.detected_type_ids;
+    },
+    enabled: Boolean(project && selectedInfo !== null && selectedDevPath !== null),
+    staleTime: 30_000,
+  });
+
+  const devTypeNames = useMemo(() => {
+    const typeIds = folderDevTypesQuery.data ?? [];
+    const catalog = devProjectTypesCatalogQuery.data ?? [];
+    if (typeIds.length === 0) return null;
+    const map = new Map(catalog.map((item) => [item.id, item.label]));
+    return typeIds.map((id) => map.get(id) || id).join(", ");
+  }, [folderDevTypesQuery.data, devProjectTypesCatalogQuery.data]);
+
   const invalidate = async () => {
     setRefreshVersion((current) => current + 1);
     if (!project) return;
@@ -1069,9 +1103,10 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
     }
     await queryClient.invalidateQueries({ queryKey: ["project-file-info", project.id] });
     await queryClient.invalidateQueries({ queryKey: ["project-folder-size", project.id] });
+    await queryClient.invalidateQueries({ queryKey: ["folder-dev-project-types", project.id] });
   };
   const run = (operation: Promise<unknown>) => void operation.then(invalidate).catch((value: unknown) => setError(value instanceof Error ? value.message : "File operation failed."));
-  useEffect(() => { setError(null); setClipboard(null); setSelectedPath(null); setSelectedQuickAccessPath(null); setMissingQuickAccessEntry(null); setExpandedPaths(new Set()); setDevProjectToolsRequest(null); quickAccessValidationRequest.current += 1; }, [project?.id]);
+  useEffect(() => { setError(null); setClipboard(null); setSelectedPath(null); setSelectedQuickAccessPath(null); setMissingQuickAccessEntry(null); setIsAddQuickAccessOpen(false); setExpandedPaths(new Set()); setDevProjectToolsRequest(null); quickAccessValidationRequest.current += 1; }, [project?.id]);
   useEffect(() => { localStorage.setItem(FILE_EXPLORER_PREFERENCES_KEY, JSON.stringify(preferences)); }, [preferences]);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -1097,8 +1132,6 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
     return () => window.cancelAnimationFrame(frame);
   }, [preferences.detailsCollapsed, preferences.detailsExpandedSize, preferences.quickAccessCollapsed, preferences.quickAccessExpandedSize]);
   if (!project) return <div className="p-4 text-[12px] text-[var(--vscode-foreground)]/60">Select a project to browse its files.</div>;
-  const selectedInfo = selectedInfoQuery.data ?? null;
-  const selectedInfoError = selectedInfoQuery.error instanceof Error ? selectedInfoQuery.error.message : selectedInfoQuery.error ? "Unable to load file details." : null;
   const selectEntry = (entry: import("../lib/api").ProjectFileEntry) => {
     setSelectedPath(entry.relative_path);
     setSelectedQuickAccessPath(null);
@@ -1126,6 +1159,17 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
     const exists = current.quickAccess.some((item) => item.projectId === project.id && item.relativePath === entry.relative_path);
     return { ...current, quickAccess: exists ? current.quickAccess.filter((item) => item.projectId !== project.id || item.relativePath !== entry.relative_path) : [...current.quickAccess, { projectId: project.id, relativePath: entry.relative_path, name: entry.name, isDirectory: entry.is_directory }] };
   });
+  const addQuickAccess = (entry: QuickAccessEntry) => {
+    setPreferences((current) => {
+      const exists = current.quickAccess.some((item) => item.projectId === project.id && item.relativePath === entry.relativePath);
+      if (exists) return current;
+      return {
+        ...current,
+        quickAccessCollapsed: false,
+        quickAccess: [...current.quickAccess, entry],
+      };
+    });
+  };
   const removeQuickAccess = (relativePath: string, includeChildren = false) => {
     setPreferences((current) => ({
       ...current,
@@ -1180,20 +1224,34 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
         <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
         <Panel id="file-details" defaultSize="25%" minSize="18%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.detailsCollapsed || Math.abs(current.detailsExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, detailsExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.detailsCollapsed ? { overflow: "hidden" } : undefined}>
           <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55"><span>Details</span><button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleDetailsPanel} aria-label="Toggle details"><ChevronDown size={14} className={cn(preferences.detailsCollapsed && "-rotate-90")} /></button></div>
-          {!preferences.detailsCollapsed ? <div className="overflow-y-auto px-3 pb-3">{selectedInfoQuery.isPending ? <div className="flex items-center gap-2 text-[11px] text-[var(--vscode-foreground)]/55"><LoaderCircle size={12} className="animate-spin" />Loading details…</div> : selectedInfoError ? <div className="text-[11px] text-[var(--vscode-danger)]">{selectedInfoError}</div> : selectedInfo ? <div className="grid gap-1.5 text-[11px] text-[var(--vscode-foreground)]/72"><div className="flex items-center gap-2 truncate font-medium text-foreground"><ProjectFileIcon name={selectedInfo.name} isDirectory={selectedInfo.is_directory} />{selectedInfo.name || project.name}</div><FileDetailRow icon={selectedInfo.file_kind === "folder" ? <Folder size={13} /> : <FileText size={13} />}>{selectedInfo.file_kind === "folder" ? "Folder" : `${selectedInfo.file_kind === "text" ? "Text" : "Binary"} file`}</FileDetailRow><FileDetailRow icon={<HardDrive size={13} />}>Size: {formatFileSize(selectedInfo.size_bytes)} ({selectedInfo.size_bytes.toLocaleString()} bytes)</FileDetailRow>{selectedInfo.file_kind === "folder" ? <FileDetailRow icon={<Folder size={13} />}>{selectedInfo.child_folder_count.toLocaleString()} folders · {selectedInfo.child_file_count.toLocaleString()} files</FileDetailRow> : null}{selectedInfo.line_count !== null ? <FileDetailRow icon={<List size={13} />}>Lines: {selectedInfo.line_count.toLocaleString()}</FileDetailRow> : null}<FileDetailRow icon={<CalendarDays size={13} />}>Created: {selectedInfo.created_at ? formatDateTime(selectedInfo.created_at) : "—"}</FileDetailRow><FileDetailRow icon={<CalendarDays size={13} />}>Modified: {selectedInfo.modified_at ? formatDateTime(selectedInfo.modified_at) : "—"}</FileDetailRow></div> : <div className="text-[11px] text-[var(--vscode-foreground)]/55">Select a file or folder.</div>}</div> : null}
+          {!preferences.detailsCollapsed ? <div className="overflow-y-auto px-3 pb-3">{selectedInfoQuery.isPending ? <div className="flex items-center gap-2 text-[11px] text-[var(--vscode-foreground)]/55"><LoaderCircle size={12} className="animate-spin" />Loading details…</div> : selectedInfoError ? <div className="text-[11px] text-[var(--vscode-danger)]">{selectedInfoError}</div> : selectedInfo ? <div className="grid gap-1.5 text-[11px] text-[var(--vscode-foreground)]/72"><div className="flex items-center gap-2 truncate font-medium text-foreground"><ProjectFileIcon name={selectedInfo.name} isDirectory={selectedInfo.is_directory} />{selectedInfo.name || project.name}</div><FileDetailRow icon={selectedInfo.file_kind === "folder" ? <Folder size={13} /> : <FileText size={13} />}>{selectedInfo.file_kind === "folder" ? "Folder" : `${selectedInfo.file_kind === "text" ? "Text" : "Binary"} file`}</FileDetailRow><FileDetailRow icon={<HardDrive size={13} />}>Size: {formatFileSize(selectedInfo.size_bytes)} ({selectedInfo.size_bytes.toLocaleString()} bytes)</FileDetailRow>{selectedInfo.file_kind === "folder" ? <FileDetailRow icon={<Folder size={13} />}>{selectedInfo.child_folder_count.toLocaleString()} folders · {selectedInfo.child_file_count.toLocaleString()} files</FileDetailRow> : null}{selectedInfo.line_count !== null ? <FileDetailRow icon={<List size={13} />}>Lines: {selectedInfo.line_count.toLocaleString()}</FileDetailRow> : null}<FileDetailRow icon={<Blocks size={13} />}>Dev types: {devTypeNames ?? (folderDevTypesQuery.isLoading ? "Loading…" : "None")}</FileDetailRow><FileDetailRow icon={<CalendarDays size={13} />}>Created: {selectedInfo.created_at ? formatDateTime(selectedInfo.created_at) : "—"}</FileDetailRow><FileDetailRow icon={<CalendarDays size={13} />}>Modified: {selectedInfo.modified_at ? formatDateTime(selectedInfo.modified_at) : "—"}</FileDetailRow></div> : <div className="text-[11px] text-[var(--vscode-foreground)]/55">Select a file or folder.</div>}</div> : null}
         </Panel>
         <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
         <Panel id="quick-access" defaultSize="23%" minSize="14%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.quickAccessCollapsed || Math.abs(current.quickAccessExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, quickAccessExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.quickAccessCollapsed ? { overflow: "hidden" } : undefined}>
-          <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55"><span>Quick Access</span><button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleQuickAccessPanel} aria-label="Toggle quick access"><ChevronDown size={14} className={cn(preferences.quickAccessCollapsed && "-rotate-90")} /></button></div>
+          <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55">
+            <span>Quick Access</span>
+            <div className="flex items-center gap-0.5">
+              <Tooltip content="Pin item by path">
+                <button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => setIsAddQuickAccessOpen(true)} aria-label="Pin item by path">
+                  <Plus size={14} />
+                </button>
+              </Tooltip>
+              <button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleQuickAccessPanel} aria-label="Toggle quick access">
+                <ChevronDown size={14} className={cn(preferences.quickAccessCollapsed && "-rotate-90")} />
+              </button>
+            </div>
+          </div>
           {!preferences.quickAccessCollapsed ? <div className="overflow-y-auto px-2 pb-2">{quickAccess.length === 0 ? <div className="px-1 py-1 text-[11px] text-[var(--vscode-foreground)]/55">Pin a file or folder to open it quickly.</div> : quickAccess.map((entry) => <TreeItem key={entry.relativePath} title={entry.name} active={selectedQuickAccessPath === entry.relativePath} icon={<ProjectFileIcon name={entry.name} isDirectory={entry.isDirectory} />} onClick={() => selectQuickAccess(entry)} onDoubleClick={() => { void api.openProjectFile(project.id, entry.relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to open Quick Access item.")); }} menuItems={[{ label: "Remove from Quick Access", icon: <PinOff size={13} />, onSelect: () => removeQuickAccess(entry.relativePath), tone: "danger" }]} />)}</div> : null}
         </Panel>
       </Group>
       <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }} title="Delete file or folder" description={`Delete “${deleteTarget?.name ?? ""}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (deleteTarget) deleteEntry(deleteTarget); setDeleteTarget(null); }} />
       <ConfirmDialog open={missingQuickAccessEntry !== null} onOpenChange={(open) => { if (!open) setMissingQuickAccessEntry(null); }} title="Quick Access item is unavailable" description={`“${missingQuickAccessEntry?.name ?? ""}” no longer exists in this project. Remove it from Quick Access?`} confirmLabel="Remove" onConfirm={() => { if (missingQuickAccessEntry) { removeQuickAccess(missingQuickAccessEntry.relativePath); if (selectedPath === missingQuickAccessEntry.relativePath) setSelectedPath(null); } setMissingQuickAccessEntry(null); }} />
+      <QuickAccessAddDialog open={isAddQuickAccessOpen} project={project} existingPaths={pinnedPaths} onOpenChange={setIsAddQuickAccessOpen} onAdd={addQuickAccess} />
       {rootMenu ? <TabContextMenu x={rootMenu.x} y={rootMenu.y} onClose={() => setRootMenu(null)} items={[{ label: "Set Dev Project Type…", icon: <Blocks size={13} />, onSelect: () => setDevProjectToolsRequest({ mode: "types", relativePath: "" }) }, { label: "Clean Dev Cache…", icon: <WandSparkles size={13} />, onSelect: () => setDevProjectToolsRequest({ mode: "clean", relativePath: "" }) }]} /> : null}
-      <DevProjectToolsDialogs project={project} request={devProjectToolsRequest} onRequestChange={setDevProjectToolsRequest} onCleaned={() => void invalidate()} />
+      <DevProjectToolsDialogs project={project} request={devProjectToolsRequest} onRequestChange={setDevProjectToolsRequest} onCleaned={() => void invalidate()} onTypesSaved={() => void invalidate()} />
     </div>
   </FileExplorerSizeContext.Provider>;
+
 }
 
 const SYNTAX_KEYWORDS = new Set([
