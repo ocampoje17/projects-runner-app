@@ -136,6 +136,7 @@ export function useCommandRuntime({
   const [openLogCommandIds, setOpenLogCommandIds] = useState<number[]>([]);
   const [activeLogCommandId, setActiveLogCommandId] = useState<number | null>(null);
   const [stoppingRunIds, setStoppingRunIds] = useState<Set<number>>(new Set());
+  const [stoppingCommandIds, setStoppingCommandIds] = useState<Set<number>>(new Set());
   const [restartPendingCommandIds, setRestartPendingCommandIds] = useState<number[]>([]);
   const [scanningCommandId, setScanningCommandId] = useState<number | null>(null);
   const [killPortsCommand, setKillPortsCommand] = useState<ProjectCommand | null>(null);
@@ -319,6 +320,7 @@ export function useCommandRuntime({
           ...current,
           [terminalId]: event.payload,
         }));
+        setRuns((current) => ({ ...current, [terminalId]: { runId: event.payload.run_id, commandId: event.payload.command_id, status: "running", startedAt: event.payload.started_at } }));
         interactiveSizesByCommandIdRef.current = {
           ...interactiveSizesByCommandIdRef.current,
           [terminalId]: effectiveSize,
@@ -365,6 +367,8 @@ export function useCommandRuntime({
           delete next[terminalId];
           return next;
         });
+        setStoppingCommandIds((current) => { const next = new Set(current); next.delete(terminalId); return next; });
+        setRuns((current) => ({ ...current, [terminalId]: { runId: event.payload.run_id, commandId: event.payload.command_id, status: event.payload.status === "failed" ? "failed" : event.payload.status === "exited" ? "exited" : "stopped", startedAt: current[terminalId]?.startedAt ?? event.payload.ended_at, endedAt: event.payload.ended_at, exitCode: event.payload.exit_code } }));
       }),
       listen<InteractiveSessionErrorPayload>("pty://error", (event) => {
         if (stoppingInteractiveSessionIdsRef.current.has(event.payload.session_id)) {
@@ -561,19 +565,23 @@ export function useCommandRuntime({
   }
 
   const stopInteractiveSession = useCallback(async (session: InteractiveSession) => {
+    const terminalId = terminalIdForEvent(session.command_id, session.run_id, session.flow_node_id);
     const stoppingSessionIds = stoppingInteractiveSessionIdsRef.current;
     if (stoppingSessionIds.has(session.session_id)) {
       return;
     }
 
     stoppingSessionIds.add(session.session_id);
+    setStoppingCommandIds((current) => new Set(current).add(terminalId));
     try {
       const result = await api.stopInteractiveCommand(session.session_id);
       if (!result.was_active) {
         stoppingSessionIds.delete(session.session_id);
+        setStoppingCommandIds((current) => { const next = new Set(current); next.delete(terminalId); return next; });
       }
     } catch (error) {
       stoppingSessionIds.delete(session.session_id);
+      setStoppingCommandIds((current) => { const next = new Set(current); next.delete(terminalId); return next; });
       throw error;
     }
   }, []);
@@ -617,21 +625,7 @@ export function useCommandRuntime({
     }));
   }
 
-  const closeLogTabNow = useCallback((commandId: number, reportStopError = true) => {
-    const interactiveSession = interactiveSessionsByCommandId[commandId];
-    let interactiveStop: Promise<void> | null = null;
-    if (interactiveSession) {
-      interactiveStop = stopInteractiveSession(interactiveSession);
-      if (reportStopError) {
-        void interactiveStop.catch(onErrorRef.current);
-      }
-    } else {
-      const run = runs[commandId];
-      if (run && run.status === "running" && !stoppingRunIds.has(run.runId)) {
-        stopMutation.mutate(run.runId);
-      }
-    }
-
+  const closeLogTabNow = useCallback((commandId: number) => {
     let nextActiveLogCommandId: number | null = null;
     setOpenLogCommandIds((current) => {
       const remaining = current.filter((id) => id !== commandId);
@@ -656,13 +650,12 @@ export function useCommandRuntime({
     setFlowExecutionCommands((current) => current.filter((command) => command.id !== commandId));
     setActiveLogCommandId((current) => (current === commandId ? nextActiveLogCommandId : current));
     removeRegisteredTerminal(commandId);
-    return interactiveStop ?? Promise.resolve();
-  }, [interactiveSessionsByCommandId, runs, stopInteractiveSession, stopMutation, stoppingRunIds]);
+  }, []);
 
   const closeLogTabsNow = useCallback(async (commandIds: number[]) => {
     const uniqueCommandIds = [...new Set(commandIds)];
     const results = await Promise.allSettled(
-      uniqueCommandIds.map((commandId) => closeLogTabNow(commandId, false)),
+      uniqueCommandIds.map(async (commandId) => closeLogTabNow(commandId)),
     );
     const failures = results.filter((result) => result.status === "rejected");
     if (failures.length > 0) {
@@ -768,6 +761,7 @@ export function useCommandRuntime({
     activeLogCommandId,
     setActiveLogCommandId,
     stoppingRunIds,
+    stoppingCommandIds,
     restartPendingCommandIds,
     scanningCommandId,
     killPortsCommand,

@@ -33,6 +33,7 @@ import { useAppUpdater } from "./hooks/use-app-updater";
 import { buildTitlebarSearchCollections, type TitlebarSearchItem } from "./lib/titlebar-search";
 import { MotionLevelProvider } from "./lib/motion";
 import { getTerminalController } from "./lib/terminal-registry";
+import { partitionTerminalIds, terminalCloseAction } from "./lib/terminal-tabs";
 import appIcon from "./assets/app-icon.png";
 import { UpdateDialog } from "./components/update-dialog";
 
@@ -798,9 +799,12 @@ function App() {
     terminalContentByCommandId,
     adHocInteractiveCommands,
     flowExecutionCommands,
+    interactiveSessionsByCommandId,
     openLogCommandIds,
     activeLogCommandId,
     setActiveLogCommandId,
+    stoppingRunIds,
+    stoppingCommandIds,
     killPortsCommand,
     portProcesses,
     killPortsDialogOpen,
@@ -936,20 +940,26 @@ function App() {
     const command = allCommandsWithAdHocTerminals.find((c) => c.id === commandId);
     const cmdName = command ? ` "${command.name}"` : "";
     const run = runs[commandId];
-    const isRunning = run && run.status === "running";
+    const isRunning = run?.status === "running" || Boolean(interactiveSessionsByCommandId[commandId]);
+    const isStopping = stoppingCommandIds.has(commandId) || Boolean(run && stoppingRunIds.has(run.runId));
     const closesInteractiveSession = command?.runtime_mode === "internal_interactive";
+
+    const closeAction = terminalCloseAction(isRunning, isStopping);
+    if (closeAction === "ignore") return;
+    if (closeAction === "close") {
+      closeLogTabNow(commandId);
+      return;
+    }
 
     setConfirmDialog({
       isOpen: true,
-      title: "Close Terminal Tab",
-      description: isRunning
-        ? `Are you sure you want to close the terminal tab${cmdName}? This will stop the running ${closesInteractiveSession ? "interactive session" : "process"}.`
-        : `Are you sure you want to close the terminal tab${cmdName}?`,
-      confirmLabel: "Close Tab",
+      title: "Stop Terminal",
+      description: `Stop the running ${closesInteractiveSession ? "interactive session" : "process"}${cmdName}? The terminal tab and its output will remain open.`,
+      confirmLabel: "Stop Terminal",
       cancelLabel: "Cancel",
       isDestructive: isRunning,
       onConfirm: () => {
-        closeLogTabNow(commandId);
+        stopCommandByCommandId(commandId);
       },
     });
   };
@@ -1047,18 +1057,17 @@ function App() {
       return;
     }
 
+    const { runningIds, idleIds } = partitionTerminalIds(commandIds, (id) => runs[id]?.status === "running" || Boolean(interactiveSessionsByCommandId[id]));
     setConfirmDialog({
       isOpen: true,
       title: "Close All Terminal Tabs",
-      description:
-        closeCount === 1
-          ? "Are you sure you want to close the only open terminal tab?"
-          : `Are you sure you want to close all ${closeCount} open terminal tabs?`,
+      description: `${idleIds.length} idle terminal tab${idleIds.length === 1 ? "" : "s"} will close and ${runningIds.length} running terminal${runningIds.length === 1 ? "" : "s"} will stop but remain open.`,
       confirmLabel: "Close All",
       cancelLabel: "Cancel",
       isDestructive: true,
       onConfirm: () => {
-        void closeLogTabsNow(commandIds);
+        void closeLogTabsNow(idleIds);
+        runningIds.forEach((id) => stopCommandByCommandId(id));
       },
     });
   }
@@ -1121,6 +1130,8 @@ function App() {
             }}
             isSavingNotes={projectNotesMutation.isPending}
             runs={runs}
+            stoppingRunIds={stoppingRunIds}
+            stoppingCommandIds={stoppingCommandIds}
             terminalContentByCommandId={terminalContentByCommandId}
             openLogCommandIds={openLogCommandIds}
             activeLogCommandId={activeLogCommandId}

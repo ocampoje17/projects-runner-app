@@ -12,6 +12,7 @@ import { interactiveTerminalLabel } from "../lib/interactive-terminal";
 import { BrushCleaning, ChevronDown, FolderOpen, Keyboard, Loader2, Maximize2, Minimize2, Pencil, Play, Plus, PowerOff, RotateCcw, Square, Terminal, Trash2, X } from "lucide-react";
 import { useMotionPreferences } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { orderOpenedItems } from "@/lib/terminal-tabs";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 export type RunState = {
@@ -261,6 +262,8 @@ export function LogPanel({
   onRequestCloseAllTabs,
   interactiveTerminalOptions,
   runs,
+  stoppingRunIds,
+  stoppingCommandIds,
   terminalContentByCommandId,
   terminalFontFamily,
   terminalFontSize,
@@ -279,12 +282,15 @@ export function LogPanel({
   onRequestCloseAllTabs: (commandIds: number[]) => void;
   interactiveTerminalOptions: InteractiveTerminalOption[];
   runs: Record<number, RunState>;
+  stoppingRunIds: Set<number>;
+  stoppingCommandIds: Set<number>;
   terminalContentByCommandId: Record<number, string>;
   terminalFontFamily: string;
   terminalFontSize: string;
   theme: "light" | "dark";
 }) {
   const terminalRef = useRef<HTMLDivElement | null>(null);
+  const terminalWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const terminalFilterTriggerRef = useRef<HTMLDivElement | null>(null);
   const terminalFilterMenuRef = useRef<HTMLDivElement | null>(null);
   const interactiveTerminalTriggerRef = useRef<HTMLDivElement | null>(null);
@@ -309,6 +315,10 @@ export function LogPanel({
     return 350;
   });
   const [isResizing, setIsResizing] = useState(false);
+  const [terminalListWidth, setTerminalListWidth] = useState(() => {
+    const saved = Number.parseInt(localStorage.getItem("terminalListWidth") ?? "", 10);
+    return Number.isFinite(saved) ? Math.max(180, Math.min(520, saved)) : 240;
+  });
   const [isCollapsed, setIsCollapsed] = useState(() => {
     const saved = localStorage.getItem("logPanelCollapsed");
     // Default to minimized; expand only when user restores or a terminal tab opens.
@@ -328,6 +338,8 @@ export function LogPanel({
   useEffect(() => {
     localStorage.setItem("logPanelCollapsed", String(isCollapsed));
   }, [isCollapsed]);
+
+  useEffect(() => { localStorage.setItem("terminalListWidth", String(terminalListWidth)); }, [terminalListWidth]);
 
   useEffect(() => {
     if (!isCollapsed) {
@@ -475,11 +487,23 @@ export function LogPanel({
   };
 
   const visibleCommands = useMemo(() => {
-    const openCommandIdSet = new Set(openCommandIds);
-    return commands.filter(
-      (command) => openCommandIdSet.has(command.id) || Boolean(terminalContentByCommandId[command.id]) || runs[command.id],
-    );
-  }, [commands, openCommandIds, runs, terminalContentByCommandId]);
+    return orderOpenedItems(commands, openCommandIds);
+  }, [commands, openCommandIds]);
+
+  const clampTerminalListWidth = useCallback((width: number) => {
+    const workspaceWidth = terminalWorkspaceRef.current?.clientWidth ?? window.innerWidth;
+    return Math.max(180, Math.min(520, workspaceWidth - 320, width));
+  }, []);
+
+  const startTerminalListResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = terminalListWidth;
+    const move = (pointerEvent: PointerEvent) => setTerminalListWidth(clampTerminalListWidth(startWidth - (pointerEvent.clientX - startX)));
+    const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
 
   const filteredVisibleCommands = useMemo(
     () => visibleCommands.filter((command) => matchesTerminalFilter(command, terminalFilter)),
@@ -799,7 +823,7 @@ export function LogPanel({
 
           {!isCollapsed && selectedCommand ? (
             activePanelView === "terminal" ? (
-              <div className="terminal-workspace grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_240px] overflow-hidden bg-[var(--terminal-bg)]">
+              <div ref={terminalWorkspaceRef} className="terminal-workspace grid min-h-0 flex-1 overflow-hidden bg-[var(--terminal-bg)]" style={{ gridTemplateColumns: `minmax(320px,1fr) 5px ${terminalListWidth}px` }}>
                 <div className="terminal-workspace-screen relative flex min-h-0 min-w-0 flex-1 border-r border-[var(--vscode-border)] bg-[var(--terminal-bg)]" ref={terminalRef}>
                   {filteredVisibleCommands.map((command) => {
                     const isActive = selectedCommandId === command.id;
@@ -832,6 +856,8 @@ export function LogPanel({
                   })}
                 </div>
 
+                <div role="separator" tabIndex={0} aria-label="Resize terminal title list" aria-orientation="vertical" aria-valuemin={180} aria-valuemax={520} aria-valuenow={terminalListWidth} onPointerDown={startTerminalListResize} onDoubleClick={() => setTerminalListWidth(240)} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setTerminalListWidth((current) => clampTerminalListWidth(current + (event.key === "ArrowLeft" ? 16 : -16))); } }} className="cursor-col-resize bg-[var(--vscode-border)] outline-none transition-colors hover:bg-primary focus:bg-primary" title="Drag to resize, double click to reset" />
+
                 <div className="terminal-workspace-tabs flex min-h-0 min-w-0 flex-col overflow-hidden border-l-0 bg-[var(--vscode-panel)]">
                   <div className="terminal-workspace-tab-list flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--vscode-panel)] py-0.5">
                     {filteredVisibleCommands.map((command) => {
@@ -839,6 +865,8 @@ export function LogPanel({
                       const project = projects.find((item) => item.id === command.project_id);
                       const tabLabel = `${command.name} [${project?.name ?? "Unknown project"}]`;
                       const tooltipLabel = `${tabLabel} | ${terminalFilterLabel(command.runtime_mode as TerminalFilter)}`;
+                      const run = runs[command.id];
+                      const isStopping = stoppingCommandIds.has(command.id) || Boolean(run && stoppingRunIds.has(run.runId));
 
                       return (
                         <Tooltip key={command.id} content={tooltipLabel} side="left" wrapperClassName="block">
@@ -874,6 +902,7 @@ export function LogPanel({
                                 event.stopPropagation();
                                 onCloseTab(command.id);
                               }}
+                              disabled={isStopping}
                               aria-label={`Close ${command.name} log tab`}
                             >
                               <X size={12} />

@@ -274,6 +274,11 @@ export type ProjectFileEntry = {
 
 export type ProjectFilePage = { entries: ProjectFileEntry[]; has_more: boolean };
 export type ProjectFileContent = { file_kind: "text" | "image"; content: string | null; data_url: string | null };
+export type DevProjectType = { id: string; label: string; category: string; description: string };
+export type DevProjectTypeScan = { detected_type_ids: string[]; evidence: Record<string, string[]> };
+export type DevCacheCandidate = { id: string; relative_path: string; size_bytes: number; file_count: number; project_type_ids: string[] };
+export type DevCacheCleanFailure = { id: string; relative_path: string; error: string };
+export type DevCacheCleanResult = { deleted_ids: string[]; failed_items: DevCacheCleanFailure[]; freed_bytes: number };
 export type FlowGraphInput = {
   name: string;
   nodes: Array<Pick<FlowNode, "id" | "command_id" | "position_x" | "position_y">>;
@@ -508,6 +513,17 @@ export const api = {
     invokeDesktop<ProjectFileEntry>("get_project_file_info", { projectId, relativePath }),
   projectFileExists: (projectId: number, relativePath: string) =>
     invokeDesktop<boolean>("project_file_exists", { projectId, relativePath }),
+  listDevProjectTypes: () => invokeDesktop<DevProjectType[]>("list_dev_project_types"),
+  scanDevProjectTypes: (projectId: number, relativePath: string) =>
+    invokeDesktop<DevProjectTypeScan>("scan_dev_project_types", { projectId, relativePath }),
+  getFolderDevProjectTypes: (projectId: number, relativePath: string) =>
+    invokeDesktop<string[]>("get_folder_dev_project_types", { projectId, relativePath }),
+  setFolderDevProjectTypes: (projectId: number, relativePath: string, projectTypeIds: string[]) =>
+    invokeDesktop<string[]>("set_folder_dev_project_types", { projectId, relativePath, projectTypeIds }),
+  scanDevCache: (projectId: number, relativePath: string) =>
+    invokeDesktop<DevCacheCandidate[]>("scan_dev_cache", { projectId, relativePath }),
+  cleanDevCache: (projectId: number, relativePath: string, candidateIds: string[]) =>
+    invokeDesktop<DevCacheCleanResult>("clean_dev_cache", { projectId, relativePath, candidateIds }),
   createProjectFile: (projectId: number, parentRelativePath: string, name: string) =>
     invokeDesktop<void>("create_project_file", { projectId, parentRelativePath, name }),
   createProjectFolder: (projectId: number, parentRelativePath: string, name: string) =>

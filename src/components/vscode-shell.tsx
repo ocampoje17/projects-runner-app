@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenText,
+  Blocks,
   CalendarDays,
   Clipboard,
   ChevronDown,
@@ -38,6 +39,7 @@ import {
   Square,
   Settings2,
   Trash2,
+  WandSparkles,
   TerminalSquare,
   Play,
   X,
@@ -65,11 +67,13 @@ import { commandPorts, normalizeCommandScript, runtimeModeLabel } from "@/lib/co
 import { formatDateTime } from "@/lib/date-time";
 import { noteExcerpt, noteTitle, projectNoteVisibilityKey } from "@/lib/project-notes";
 import { cn } from "@/lib/utils";
+import { removePathPrefix, renamePathPrefix } from "@/lib/file-tree-paths";
 import { api, type Project, type ProjectCommand, type ProjectFlow } from "../lib/api";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import type { UpdateStatus } from "../hooks/use-app-updater";
 import type { FlowRunState } from "../hooks/use-flow-runtime";
 import { ConfirmDialog } from "./process-dialogs";
+import { DevProjectToolsDialogs, type DevProjectToolsRequest } from "./dev-project-tools-dialogs";
 import { VscFile, VscFileCode, VscFileMedia, VscFilePdf, VscFileZip, VscJson, VscMarkdown } from "react-icons/vsc";
 
 type SidebarView = "explorer" | "flows" | "notes" | "terminal" | "settings";
@@ -793,7 +797,6 @@ function useProjectDirectoryEntries(projectId: number | undefined, relativePath:
       return;
     }
     let cancelled = false;
-    setEntries([]);
     setError(null);
     setIsLoading(true);
     const load = async () => {
@@ -851,12 +854,11 @@ function ProjectFileIcon({ name, isDirectory }: { name: string; isDirectory: boo
   return <VscFile className="text-[#9cdcfe]" size={15} />;
 }
 
-function ProjectFileTree({ project, entry, level, selectedPath, onSelect, clipboard, collapseVersion, refreshVersion, onCreate, onCopy, onCut, onPaste, onRename, onDelete, onReveal, onOpenTerminal, onView, onOpenExternal, onToggleQuickAccess, pinnedPaths }: {
-  project: Project; entry: import("../lib/api").ProjectFileEntry; level: number; selectedPath: string; onSelect: (entry: import("../lib/api").ProjectFileEntry) => void; clipboard: FileClipboard; collapseVersion: number;
-  onCreate: (parentPath: string, kind: "file" | "folder") => void; onCopy: (path: string) => void; onCut: (path: string) => void; onPaste: (path: string) => void; onRename: (entry: import("../lib/api").ProjectFileEntry) => void; onDelete: (entry: import("../lib/api").ProjectFileEntry) => void; onReveal: (path: string) => void; onOpenTerminal: (relativeDirectoryPath: string) => void; onView: (entry: import("../lib/api").ProjectFileEntry) => void; onOpenExternal: (path: string) => void; onToggleQuickAccess: (entry: import("../lib/api").ProjectFileEntry) => void; pinnedPaths: Set<string>; refreshVersion: number;
+function ProjectFileTree({ project, entry, level, selectedPath, onSelect, clipboard, expandedPaths, onToggleExpanded, refreshVersion, onCreate, onCopy, onCut, onPaste, onRename, onDelete, onReveal, onOpenTerminal, onView, onOpenExternal, onToggleQuickAccess, onDevProjectTools, pinnedPaths }: {
+  project: Project; entry: import("../lib/api").ProjectFileEntry; level: number; selectedPath: string; onSelect: (entry: import("../lib/api").ProjectFileEntry) => void; clipboard: FileClipboard; expandedPaths: Set<string>; onToggleExpanded: (path: string) => void;
+  onCreate: (parentPath: string, kind: "file" | "folder") => void; onCopy: (path: string) => void; onCut: (path: string) => void; onPaste: (path: string) => void; onRename: (entry: import("../lib/api").ProjectFileEntry) => void; onDelete: (entry: import("../lib/api").ProjectFileEntry) => void; onReveal: (path: string) => void; onOpenTerminal: (relativeDirectoryPath: string) => void; onView: (entry: import("../lib/api").ProjectFileEntry) => void; onOpenExternal: (path: string) => void; onToggleQuickAccess: (entry: import("../lib/api").ProjectFileEntry) => void; onDevProjectTools: (request: DevProjectToolsRequest) => void; pinnedPaths: Set<string>; refreshVersion: number;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  useEffect(() => { setIsExpanded(false); }, [collapseVersion]);
+  const isExpanded = expandedPaths.has(entry.relative_path);
   const directoryEntries = useProjectDirectoryEntries(project.id, entry.relative_path, entry.is_directory && isExpanded, refreshVersion);
   const targetPath = entry.is_directory ? entry.relative_path : entry.relative_path.split("/").slice(0, -1).join("/");
   const menuItems = [
@@ -868,6 +870,11 @@ function ProjectFileTree({ project, entry, level, selectedPath, onSelect, clipbo
     { separator: true },
     { label: "Reveal in File Explorer", icon: <FolderOpen size={13} />, onSelect: () => onReveal(entry.relative_path) },
     { label: "Open in Internal Interactive Terminal", icon: <TerminalSquare size={13} />, onSelect: () => onOpenTerminal(entry.is_directory ? entry.relative_path : targetPath) },
+    ...(entry.is_directory ? [
+      { separator: true },
+      { label: "Set Dev Project Type…", icon: <Blocks size={13} />, onSelect: () => onDevProjectTools({ mode: "types", relativePath: entry.relative_path }) },
+      { label: "Clean Dev Cache…", icon: <WandSparkles size={13} />, onSelect: () => onDevProjectTools({ mode: "clean", relativePath: entry.relative_path }) },
+    ] : []),
     { separator: true },
     { label: "Copy", icon: <CopyPlus size={13} />, onSelect: () => onCopy(entry.relative_path) },
     { label: "Cut", icon: <Scissors size={13} />, onSelect: () => onCut(entry.relative_path) },
@@ -880,8 +887,8 @@ function ProjectFileTree({ project, entry, level, selectedPath, onSelect, clipbo
     { label: "Delete", icon: <Trash2 size={13} />, onSelect: () => onDelete(entry), tone: "danger" as const },
   ];
   return <div>
-    <TreeItem title={entry.name} level={level} active={selectedPath === entry.relative_path} icon={entry.is_directory ? (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <ProjectFileIcon name={entry.name} isDirectory={false} />} trailing={directoryEntries.isLoading ? <LoaderCircle size={12} className="animate-spin" /> : entry.line_count !== null ? <span className={cn(entry.line_count >= 1_000_000 ? "text-[var(--vscode-danger)]" : entry.line_count >= 1_000 ? "text-[#d7ba7d]" : "text-[var(--vscode-foreground)]/52")}>{formatCompactCount(entry.line_count)}</span> : undefined} onClick={() => { onSelect(entry); if (entry.is_directory) setIsExpanded((current) => !current); }} onDoubleClick={() => { if (!entry.is_directory) onOpenExternal(entry.relative_path); }} menuItems={menuItems} />
-    {entry.is_directory && isExpanded ? <div>{directoryEntries.error ? <div className="px-3 py-1 text-[11px] text-[var(--vscode-danger)]" style={{ paddingLeft: `${24 + (level + 1) * 14}px` }}>{directoryEntries.error}</div> : null}{directoryEntries.entries.map((child) => <ProjectFileTree key={child.relative_path} project={project} entry={child} level={level + 1} selectedPath={selectedPath} onSelect={onSelect} clipboard={clipboard} collapseVersion={collapseVersion} refreshVersion={refreshVersion} onCreate={onCreate} onCopy={onCopy} onCut={onCut} onPaste={onPaste} onRename={onRename} onDelete={onDelete} onReveal={onReveal} onOpenTerminal={onOpenTerminal} onView={onView} onOpenExternal={onOpenExternal} onToggleQuickAccess={onToggleQuickAccess} pinnedPaths={pinnedPaths} />)}</div> : null}
+    <TreeItem title={entry.name} level={level} active={selectedPath === entry.relative_path} icon={entry.is_directory ? (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <ProjectFileIcon name={entry.name} isDirectory={false} />} trailing={directoryEntries.isLoading ? <LoaderCircle size={12} className="animate-spin" /> : entry.line_count !== null ? <span className={cn(entry.line_count >= 1_000_000 ? "text-[var(--vscode-danger)]" : entry.line_count >= 1_000 ? "text-[#d7ba7d]" : "text-[var(--vscode-foreground)]/52")}>{formatCompactCount(entry.line_count)}</span> : undefined} onClick={() => { onSelect(entry); if (entry.is_directory) onToggleExpanded(entry.relative_path); }} onDoubleClick={() => { if (!entry.is_directory) onOpenExternal(entry.relative_path); }} menuItems={menuItems} />
+    {entry.is_directory && isExpanded ? <div>{directoryEntries.error ? <div className="px-3 py-1 text-[11px] text-[var(--vscode-danger)]" style={{ paddingLeft: `${24 + (level + 1) * 14}px` }}>{directoryEntries.error}</div> : null}{directoryEntries.entries.map((child) => <ProjectFileTree key={child.relative_path} project={project} entry={child} level={level + 1} selectedPath={selectedPath} onSelect={onSelect} clipboard={clipboard} expandedPaths={expandedPaths} onToggleExpanded={onToggleExpanded} refreshVersion={refreshVersion} onCreate={onCreate} onCopy={onCopy} onCut={onCut} onPaste={onPaste} onRename={onRename} onDelete={onDelete} onReveal={onReveal} onOpenTerminal={onOpenTerminal} onView={onView} onOpenExternal={onOpenExternal} onToggleQuickAccess={onToggleQuickAccess} onDevProjectTools={onDevProjectTools} pinnedPaths={pinnedPaths} />)}</div> : null}
   </div>;
 }
 
@@ -891,7 +898,9 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
   const [clipboard, setClipboard] = useState<FileClipboard>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedQuickAccessPath, setSelectedQuickAccessPath] = useState<string | null>(null);
-  const [collapseVersion, setCollapseVersion] = useState(0);
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [devProjectToolsRequest, setDevProjectToolsRequest] = useState<DevProjectToolsRequest>(null);
+  const [rootMenu, setRootMenu] = useState<{ x: number; y: number } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<import("../lib/api").ProjectFileEntry | null>(null);
   const [missingQuickAccessEntry, setMissingQuickAccessEntry] = useState<QuickAccessEntry | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -919,7 +928,7 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
     await queryClient.invalidateQueries({ queryKey: ["project-file-info", project.id] });
   };
   const run = (operation: Promise<unknown>) => void operation.then(invalidate).catch((value: unknown) => setError(value instanceof Error ? value.message : "File operation failed."));
-  useEffect(() => { setError(null); setClipboard(null); setSelectedPath(null); setSelectedQuickAccessPath(null); setMissingQuickAccessEntry(null); quickAccessValidationRequest.current += 1; }, [project?.id]);
+  useEffect(() => { setError(null); setClipboard(null); setSelectedPath(null); setSelectedQuickAccessPath(null); setMissingQuickAccessEntry(null); setExpandedPaths(new Set()); setDevProjectToolsRequest(null); quickAccessValidationRequest.current += 1; }, [project?.id]);
   useEffect(() => { localStorage.setItem(FILE_EXPLORER_PREFERENCES_KEY, JSON.stringify(preferences)); }, [preferences]);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -958,10 +967,11 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
     const affectsSelection = selectedPath === entry.relative_path || selectedPath?.startsWith(`${entry.relative_path}/`);
     void api.renameProjectFile(project.id, entry.relative_path, name.trim())
       .then(() => {
-        if (affectsSelection) {
-          setSelectedPath(null);
-          setSelectedQuickAccessPath(null);
-        }
+        const parent = entry.relative_path.split("/").slice(0, -1).join("/");
+        const renamedPath = parent ? `${parent}/${name.trim()}` : name.trim();
+        if (affectsSelection) setSelectedPath((current) => current ? `${renamedPath}${current.slice(entry.relative_path.length)}` : null);
+        setExpandedPaths((current) => renamePathPrefix(current, entry.relative_path, renamedPath));
+        setSelectedQuickAccessPath(null);
         return invalidate();
       })
       .catch((value: unknown) => setError(value instanceof Error ? value.message : "File operation failed."));
@@ -988,6 +998,7 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
           setSelectedPath(null);
           setSelectedQuickAccessPath(null);
         }
+        setExpandedPaths((current) => removePathPrefix(current, entry.relative_path));
         return invalidate();
       })
       .catch((value: unknown) => setError(value instanceof Error ? value.message : "File operation failed."));
@@ -1010,13 +1021,14 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
   const toggleQuickAccessPanel = () => {
     setPreferences((current) => ({ ...current, quickAccessCollapsed: !current.quickAccessCollapsed }));
   };
+  const toggleExpanded = (path: string) => setExpandedPaths((current) => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next; });
   return <div className="flex min-h-0 flex-1 flex-col">
-    <div className="flex items-center justify-between border-b border-[var(--vscode-border)] px-3 py-2"><span className="flex min-w-0 items-center gap-2 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/62">{project.name}{rootDirectory.isLoading ? <LoaderCircle size={12} className="shrink-0 animate-spin" /> : null}</span><div className="flex items-center gap-0.5"><Tooltip content="New File"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => create("", "file")}><FilePlus size={14} /></button></Tooltip><Tooltip content="New Folder"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => create("", "folder")}><FolderPlus size={14} /></button></Tooltip><Tooltip content="Refresh Explorer"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => void invalidate()}><RefreshCw size={14} /></button></Tooltip><Tooltip content="Collapse All"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => setCollapseVersion((current) => current + 1)}><ChevronsUp size={14} /></button></Tooltip></div></div>
+    <div onContextMenu={(event) => { event.preventDefault(); setRootMenu({ x: event.clientX, y: event.clientY }); }} className="flex items-center justify-between border-b border-[var(--vscode-border)] px-3 py-2"><span className="flex min-w-0 items-center gap-2 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/62">{project.name}{rootDirectory.isLoading ? <LoaderCircle size={12} className="shrink-0 animate-spin" /> : null}</span><div className="flex items-center gap-0.5"><Tooltip content="New File"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => create("", "file")}><FilePlus size={14} /></button></Tooltip><Tooltip content="New Folder"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => create("", "folder")}><FolderPlus size={14} /></button></Tooltip><Tooltip content="Refresh Explorer"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => void invalidate()}><RefreshCw size={14} /></button></Tooltip><Tooltip content="Collapse All"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => setExpandedPaths(new Set())}><ChevronsUp size={14} /></button></Tooltip></div></div>
     <Group orientation="vertical" groupRef={panelGroupRef} elementRef={panelGroupElementRef} defaultLayout={preferences.panelLayout} onLayoutChanged={(panelLayout) => setPreferences((current) => ({ ...current, panelLayout }))} className="min-h-0 flex-1">
       <Panel id="file-tree" minSize="35%" className="min-h-0 overflow-y-auto px-2 py-2">
         {error ? <div className="mb-2 text-[11px] text-[var(--vscode-danger)]">{error}</div> : null}
         {rootDirectory.error ? <div className="mb-2 text-[11px] text-[var(--vscode-danger)]">{rootDirectory.error}</div> : null}
-        {rootDirectory.entries.map((entry) => <ProjectFileTree key={entry.relative_path} project={project} entry={entry} level={0} selectedPath={selectedPath ?? ""} onSelect={selectEntry} clipboard={clipboard} collapseVersion={collapseVersion} refreshVersion={refreshVersion} onCreate={create} onCopy={(relativePath) => setClipboard({ relativePath, cut: false })} onCut={(relativePath) => setClipboard({ relativePath, cut: true })} onPaste={paste} onRename={rename} onDelete={setDeleteTarget} onReveal={(relativePath) => run(api.revealProjectFile(project.id, relativePath))} onOpenTerminal={onOpenTerminal} onView={(entry) => { if (!entry.is_directory) onView(entry.relative_path); }} onOpenExternal={(relativePath) => run(api.openProjectFile(project.id, relativePath))} onToggleQuickAccess={toggleQuickAccess} pinnedPaths={pinnedPaths} />)}
+        {rootDirectory.entries.map((entry) => <ProjectFileTree key={entry.relative_path} project={project} entry={entry} level={0} selectedPath={selectedPath ?? ""} onSelect={selectEntry} clipboard={clipboard} expandedPaths={expandedPaths} onToggleExpanded={toggleExpanded} refreshVersion={refreshVersion} onCreate={create} onCopy={(relativePath) => setClipboard({ relativePath, cut: false })} onCut={(relativePath) => setClipboard({ relativePath, cut: true })} onPaste={paste} onRename={rename} onDelete={setDeleteTarget} onReveal={(relativePath) => void api.revealProjectFile(project.id, relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to reveal item."))} onOpenTerminal={onOpenTerminal} onView={(entry) => { if (!entry.is_directory) onView(entry.relative_path); }} onOpenExternal={(relativePath) => void api.openProjectFile(project.id, relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to open item."))} onToggleQuickAccess={toggleQuickAccess} onDevProjectTools={setDevProjectToolsRequest} pinnedPaths={pinnedPaths} />)}
       </Panel>
       <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
       <Panel id="file-details" defaultSize="25%" minSize="18%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.detailsCollapsed || Math.abs(current.detailsExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, detailsExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.detailsCollapsed ? { overflow: "hidden" } : undefined}>
@@ -1031,6 +1043,8 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
     </Group>
     <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }} title="Delete file or folder" description={`Delete “${deleteTarget?.name ?? ""}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (deleteTarget) deleteEntry(deleteTarget); setDeleteTarget(null); }} />
     <ConfirmDialog open={missingQuickAccessEntry !== null} onOpenChange={(open) => { if (!open) setMissingQuickAccessEntry(null); }} title="Quick Access item is unavailable" description={`“${missingQuickAccessEntry?.name ?? ""}” no longer exists in this project. Remove it from Quick Access?`} confirmLabel="Remove" onConfirm={() => { if (missingQuickAccessEntry) { removeQuickAccess(missingQuickAccessEntry.relativePath); if (selectedPath === missingQuickAccessEntry.relativePath) setSelectedPath(null); } setMissingQuickAccessEntry(null); }} />
+    {rootMenu ? <TabContextMenu x={rootMenu.x} y={rootMenu.y} onClose={() => setRootMenu(null)} items={[{ label: "Set Dev Project Type…", icon: <Blocks size={13} />, onSelect: () => setDevProjectToolsRequest({ mode: "types", relativePath: "" }) }, { label: "Clean Dev Cache…", icon: <WandSparkles size={13} />, onSelect: () => setDevProjectToolsRequest({ mode: "clean", relativePath: "" }) }]} /> : null}
+    <DevProjectToolsDialogs project={project} request={devProjectToolsRequest} onRequestChange={setDevProjectToolsRequest} onCleaned={() => void invalidate()} />
   </div>;
 }
 
@@ -1900,6 +1914,8 @@ type VSCodeShellProps = {
   onDeleteProjectNote: (projectId: number, noteId: string) => void;
   isSavingNotes: boolean;
   runs: Record<number, RunState>;
+  stoppingRunIds: Set<number>;
+  stoppingCommandIds: Set<number>;
   terminalContentByCommandId: Record<number, string>;
   openLogCommandIds: number[];
   activeLogCommandId: number | null;
@@ -1971,6 +1987,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   onDeleteProjectNote,
   isSavingNotes,
   runs,
+  stoppingRunIds,
+  stoppingCommandIds,
   terminalContentByCommandId,
   openLogCommandIds,
   activeLogCommandId,
@@ -3377,6 +3395,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                   onRequestCloseAllTabs={onRequestCloseAllLogTabs}
                   interactiveTerminalOptions={interactiveTerminalOptions}
                   runs={runs}
+                  stoppingRunIds={stoppingRunIds}
+                  stoppingCommandIds={stoppingCommandIds}
                   terminalContentByCommandId={terminalContentByCommandId}
                   terminalFontFamily={terminalFontFamily}
                   terminalFontSize={terminalFontSize}

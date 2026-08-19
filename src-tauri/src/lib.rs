@@ -1,4 +1,5 @@
 mod app_updates;
+mod dev_cache;
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::Utc;
@@ -13,7 +14,7 @@ use portable_pty::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 #[cfg(not(target_os = "windows"))]
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -26,6 +27,8 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 use walkdir::WalkDir;
+
+use dev_cache::{DevCacheCandidate, DevProjectType, DevProjectTypeScan};
 
 const RUNTIME_MODE_INTERNAL_HEADLESS: &str = "internal_headless";
 const RUNTIME_MODE_INTERNAL_INTERACTIVE: &str = "internal_interactive";
@@ -167,42 +170,66 @@ struct CommandRun {
 
 #[derive(Debug, Serialize, QueryableByName, Clone)]
 struct Flow {
-    #[diesel(sql_type = BigInt)] id: i64,
-    #[diesel(sql_type = BigInt)] project_id: i64,
-    #[diesel(sql_type = Text)] name: String,
-    #[diesel(sql_type = Text)] created_at: String,
-    #[diesel(sql_type = Text)] updated_at: String,
+    #[diesel(sql_type = BigInt)]
+    id: i64,
+    #[diesel(sql_type = BigInt)]
+    project_id: i64,
+    #[diesel(sql_type = Text)]
+    name: String,
+    #[diesel(sql_type = Text)]
+    created_at: String,
+    #[diesel(sql_type = Text)]
+    updated_at: String,
 }
 
 #[derive(Debug, Serialize, QueryableByName, Clone)]
 struct FlowSummary {
-    #[diesel(sql_type = BigInt)] id: i64,
-    #[diesel(sql_type = BigInt)] project_id: i64,
-    #[diesel(sql_type = Text)] name: String,
-    #[diesel(sql_type = Text)] created_at: String,
-    #[diesel(sql_type = Text)] updated_at: String,
-    #[diesel(sql_type = BigInt)] node_count: i64,
+    #[diesel(sql_type = BigInt)]
+    id: i64,
+    #[diesel(sql_type = BigInt)]
+    project_id: i64,
+    #[diesel(sql_type = Text)]
+    name: String,
+    #[diesel(sql_type = Text)]
+    created_at: String,
+    #[diesel(sql_type = Text)]
+    updated_at: String,
+    #[diesel(sql_type = BigInt)]
+    node_count: i64,
 }
 
 #[derive(Debug, Serialize, QueryableByName, Clone)]
 struct FlowNode {
-    #[diesel(sql_type = Text)] id: String,
-    #[diesel(sql_type = BigInt)] flow_id: i64,
-    #[diesel(sql_type = BigInt)] command_id: i64,
-    #[diesel(sql_type = Integer)] position_x: i32,
-    #[diesel(sql_type = Integer)] position_y: i32,
+    #[diesel(sql_type = Text)]
+    id: String,
+    #[diesel(sql_type = BigInt)]
+    flow_id: i64,
+    #[diesel(sql_type = BigInt)]
+    command_id: i64,
+    #[diesel(sql_type = Integer)]
+    position_x: i32,
+    #[diesel(sql_type = Integer)]
+    position_y: i32,
 }
 
 #[derive(Debug, Serialize, QueryableByName, Clone)]
 struct FlowEdge {
-    #[diesel(sql_type = Text)] id: String,
-    #[diesel(sql_type = BigInt)] flow_id: i64,
-    #[diesel(sql_type = Text)] source_node_id: String,
-    #[diesel(sql_type = Text)] target_node_id: String,
+    #[diesel(sql_type = Text)]
+    id: String,
+    #[diesel(sql_type = BigInt)]
+    flow_id: i64,
+    #[diesel(sql_type = Text)]
+    source_node_id: String,
+    #[diesel(sql_type = Text)]
+    target_node_id: String,
 }
 
 #[derive(Debug, Serialize)]
-struct FlowDetail { flow: Flow, nodes: Vec<FlowNode>, edges: Vec<FlowEdge> }
+struct FlowDetail {
+    flow: Flow,
+    nodes: Vec<FlowNode>,
+    edges: Vec<FlowEdge>,
+}
 
 #[derive(Debug, Serialize)]
 struct ProjectFileEntry {
@@ -231,20 +258,52 @@ struct ProjectFileContent {
     data_url: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct FlowInput { project_id: i64, name: String }
+#[derive(Debug, Serialize)]
+struct DevCacheCleanFailure {
+    id: String,
+    relative_path: String,
+    error: String,
+}
+
+#[derive(Debug, Serialize)]
+struct DevCacheCleanResult {
+    deleted_ids: Vec<String>,
+    failed_items: Vec<DevCacheCleanFailure>,
+    freed_bytes: u64,
+}
 
 #[derive(Debug, Deserialize)]
-struct FlowUpdateInput { name: String }
+struct FlowInput {
+    project_id: i64,
+    name: String,
+}
 
 #[derive(Debug, Deserialize)]
-struct FlowGraphInput { name: String, nodes: Vec<FlowNodeInput>, edges: Vec<FlowEdgeInput> }
+struct FlowUpdateInput {
+    name: String,
+}
 
 #[derive(Debug, Deserialize)]
-struct FlowNodeInput { id: String, command_id: i64, position_x: i32, position_y: i32 }
+struct FlowGraphInput {
+    name: String,
+    nodes: Vec<FlowNodeInput>,
+    edges: Vec<FlowEdgeInput>,
+}
 
 #[derive(Debug, Deserialize)]
-struct FlowEdgeInput { id: String, source_node_id: String, target_node_id: String }
+struct FlowNodeInput {
+    id: String,
+    command_id: i64,
+    position_x: i32,
+    position_y: i32,
+}
+
+#[derive(Debug, Deserialize)]
+struct FlowEdgeInput {
+    id: String,
+    source_node_id: String,
+    target_node_id: String,
+}
 
 #[derive(Debug, Serialize)]
 struct FlowNodeRunStart {
@@ -672,6 +731,19 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
 
+    conn.batch_execute(
+        "CREATE TABLE IF NOT EXISTS folder_dev_project_types (
+            project_id INTEGER NOT NULL,
+            relative_path TEXT NOT NULL,
+            project_type_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(project_id, relative_path, project_type_id),
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );",
+    )
+    .map_err(|error| error.to_string())?;
+
     sql_query(
         "CREATE TABLE IF NOT EXISTS commands (
             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -869,19 +941,26 @@ fn migrate_flow_graph_schema(conn: &mut SqliteConnection) -> Result<(), String> 
         sql: String,
     }
 
-    let node_schema = sql_query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'flow_nodes'")
-        .get_result::<TableSql>(conn)
-        .optional()
-        .map_err(|error| error.to_string())?;
-    let edge_schema = sql_query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'flow_edges'")
-        .get_result::<TableSql>(conn)
-        .optional()
-        .map_err(|error| error.to_string())?;
-    let Some(node_schema) = node_schema else { return Ok(()); };
-    let Some(edge_schema) = edge_schema else { return Ok(()); };
+    let node_schema =
+        sql_query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'flow_nodes'")
+            .get_result::<TableSql>(conn)
+            .optional()
+            .map_err(|error| error.to_string())?;
+    let edge_schema =
+        sql_query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'flow_edges'")
+            .get_result::<TableSql>(conn)
+            .optional()
+            .map_err(|error| error.to_string())?;
+    let Some(node_schema) = node_schema else {
+        return Ok(());
+    };
+    let Some(edge_schema) = edge_schema else {
+        return Ok(());
+    };
     let nodes_allow_duplicate_commands = !node_schema.sql.contains("UNIQUE(flow_id, command_id)");
-    let edges_allow_multiple_connections = !edge_schema.sql.contains("UNIQUE(flow_id, source_node_id)")
-        && !edge_schema.sql.contains("UNIQUE(flow_id, target_node_id)");
+    let edges_allow_multiple_connections =
+        !edge_schema.sql.contains("UNIQUE(flow_id, source_node_id)")
+            && !edge_schema.sql.contains("UNIQUE(flow_id, target_node_id)");
     if nodes_allow_duplicate_commands && edges_allow_multiple_connections {
         return Ok(());
     }
@@ -920,7 +999,9 @@ fn migrate_flow_graph_schema(conn: &mut SqliteConnection) -> Result<(), String> 
         ALTER TABLE flow_edges_next RENAME TO flow_edges;",
     );
     match result {
-        Ok(()) => conn.batch_execute("COMMIT; PRAGMA foreign_keys = ON;").map_err(|error| error.to_string()),
+        Ok(()) => conn
+            .batch_execute("COMMIT; PRAGMA foreign_keys = ON;")
+            .map_err(|error| error.to_string()),
         Err(error) => {
             let _ = conn.batch_execute("ROLLBACK; PRAGMA foreign_keys = ON;");
             Err(error.to_string())
@@ -1027,7 +1108,9 @@ fn normalize_external_terminal_kind(external_terminal_kind: Option<&str>) -> Str
             EXTERNAL_TERMINAL_KIND_COMMAND_PROMPT.to_string()
         }
         #[cfg(target_os = "macos")]
-        Some(EXTERNAL_TERMINAL_KIND_TERMINAL_APP) => EXTERNAL_TERMINAL_KIND_TERMINAL_APP.to_string(),
+        Some(EXTERNAL_TERMINAL_KIND_TERMINAL_APP) => {
+            EXTERNAL_TERMINAL_KIND_TERMINAL_APP.to_string()
+        }
         Some(EXTERNAL_TERMINAL_KIND_DEFAULT) | Some(_) | None => {
             EXTERNAL_TERMINAL_KIND_DEFAULT.to_string()
         }
@@ -1222,8 +1305,7 @@ fn list_interactive_terminal_options() -> Result<Vec<InteractiveTerminalOption>,
             items.push(InteractiveTerminalOption {
                 id: INTERACTIVE_TERMINAL_KIND_POWERSHELL.to_string(),
                 label: "powershell".to_string(),
-                description: "Windows PowerShell with the app's interactive terminal."
-                    .to_string(),
+                description: "Windows PowerShell with the app's interactive terminal.".to_string(),
             });
         }
         return Ok(items);
@@ -1554,11 +1636,7 @@ mod tests {
         let ansi_text = "\u{1b}[32mViệt Nam\u{1b}[0m\r\n";
         let ansi_bytes = ansi_text.as_bytes();
         assert_eq!(
-            decode_utf8_chunks(&[
-                &ansi_bytes[..8],
-                &ansi_bytes[8..11],
-                &ansi_bytes[11..],
-            ]),
+            decode_utf8_chunks(&[&ansi_bytes[..8], &ansi_bytes[8..11], &ansi_bytes[11..],]),
             ansi_text,
         );
 
@@ -1634,13 +1712,15 @@ mod tests {
         )
         .load::<CommandSection>(&mut conn)
         .expect("load sections");
-        let names = sections.into_iter().map(|section| section.name).collect::<Vec<_>>();
+        let names = sections
+            .into_iter()
+            .map(|section| section.name)
+            .collect::<Vec<_>>();
         assert_eq!(names, vec!["General", "Development", "release"]);
-        let general_command = sql_query(
-            "SELECT * FROM commands WHERE project_id = 1 AND name = 'General command'",
-        )
-        .get_result::<ProjectCommand>(&mut conn)
-        .expect("load canonicalized command");
+        let general_command =
+            sql_query("SELECT * FROM commands WHERE project_id = 1 AND name = 'General command'")
+                .get_result::<ProjectCommand>(&mut conn)
+                .expect("load canonicalized command");
         assert_eq!(general_command.section, "General");
     }
 
@@ -1668,7 +1748,8 @@ mod tests {
             .expect("load renamed command");
         assert_eq!(command.section, "Build");
 
-        let release = ensure_command_section(&mut conn, 1, "Release", None).expect("create release");
+        let release =
+            ensure_command_section(&mut conn, 1, "Release", None).expect("create release");
         assert!(rename_command_section_in_conn(&mut conn, development.id, "release").is_err());
         let unchanged = sql_query(format!(
             "SELECT * FROM command_sections WHERE id = {}",
@@ -1700,7 +1781,10 @@ mod tests {
         }"#;
         let normalized =
             normalize_prd_file_v2(serde_json::from_str(json).expect("parse legacy v2 file"));
-        assert_eq!(sections_from_prd(&normalized), vec!["General", "Development"]);
+        assert_eq!(
+            sections_from_prd(&normalized),
+            vec!["General", "Development"]
+        );
     }
 
     #[test]
@@ -1730,23 +1814,62 @@ mod tests {
     #[test]
     fn flow_graph_allows_branches_but_rejects_duplicate_pairs_and_cycles() {
         let nodes = vec![
-            FlowNodeInput { id: "a".to_string(), command_id: 1, position_x: 0, position_y: 0 },
-            FlowNodeInput { id: "b".to_string(), command_id: 2, position_x: 0, position_y: 100 },
-            FlowNodeInput { id: "c".to_string(), command_id: 3, position_x: 0, position_y: 200 },
+            FlowNodeInput {
+                id: "a".to_string(),
+                command_id: 1,
+                position_x: 0,
+                position_y: 0,
+            },
+            FlowNodeInput {
+                id: "b".to_string(),
+                command_id: 2,
+                position_x: 0,
+                position_y: 100,
+            },
+            FlowNodeInput {
+                id: "c".to_string(),
+                command_id: 3,
+                position_x: 0,
+                position_y: 200,
+            },
         ];
         let edges = vec![
-            FlowEdgeInput { id: "ab".to_string(), source_node_id: "a".to_string(), target_node_id: "b".to_string() },
-            FlowEdgeInput { id: "ac".to_string(), source_node_id: "a".to_string(), target_node_id: "c".to_string() },
+            FlowEdgeInput {
+                id: "ab".to_string(),
+                source_node_id: "a".to_string(),
+                target_node_id: "b".to_string(),
+            },
+            FlowEdgeInput {
+                id: "ac".to_string(),
+                source_node_id: "a".to_string(),
+                target_node_id: "c".to_string(),
+            },
         ];
         assert!(validate_flow_graph(&nodes, &edges).is_ok());
         let duplicate_pair = vec![
-            FlowEdgeInput { id: "ab".to_string(), source_node_id: "a".to_string(), target_node_id: "b".to_string() },
-            FlowEdgeInput { id: "ba".to_string(), source_node_id: "b".to_string(), target_node_id: "a".to_string() },
+            FlowEdgeInput {
+                id: "ab".to_string(),
+                source_node_id: "a".to_string(),
+                target_node_id: "b".to_string(),
+            },
+            FlowEdgeInput {
+                id: "ba".to_string(),
+                source_node_id: "b".to_string(),
+                target_node_id: "a".to_string(),
+            },
         ];
         assert!(validate_flow_graph(&nodes[..2], &duplicate_pair).is_err());
         let cyclic = vec![
-            FlowEdgeInput { id: "ab".to_string(), source_node_id: "a".to_string(), target_node_id: "b".to_string() },
-            FlowEdgeInput { id: "ba".to_string(), source_node_id: "b".to_string(), target_node_id: "a".to_string() },
+            FlowEdgeInput {
+                id: "ab".to_string(),
+                source_node_id: "a".to_string(),
+                target_node_id: "b".to_string(),
+            },
+            FlowEdgeInput {
+                id: "ba".to_string(),
+                source_node_id: "b".to_string(),
+                target_node_id: "a".to_string(),
+            },
         ];
         assert!(validate_flow_graph(&nodes[..2], &cyclic).is_err());
     }
@@ -1754,8 +1877,18 @@ mod tests {
     #[test]
     fn flow_graph_allows_reusing_a_command_for_distinct_nodes() {
         let nodes = vec![
-            FlowNodeInput { id: "first".to_string(), command_id: 7, position_x: 0, position_y: 0 },
-            FlowNodeInput { id: "second".to_string(), command_id: 7, position_x: 0, position_y: 100 },
+            FlowNodeInput {
+                id: "first".to_string(),
+                command_id: 7,
+                position_x: 0,
+                position_y: 0,
+            },
+            FlowNodeInput {
+                id: "second".to_string(),
+                command_id: 7,
+                position_x: 0,
+                position_y: 100,
+            },
         ];
         let edges = vec![FlowEdgeInput {
             id: "first-second".to_string(),
@@ -1769,7 +1902,8 @@ mod tests {
     fn init_db_migrates_flow_graph_constraints() {
         let paths = temp_test_paths("flow-node-duplicates");
         fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
-        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+        let mut conn =
+            SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
         conn.batch_execute(
             "CREATE TABLE projects (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL, path TEXT NOT NULL, avatar_path TEXT, description TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
              CREATE TABLE commands (id INTEGER PRIMARY KEY NOT NULL, project_id INTEGER NOT NULL, name TEXT NOT NULL, script TEXT NOT NULL, avatar_path TEXT, ports TEXT NOT NULL DEFAULT '[]', section TEXT NOT NULL DEFAULT 'General', order_index INTEGER NOT NULL DEFAULT 0, runtime_mode TEXT NOT NULL DEFAULT 'internal_headless', run_in_external_terminal INTEGER NOT NULL DEFAULT 0, external_terminal_kind TEXT NOT NULL DEFAULT 'default', interactive_terminal_kind TEXT NOT NULL DEFAULT 'powershell', run_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -2096,7 +2230,10 @@ fn sections_from_prd(prd: &NormalizedPrdFile) -> Vec<String> {
             sections.push(clean_name.to_string());
         }
     }
-    if !sections.iter().any(|name| name.eq_ignore_ascii_case("General")) {
+    if !sections
+        .iter()
+        .any(|name| name.eq_ignore_ascii_case("General"))
+    {
         sections.insert(0, "General".to_string());
     }
     sections
@@ -2630,7 +2767,10 @@ fn build_export_prd(
                 })
             })
             .collect::<Result<Vec<_>, String>>()?,
-        sections: sections.iter().map(|section| section.name.clone()).collect(),
+        sections: sections
+            .iter()
+            .map(|section| section.name.clone())
+            .collect(),
         assets: assets.assets,
     })
 }
@@ -3179,7 +3319,9 @@ fn project_root(project_id: i64, state: &AppState) -> Result<PathBuf, String> {
     let project = sql_query(format!("SELECT * FROM projects WHERE id = {}", project_id))
         .get_result::<Project>(&mut conn)
         .map_err(|error| error.to_string())?;
-    let root = PathBuf::from(project.path).canonicalize().map_err(|error| error.to_string())?;
+    let root = PathBuf::from(project.path)
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
     if !root.is_dir() {
         return Err("Project path is not a folder".to_string());
     }
@@ -3188,24 +3330,36 @@ fn project_root(project_id: i64, state: &AppState) -> Result<PathBuf, String> {
 
 fn safe_project_relative_path(root: &Path, relative_path: &str) -> Result<PathBuf, String> {
     let relative = Path::new(relative_path);
-    if relative.is_absolute() || relative.components().any(|component| !matches!(component, Component::Normal(_))) {
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
         return Err("Invalid project-relative path".to_string());
     }
     let candidate = root.join(relative);
-    let canonical = candidate.canonicalize().map_err(|error| error.to_string())?;
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
     if !canonical.starts_with(root) {
         return Err("Path must remain inside the project folder".to_string());
     }
     Ok(canonical)
 }
 
-fn safe_new_entry_path(root: &Path, parent_relative_path: &str, name: &str) -> Result<PathBuf, String> {
+fn safe_new_entry_path(
+    root: &Path,
+    parent_relative_path: &str,
+    name: &str,
+) -> Result<PathBuf, String> {
     let parent = safe_project_relative_path(root, parent_relative_path)?;
     if !parent.is_dir() {
         return Err("Destination is not a folder".to_string());
     }
     let name_path = Path::new(name.trim());
-    if name_path.components().count() != 1 || !matches!(name_path.components().next(), Some(Component::Normal(_))) {
+    if name_path.components().count() != 1
+        || !matches!(name_path.components().next(), Some(Component::Normal(_)))
+    {
         return Err("Name must not contain path separators".to_string());
     }
     let target = parent.join(name_path);
@@ -3216,16 +3370,24 @@ fn safe_new_entry_path(root: &Path, parent_relative_path: &str, name: &str) -> R
 }
 
 fn format_system_time(value: std::io::Result<std::time::SystemTime>) -> Option<String> {
-    value.ok().map(|time| chrono::DateTime::<Utc>::from(time).to_rfc3339())
+    value
+        .ok()
+        .map(|time| chrono::DateTime::<Utc>::from(time).to_rfc3339())
 }
 
 fn is_text_file(path: &Path, metadata: &fs::Metadata) -> bool {
     if metadata.is_dir() || metadata.len() > 32 * 1024 * 1024 {
         return false;
     }
-    let mut file = match fs::File::open(path) { Ok(file) => file, Err(_) => return false };
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
     let mut sample = [0_u8; 8192];
-    let count = match file.read(&mut sample) { Ok(count) => count, Err(_) => return false };
+    let count = match file.read(&mut sample) {
+        Ok(count) => count,
+        Err(_) => return false,
+    };
     !sample[..count].contains(&0)
 }
 
@@ -3242,20 +3404,44 @@ fn project_file_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry, Stri
     let mut child_folder_count = 0;
     if is_directory {
         size_bytes = 0;
-        for entry in WalkDir::new(path).follow_links(false).into_iter().filter_map(Result::ok).skip(1) {
+        for entry in WalkDir::new(path)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(Result::ok)
+            .skip(1)
+        {
             let file_type = entry.file_type();
-            if file_type.is_dir() { child_folder_count += 1; }
+            if file_type.is_dir() {
+                child_folder_count += 1;
+            }
             if file_type.is_file() {
                 child_file_count += 1;
                 size_bytes += entry.metadata().map(|metadata| metadata.len()).unwrap_or(0);
             }
         }
     }
-    let file_kind = if is_directory { "folder".to_string() } else if is_text_file(path, &metadata) { "text".to_string() } else { "binary".to_string() };
-    let line_count = if file_kind == "text" { count_text_lines(path) } else { None };
+    let file_kind = if is_directory {
+        "folder".to_string()
+    } else if is_text_file(path, &metadata) {
+        "text".to_string()
+    } else {
+        "binary".to_string()
+    };
+    let line_count = if file_kind == "text" {
+        count_text_lines(path)
+    } else {
+        None
+    };
     Ok(ProjectFileEntry {
-        name: path.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_default(),
-        relative_path: path.strip_prefix(root).map_err(|error| error.to_string())?.to_string_lossy().replace('\\', "/"),
+        name: path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        relative_path: path
+            .strip_prefix(root)
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/"),
         is_directory,
         size_bytes,
         child_file_count,
@@ -3270,10 +3456,23 @@ fn project_file_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry, Stri
 fn project_file_tree_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry, String> {
     let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
     let is_directory = metadata.is_dir();
-    let file_kind = if is_directory { "folder".to_string() } else if is_text_file(path, &metadata) { "text".to_string() } else { "binary".to_string() };
+    let file_kind = if is_directory {
+        "folder".to_string()
+    } else if is_text_file(path, &metadata) {
+        "text".to_string()
+    } else {
+        "binary".to_string()
+    };
     Ok(ProjectFileEntry {
-        name: path.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_default(),
-        relative_path: path.strip_prefix(root).map_err(|error| error.to_string())?.to_string_lossy().replace('\\', "/"),
+        name: path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        relative_path: path
+            .strip_prefix(root)
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/"),
         is_directory,
         size_bytes: if is_directory { 0 } else { metadata.len() },
         child_file_count: 0,
@@ -3281,7 +3480,11 @@ fn project_file_tree_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry,
         created_at: format_system_time(metadata.created()),
         modified_at: format_system_time(metadata.modified()),
         file_kind: file_kind.clone(),
-        line_count: if file_kind == "text" { count_text_lines(path) } else { None },
+        line_count: if file_kind == "text" {
+            count_text_lines(path)
+        } else {
+            None
+        },
     })
 }
 
@@ -3293,31 +3496,64 @@ fn sorted_project_directory_paths(root: &Path, directory: &Path) -> Result<Vec<P
         .filter_map(|entry| {
             let path = entry.path();
             let canonical = path.canonicalize().ok()?;
-            if canonical.starts_with(root) { Some(path) } else { None }
+            if canonical.starts_with(root) {
+                Some(path)
+            } else {
+                None
+            }
         })
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| {
         let left_is_directory = left.is_dir();
         let right_is_directory = right.is_dir();
-        right_is_directory.cmp(&left_is_directory).then_with(|| left.file_name().unwrap_or_default().to_string_lossy().to_lowercase().cmp(&right.file_name().unwrap_or_default().to_string_lossy().to_lowercase()))
+        right_is_directory.cmp(&left_is_directory).then_with(|| {
+            left.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase()
+                .cmp(
+                    &right
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_lowercase(),
+                )
+        })
     });
     Ok(entries)
 }
 
 #[tauri::command]
-fn list_project_files_page(project_id: i64, relative_path: String, offset: usize, limit: usize, state: State<AppState>) -> Result<ProjectFilePage, String> {
+fn list_project_files_page(
+    project_id: i64,
+    relative_path: String,
+    offset: usize,
+    limit: usize,
+    state: State<AppState>,
+) -> Result<ProjectFilePage, String> {
     let root = project_root(project_id, &state)?;
     let directory = safe_project_relative_path(&root, &relative_path)?;
-    if !directory.is_dir() { return Err("Path is not a folder".to_string()); }
+    if !directory.is_dir() {
+        return Err("Path is not a folder".to_string());
+    }
     let paths = sorted_project_directory_paths(&root, &directory)?;
     let page_size = limit.clamp(1, 100);
     let has_more = offset.saturating_add(page_size) < paths.len();
-    let entries = paths.into_iter().skip(offset).take(page_size).filter_map(|path| project_file_tree_entry(&root, &path).ok()).collect();
+    let entries = paths
+        .into_iter()
+        .skip(offset)
+        .take(page_size)
+        .filter_map(|path| project_file_tree_entry(&root, &path).ok())
+        .collect();
     Ok(ProjectFilePage { entries, has_more })
 }
 
 #[tauri::command]
-fn list_project_files(project_id: i64, relative_path: String, state: State<AppState>) -> Result<Vec<ProjectFileEntry>, String> {
+fn list_project_files(
+    project_id: i64,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<Vec<ProjectFileEntry>, String> {
     let root = project_root(project_id, &state)?;
     let directory = safe_project_relative_path(&root, &relative_path)?;
     if !directory.is_dir() {
@@ -3327,48 +3563,265 @@ fn list_project_files(project_id: i64, relative_path: String, state: State<AppSt
         .map_err(|error| error.to_string())?
         .filter_map(Result::ok)
         .filter_map(|entry| {
-            if entry.file_name().to_string_lossy() == ".git" { return None; }
+            if entry.file_name().to_string_lossy() == ".git" {
+                return None;
+            }
             let path = entry.path();
             let canonical = path.canonicalize().ok()?;
-            if !canonical.starts_with(&root) { return None; }
+            if !canonical.starts_with(&root) {
+                return None;
+            }
             project_file_entry(&root, &path).ok()
         })
         .collect::<Vec<_>>();
-    entries.sort_by(|left, right| right.is_directory.cmp(&left.is_directory).then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())));
+    entries.sort_by(|left, right| {
+        right
+            .is_directory
+            .cmp(&left.is_directory)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
     Ok(entries)
 }
 
 #[tauri::command]
-fn get_project_file_info(project_id: i64, relative_path: String, state: State<AppState>) -> Result<ProjectFileEntry, String> {
+fn get_project_file_info(
+    project_id: i64,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<ProjectFileEntry, String> {
     let root = project_root(project_id, &state)?;
     let path = safe_project_relative_path(&root, &relative_path)?;
     project_file_entry(&root, &path)
 }
 
 #[tauri::command]
-fn project_file_exists(project_id: i64, relative_path: String, state: State<AppState>) -> Result<bool, String> {
+fn project_file_exists(
+    project_id: i64,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<bool, String> {
     let root = project_root(project_id, &state)?;
     let relative = Path::new(&relative_path);
-    if relative.is_absolute() || relative.components().any(|component| !matches!(component, Component::Normal(_))) {
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
         return Err("Invalid project-relative path".to_string());
     }
     let candidate = root.join(relative);
     if !candidate.exists() {
         return Ok(false);
     }
-    let canonical = candidate.canonicalize().map_err(|error| error.to_string())?;
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
     Ok(canonical.starts_with(root))
 }
 
-#[tauri::command]
-fn create_project_file(project_id: i64, parent_relative_path: String, name: String, state: State<AppState>) -> Result<(), String> {
-    let root = project_root(project_id, &state)?;
-    let target = safe_new_entry_path(&root, &parent_relative_path, &name)?;
-    fs::File::create(target).map(|_| ()).map_err(|error| error.to_string())
+#[derive(QueryableByName)]
+struct StoredProjectTypeId {
+    #[diesel(sql_type = Text)]
+    project_type_id: String,
+}
+
+fn stored_folder_project_types(
+    project_id: i64,
+    relative_path: &str,
+    state: &AppState,
+) -> Result<Vec<String>, String> {
+    let mut conn = connect(&state.paths)?;
+    sql_query(format!(
+        "SELECT project_type_id FROM folder_dev_project_types WHERE project_id = {} AND relative_path = '{}' ORDER BY project_type_id",
+        project_id,
+        quote_sql(relative_path),
+    ))
+    .load::<StoredProjectTypeId>(&mut conn)
+    .map(|rows| rows.into_iter().map(|row| row.project_type_id).collect())
+    .map_err(|error| error.to_string())
+}
+
+fn dev_folder_root(
+    project_id: i64,
+    relative_path: &str,
+    state: &AppState,
+) -> Result<(PathBuf, PathBuf), String> {
+    let project_root = project_root(project_id, state)?;
+    let folder_root = safe_project_relative_path(&project_root, relative_path)?;
+    if !folder_root.is_dir() {
+        return Err("Path is not a folder".to_string());
+    }
+    Ok((project_root, folder_root))
 }
 
 #[tauri::command]
-fn create_project_folder(project_id: i64, parent_relative_path: String, name: String, state: State<AppState>) -> Result<(), String> {
+fn list_dev_project_types() -> Vec<DevProjectType> {
+    dev_cache::list_project_types()
+}
+
+#[tauri::command]
+fn scan_dev_project_types(
+    project_id: i64,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<DevProjectTypeScan, String> {
+    let (_, folder_root) = dev_folder_root(project_id, &relative_path, &state)?;
+    Ok(dev_cache::scan_project_types(&folder_root))
+}
+
+#[tauri::command]
+fn get_folder_dev_project_types(
+    project_id: i64,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<Vec<String>, String> {
+    let _ = dev_folder_root(project_id, &relative_path, &state)?;
+    stored_folder_project_types(project_id, &relative_path, &state)
+}
+
+#[tauri::command]
+fn set_folder_dev_project_types(
+    project_id: i64,
+    relative_path: String,
+    project_type_ids: Vec<String>,
+    state: State<AppState>,
+) -> Result<Vec<String>, String> {
+    let _ = dev_folder_root(project_id, &relative_path, &state)?;
+    let known_ids = dev_cache::list_project_types()
+        .into_iter()
+        .map(|item| item.id)
+        .collect::<HashSet<_>>();
+    let unique_ids = project_type_ids.into_iter().collect::<BTreeSet<_>>();
+    if unique_ids.iter().any(|id| !known_ids.contains(id)) {
+        return Err("Unknown development project type".to_string());
+    }
+    let mut conn = connect(&state.paths)?;
+    conn.batch_execute("BEGIN IMMEDIATE TRANSACTION;")
+        .map_err(|error| error.to_string())?;
+    let result = (|| {
+        sql_query(format!(
+            "DELETE FROM folder_dev_project_types WHERE project_id = {} AND relative_path = '{}'",
+            project_id,
+            quote_sql(&relative_path)
+        ))
+        .execute(&mut conn)
+        .map_err(|error| error.to_string())?;
+        let timestamp = now();
+        for id in &unique_ids {
+            sql_query(format!(
+                "INSERT INTO folder_dev_project_types (project_id, relative_path, project_type_id, created_at, updated_at) VALUES ({}, '{}', '{}', '{}', '{}')",
+                project_id, quote_sql(&relative_path), quote_sql(id), timestamp, timestamp,
+            )).execute(&mut conn).map_err(|error| error.to_string())?;
+        }
+        Ok::<(), String>(())
+    })();
+    match result {
+        Ok(()) => conn
+            .batch_execute("COMMIT;")
+            .map_err(|error| error.to_string())?,
+        Err(error) => {
+            let _ = conn.batch_execute("ROLLBACK;");
+            return Err(error);
+        }
+    }
+    Ok(unique_ids.into_iter().collect())
+}
+
+#[tauri::command]
+fn scan_dev_cache(
+    project_id: i64,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<Vec<DevCacheCandidate>, String> {
+    let (_, folder_root) = dev_folder_root(project_id, &relative_path, &state)?;
+    let type_ids = stored_folder_project_types(project_id, &relative_path, &state)?;
+    Ok(dev_cache::scan_cache(&folder_root, &type_ids))
+}
+
+#[tauri::command]
+fn clean_dev_cache(
+    project_id: i64,
+    relative_path: String,
+    candidate_ids: Vec<String>,
+    state: State<AppState>,
+) -> Result<DevCacheCleanResult, String> {
+    let (project_root, folder_root) = dev_folder_root(project_id, &relative_path, &state)?;
+    let folder_canonical = folder_root
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let project_canonical = project_root
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let type_ids = stored_folder_project_types(project_id, &relative_path, &state)?;
+    let candidates = dev_cache::scan_cache(&folder_root, &type_ids);
+    let requested = candidate_ids.into_iter().collect::<HashSet<_>>();
+    let mut deleted_ids = Vec::new();
+    let mut failed_items = Vec::new();
+    let mut freed_bytes = 0;
+    for id in requested {
+        let Some(candidate) = dev_cache::resolve_candidate(&candidates, &id) else {
+            failed_items.push(DevCacheCleanFailure {
+                id,
+                relative_path: String::new(),
+                error: "Candidate is no longer available".to_string(),
+            });
+            continue;
+        };
+        let path = folder_root.join(&candidate.relative_path);
+        let validation = (|| {
+            let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err("Candidate is not a removable directory".to_string());
+            }
+            let canonical = path.canonicalize().map_err(|error| error.to_string())?;
+            if canonical == folder_canonical
+                || !canonical.starts_with(&folder_canonical)
+                || !canonical.starts_with(&project_canonical)
+            {
+                return Err("Candidate must remain inside the selected project folder".to_string());
+            }
+            fs::remove_dir_all(&canonical).map_err(|error| error.to_string())
+        })();
+        match validation {
+            Ok(()) => {
+                freed_bytes += candidate.size_bytes;
+                deleted_ids.push(candidate.id.clone());
+            }
+            Err(error) => failed_items.push(DevCacheCleanFailure {
+                id: candidate.id.clone(),
+                relative_path: candidate.relative_path.clone(),
+                error,
+            }),
+        }
+    }
+    Ok(DevCacheCleanResult {
+        deleted_ids,
+        failed_items,
+        freed_bytes,
+    })
+}
+
+#[tauri::command]
+fn create_project_file(
+    project_id: i64,
+    parent_relative_path: String,
+    name: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let root = project_root(project_id, &state)?;
+    let target = safe_new_entry_path(&root, &parent_relative_path, &name)?;
+    fs::File::create(target)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn create_project_folder(
+    project_id: i64,
+    parent_relative_path: String,
+    name: String,
+    state: State<AppState>,
+) -> Result<(), String> {
     let root = project_root(project_id, &state)?;
     let target = safe_new_entry_path(&root, &parent_relative_path, &name)?;
     fs::create_dir(target).map_err(|error| error.to_string())
@@ -3388,55 +3841,136 @@ fn copy_path(source: &Path, target: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn paste_project_file(project_id: i64, source_relative_path: String, target_relative_path: String, cut: bool, state: State<AppState>) -> Result<(), String> {
+fn paste_project_file(
+    project_id: i64,
+    source_relative_path: String,
+    target_relative_path: String,
+    cut: bool,
+    state: State<AppState>,
+) -> Result<(), String> {
     let root = project_root(project_id, &state)?;
     let source = safe_project_relative_path(&root, &source_relative_path)?;
     let target_folder = safe_project_relative_path(&root, &target_relative_path)?;
-    if !target_folder.is_dir() { return Err("Paste target is not a folder".to_string()); }
-    if source.is_dir() && target_folder.starts_with(&source) { return Err("Cannot paste a folder inside itself".to_string()); }
-    let target = target_folder.join(source.file_name().ok_or_else(|| "Invalid source".to_string())?);
-    if target.exists() { return Err("An item with this name already exists".to_string()); }
-    if cut { fs::rename(source, target).map_err(|error| error.to_string()) } else { copy_path(&source, &target) }
+    if !target_folder.is_dir() {
+        return Err("Paste target is not a folder".to_string());
+    }
+    if source.is_dir() && target_folder.starts_with(&source) {
+        return Err("Cannot paste a folder inside itself".to_string());
+    }
+    let target = target_folder.join(
+        source
+            .file_name()
+            .ok_or_else(|| "Invalid source".to_string())?,
+    );
+    if target.exists() {
+        return Err("An item with this name already exists".to_string());
+    }
+    if cut {
+        fs::rename(source, target).map_err(|error| error.to_string())
+    } else {
+        copy_path(&source, &target)
+    }
 }
 
 #[tauri::command]
-fn rename_project_file(project_id: i64, relative_path: String, name: String, state: State<AppState>) -> Result<(), String> {
+fn rename_project_file(
+    project_id: i64,
+    relative_path: String,
+    name: String,
+    state: State<AppState>,
+) -> Result<(), String> {
     let root = project_root(project_id, &state)?;
     let source = safe_project_relative_path(&root, &relative_path)?;
-    let parent_relative = Path::new(&relative_path).parent().and_then(Path::to_str).unwrap_or("");
+    let parent_relative = Path::new(&relative_path)
+        .parent()
+        .and_then(Path::to_str)
+        .unwrap_or("");
     let target = safe_new_entry_path(&root, parent_relative, &name)?;
-    fs::rename(source, target).map_err(|error| error.to_string())
+    fs::rename(source, &target).map_err(|error| error.to_string())?;
+    let target_relative = target
+        .strip_prefix(&root)
+        .map_err(|error| error.to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let mut conn = connect(&state.paths)?;
+    sql_query(format!(
+        "UPDATE folder_dev_project_types SET relative_path = '{}' || substr(relative_path, {}), updated_at = '{}' WHERE project_id = {} AND (relative_path = '{}' OR substr(relative_path, 1, {}) = '{}/')",
+        quote_sql(&target_relative), relative_path.len() + 1, now(), project_id, quote_sql(&relative_path), relative_path.len() + 1, quote_sql(&relative_path),
+    )).execute(&mut conn).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
-fn delete_project_file(project_id: i64, relative_path: String, state: State<AppState>) -> Result<(), String> {
+fn delete_project_file(
+    project_id: i64,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<(), String> {
     let root = project_root(project_id, &state)?;
     let target = safe_project_relative_path(&root, &relative_path)?;
-    if target == root { return Err("The project root cannot be deleted".to_string()); }
-    if target.is_dir() { fs::remove_dir_all(target) } else { fs::remove_file(target) }.map_err(|error| error.to_string())
+    if target == root {
+        return Err("The project root cannot be deleted".to_string());
+    }
+    if target.is_dir() {
+        fs::remove_dir_all(target)
+    } else {
+        fs::remove_file(target)
+    }
+    .map_err(|error| error.to_string())?;
+    let mut conn = connect(&state.paths)?;
+    sql_query(format!(
+        "DELETE FROM folder_dev_project_types WHERE project_id = {} AND (relative_path = '{}' OR substr(relative_path, 1, {}) = '{}/')",
+        project_id, quote_sql(&relative_path), relative_path.len() + 1, quote_sql(&relative_path),
+    )).execute(&mut conn).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
-async fn reveal_project_file(project_id: i64, relative_path: String, state: State<'_, AppState>) -> Result<(), String> {
+async fn reveal_project_file(
+    project_id: i64,
+    relative_path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let root = project_root(project_id, &state)?;
     let path = safe_project_relative_path(&root, &relative_path)?;
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "windows")]
         let mut command = {
             let mut command = Command::new("explorer.exe");
-            if path.is_file() { command.arg(format!("/select,{}", path.to_string_lossy())); } else { command.arg(path); }
+            if path.is_file() {
+                command.arg(format!("/select,{}", path.to_string_lossy()));
+            } else {
+                command.arg(path);
+            }
             command
         };
         #[cfg(target_os = "macos")]
-        let mut command = { let mut command = Command::new("open"); command.arg(path); command };
+        let mut command = {
+            let mut command = Command::new("open");
+            command.arg(path);
+            command
+        };
         #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-        let mut command = { let mut command = Command::new("xdg-open"); command.arg(path); command };
-        command.spawn().map(|_| ()).map_err(|error| error.to_string())
-    }).await.map_err(|error| error.to_string())?
+        let mut command = {
+            let mut command = Command::new("xdg-open");
+            command.arg(path);
+            command
+        };
+        command
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-async fn open_project_file(project_id: i64, relative_path: String, state: State<'_, AppState>) -> Result<(), String> {
+async fn open_project_file(
+    project_id: i64,
+    relative_path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let root = project_root(project_id, &state)?;
     let path = safe_project_relative_path(&root, &relative_path)?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -3448,27 +3982,62 @@ async fn open_project_file(project_id: i64, relative_path: String, state: State<
             command
         };
         #[cfg(target_os = "macos")]
-        let mut command = { let mut command = Command::new("open"); command.arg(path); command };
+        let mut command = {
+            let mut command = Command::new("open");
+            command.arg(path);
+            command
+        };
         #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-        let mut command = { let mut command = Command::new("xdg-open"); command.arg(path); command };
-        command.spawn().map(|_| ()).map_err(|error| error.to_string())
-    }).await.map_err(|error| error.to_string())?
+        let mut command = {
+            let mut command = Command::new("xdg-open");
+            command.arg(path);
+            command
+        };
+        command
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-fn read_project_file(project_id: i64, relative_path: String, state: State<AppState>) -> Result<ProjectFileContent, String> {
+fn read_project_file(
+    project_id: i64,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<ProjectFileContent, String> {
     let root = project_root(project_id, &state)?;
     let path = safe_project_relative_path(&root, &relative_path)?;
     let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
-    if metadata.is_dir() { return Err("Folders cannot be viewed".to_string()); }
-    if metadata.len() > 20 * 1024 * 1024 { return Err("Files larger than 20 MB cannot be viewed".to_string()); }
+    if metadata.is_dir() {
+        return Err("Folders cannot be viewed".to_string());
+    }
+    if metadata.len() > 20 * 1024 * 1024 {
+        return Err("Files larger than 20 MB cannot be viewed".to_string());
+    }
     let mime = MimeGuess::from_path(&path).first_or_octet_stream();
     if mime.type_().as_str() == "image" {
         let bytes = fs::read(path).map_err(|error| error.to_string())?;
-        return Ok(ProjectFileContent { file_kind: "image".to_string(), content: None, data_url: Some(format!("data:{};base64,{}", mime.essence_str(), BASE64_STANDARD.encode(bytes))) });
+        return Ok(ProjectFileContent {
+            file_kind: "image".to_string(),
+            content: None,
+            data_url: Some(format!(
+                "data:{};base64,{}",
+                mime.essence_str(),
+                BASE64_STANDARD.encode(bytes)
+            )),
+        });
     }
-    if !is_text_file(&path, &metadata) { return Err("This binary file cannot be viewed internally".to_string()); }
-    Ok(ProjectFileContent { file_kind: "text".to_string(), content: Some(fs::read_to_string(path).map_err(|error| error.to_string())?), data_url: None })
+    if !is_text_file(&path, &metadata) {
+        return Err("This binary file cannot be viewed internally".to_string());
+    }
+    Ok(ProjectFileContent {
+        file_kind: "text".to_string(),
+        content: Some(fs::read_to_string(path).map_err(|error| error.to_string())?),
+        data_url: None,
+    })
 }
 
 #[tauri::command]
@@ -3731,12 +4300,18 @@ fn load_flow_detail(conn: &mut SqliteConnection, id: i64) -> Result<FlowDetail, 
     let flow = sql_query(format!("SELECT * FROM flows WHERE id = {}", id))
         .get_result::<Flow>(conn)
         .map_err(|error| error.to_string())?;
-    let nodes = sql_query(format!("SELECT * FROM flow_nodes WHERE flow_id = {} ORDER BY id ASC", id))
-        .load::<FlowNode>(conn)
-        .map_err(|error| error.to_string())?;
-    let edges = sql_query(format!("SELECT * FROM flow_edges WHERE flow_id = {} ORDER BY id ASC", id))
-        .load::<FlowEdge>(conn)
-        .map_err(|error| error.to_string())?;
+    let nodes = sql_query(format!(
+        "SELECT * FROM flow_nodes WHERE flow_id = {} ORDER BY id ASC",
+        id
+    ))
+    .load::<FlowNode>(conn)
+    .map_err(|error| error.to_string())?;
+    let edges = sql_query(format!(
+        "SELECT * FROM flow_edges WHERE flow_id = {} ORDER BY id ASC",
+        id
+    ))
+    .load::<FlowEdge>(conn)
+    .map_err(|error| error.to_string())?;
     Ok(FlowDetail { flow, nodes, edges })
 }
 
@@ -3748,7 +4323,11 @@ fn validate_flow_graph(nodes: &[FlowNodeInput], edges: &[FlowEdgeInput]) -> Resu
         }
     }
     if nodes.is_empty() {
-        return if edges.is_empty() { Ok(()) } else { Err("An empty flow cannot have connections".to_string()) };
+        return if edges.is_empty() {
+            Ok(())
+        } else {
+            Err("An empty flow cannot have connections".to_string())
+        };
     }
     let mut incoming = HashMap::<&str, usize>::new();
     let mut outgoing = HashMap::<&str, Vec<&str>>::new();
@@ -3758,7 +4337,10 @@ fn validate_flow_graph(nodes: &[FlowNodeInput], edges: &[FlowEdgeInput]) -> Resu
         if edge.id.trim().is_empty() || !edge_ids.insert(edge.id.as_str()) {
             return Err("Each connection needs a unique id".to_string());
         }
-        if edge.source_node_id == edge.target_node_id || !ids.contains(edge.source_node_id.as_str()) || !ids.contains(edge.target_node_id.as_str()) {
+        if edge.source_node_id == edge.target_node_id
+            || !ids.contains(edge.source_node_id.as_str())
+            || !ids.contains(edge.target_node_id.as_str())
+        {
             return Err("Connections must join two different nodes in this flow".to_string());
         }
         let pair = if edge.source_node_id < edge.target_node_id {
@@ -3770,21 +4352,32 @@ fn validate_flow_graph(nodes: &[FlowNodeInput], edges: &[FlowEdgeInput]) -> Resu
             return Err("Only one connection can exist between a pair of flow nodes".to_string());
         }
         *incoming.entry(edge.target_node_id.as_str()).or_insert(0) += 1;
-        outgoing.entry(edge.source_node_id.as_str()).or_default().push(edge.target_node_id.as_str());
+        outgoing
+            .entry(edge.source_node_id.as_str())
+            .or_default()
+            .push(edge.target_node_id.as_str());
     }
-    let mut ready = ids.iter().copied().filter(|id| !incoming.contains_key(*id)).collect::<Vec<_>>();
+    let mut ready = ids
+        .iter()
+        .copied()
+        .filter(|id| !incoming.contains_key(*id))
+        .collect::<Vec<_>>();
     let mut visited = 0;
     while let Some(current) = ready.pop() {
         visited += 1;
         for next in outgoing.get(current).into_iter().flatten() {
-            let degree = incoming.get_mut(next).expect("target node must have an incoming edge");
+            let degree = incoming
+                .get_mut(next)
+                .expect("target node must have an incoming edge");
             *degree -= 1;
             if *degree == 0 {
                 ready.push(next);
             }
         }
     }
-    if visited != nodes.len() { return Err("The flow contains a cycle".to_string()); }
+    if visited != nodes.len() {
+        return Err("The flow contains a cycle".to_string());
+    }
     Ok(())
 }
 
@@ -3794,9 +4387,11 @@ fn list_flows(project_id: i64, state: State<AppState>) -> Result<Vec<FlowSummary
     sql_query(format!(
         "SELECT f.id, f.project_id, f.name, f.created_at, f.updated_at, COUNT(n.id) AS node_count
          FROM flows f LEFT JOIN flow_nodes n ON n.flow_id = f.id
-         WHERE f.project_id = {} GROUP BY f.id ORDER BY f.updated_at DESC, f.id DESC", project_id
+         WHERE f.project_id = {} GROUP BY f.id ORDER BY f.updated_at DESC, f.id DESC",
+        project_id
     ))
-    .load::<FlowSummary>(&mut conn).map_err(|error| error.to_string())
+    .load::<FlowSummary>(&mut conn)
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -3807,62 +4402,116 @@ fn get_flow(id: i64, state: State<AppState>) -> Result<FlowDetail, String> {
 #[tauri::command]
 fn create_flow(input: FlowInput, state: State<AppState>) -> Result<Flow, String> {
     let name = input.name.trim();
-    if name.is_empty() { return Err("Flow name is required".to_string()); }
+    if name.is_empty() {
+        return Err("Flow name is required".to_string());
+    }
     let mut conn = connect(&state.paths)?;
-    let exists = sql_query(format!("SELECT * FROM projects WHERE id = {}", input.project_id)).get_result::<Project>(&mut conn).optional().map_err(|error| error.to_string())?;
-    if exists.is_none() { return Err("Project not found".to_string()); }
+    let exists = sql_query(format!(
+        "SELECT * FROM projects WHERE id = {}",
+        input.project_id
+    ))
+    .get_result::<Project>(&mut conn)
+    .optional()
+    .map_err(|error| error.to_string())?;
+    if exists.is_none() {
+        return Err("Project not found".to_string());
+    }
     let timestamp = now();
     sql_query(format!("INSERT INTO flows (project_id, name, created_at, updated_at) VALUES ({}, '{}', '{}', '{}')", input.project_id, quote_sql(name), timestamp, timestamp))
         .execute(&mut conn).map_err(|error| error.to_string())?;
-    sql_query("SELECT * FROM flows WHERE id = last_insert_rowid()").get_result::<Flow>(&mut conn).map_err(|error| error.to_string())
+    sql_query("SELECT * FROM flows WHERE id = last_insert_rowid()")
+        .get_result::<Flow>(&mut conn)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 fn update_flow(id: i64, input: FlowUpdateInput, state: State<AppState>) -> Result<Flow, String> {
     let name = input.name.trim();
-    if name.is_empty() { return Err("Flow name is required".to_string()); }
+    if name.is_empty() {
+        return Err("Flow name is required".to_string());
+    }
     let mut conn = connect(&state.paths)?;
-    sql_query(format!("UPDATE flows SET name = '{}', updated_at = '{}' WHERE id = {}", quote_sql(name), now(), id))
-        .execute(&mut conn)
-        .map_err(|error| error.to_string())?;
+    sql_query(format!(
+        "UPDATE flows SET name = '{}', updated_at = '{}' WHERE id = {}",
+        quote_sql(name),
+        now(),
+        id
+    ))
+    .execute(&mut conn)
+    .map_err(|error| error.to_string())?;
     sql_query(format!("SELECT * FROM flows WHERE id = {}", id))
         .get_result::<Flow>(&mut conn)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn save_flow_graph(id: i64, input: FlowGraphInput, state: State<AppState>) -> Result<FlowDetail, String> {
+fn save_flow_graph(
+    id: i64,
+    input: FlowGraphInput,
+    state: State<AppState>,
+) -> Result<FlowDetail, String> {
     let name = input.name.trim();
-    if name.is_empty() { return Err("Flow name is required".to_string()); }
+    if name.is_empty() {
+        return Err("Flow name is required".to_string());
+    }
     validate_flow_graph(&input.nodes, &input.edges)?;
     let mut conn = connect(&state.paths)?;
-    let flow = sql_query(format!("SELECT * FROM flows WHERE id = {}", id)).get_result::<Flow>(&mut conn).map_err(|error| error.to_string())?;
+    let flow = sql_query(format!("SELECT * FROM flows WHERE id = {}", id))
+        .get_result::<Flow>(&mut conn)
+        .map_err(|error| error.to_string())?;
     for node in &input.nodes {
-        let command = sql_query(format!("SELECT * FROM commands WHERE id = {}", node.command_id)).get_result::<ProjectCommand>(&mut conn).optional().map_err(|error| error.to_string())?;
-        if command.map(|command| command.project_id) != Some(flow.project_id) { return Err("All flow commands must belong to the project".to_string()); }
+        let command = sql_query(format!(
+            "SELECT * FROM commands WHERE id = {}",
+            node.command_id
+        ))
+        .get_result::<ProjectCommand>(&mut conn)
+        .optional()
+        .map_err(|error| error.to_string())?;
+        if command.map(|command| command.project_id) != Some(flow.project_id) {
+            return Err("All flow commands must belong to the project".to_string());
+        }
     }
-    conn.batch_execute("BEGIN IMMEDIATE TRANSACTION;").map_err(|error| error.to_string())?;
+    conn.batch_execute("BEGIN IMMEDIATE TRANSACTION;")
+        .map_err(|error| error.to_string())?;
     let result = (|| -> Result<(), String> {
-        sql_query(format!("DELETE FROM flow_edges WHERE flow_id = {}", id)).execute(&mut conn).map_err(|error| error.to_string())?;
-        sql_query(format!("DELETE FROM flow_nodes WHERE flow_id = {}", id)).execute(&mut conn).map_err(|error| error.to_string())?;
+        sql_query(format!("DELETE FROM flow_edges WHERE flow_id = {}", id))
+            .execute(&mut conn)
+            .map_err(|error| error.to_string())?;
+        sql_query(format!("DELETE FROM flow_nodes WHERE flow_id = {}", id))
+            .execute(&mut conn)
+            .map_err(|error| error.to_string())?;
         for node in &input.nodes {
             sql_query(format!("INSERT INTO flow_nodes (id, flow_id, command_id, position_x, position_y) VALUES ('{}', {}, {}, {}, {})", quote_sql(&node.id), id, node.command_id, node.position_x, node.position_y)).execute(&mut conn).map_err(|error| error.to_string())?;
         }
         for edge in &input.edges {
             sql_query(format!("INSERT INTO flow_edges (id, flow_id, source_node_id, target_node_id) VALUES ('{}', {}, '{}', '{}')", quote_sql(&edge.id), id, quote_sql(&edge.source_node_id), quote_sql(&edge.target_node_id))).execute(&mut conn).map_err(|error| error.to_string())?;
         }
-        sql_query(format!("UPDATE flows SET name = '{}', updated_at = '{}' WHERE id = {}", quote_sql(name), now(), id)).execute(&mut conn).map_err(|error| error.to_string())?;
+        sql_query(format!(
+            "UPDATE flows SET name = '{}', updated_at = '{}' WHERE id = {}",
+            quote_sql(name),
+            now(),
+            id
+        ))
+        .execute(&mut conn)
+        .map_err(|error| error.to_string())?;
         Ok(())
     })();
-    if let Err(error) = result { let _ = conn.batch_execute("ROLLBACK;"); return Err(error); }
-    conn.batch_execute("COMMIT;").map_err(|error| error.to_string())?;
+    if let Err(error) = result {
+        let _ = conn.batch_execute("ROLLBACK;");
+        return Err(error);
+    }
+    conn.batch_execute("COMMIT;")
+        .map_err(|error| error.to_string())?;
     load_flow_detail(&mut conn, id)
 }
 
 #[tauri::command]
 fn delete_flow(id: i64, state: State<AppState>) -> Result<(), String> {
     let mut conn = connect(&state.paths)?;
-    sql_query(format!("DELETE FROM flows WHERE id = {}", id)).execute(&mut conn).map(|_| ()).map_err(|error| error.to_string())
+    sql_query(format!("DELETE FROM flows WHERE id = {}", id))
+        .execute(&mut conn)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -3877,7 +4526,8 @@ fn start_flow_node(
     let mut conn = connect(&state.paths)?;
     let node = sql_query(format!(
         "SELECT * FROM flow_nodes WHERE id = '{}' AND flow_id = {}",
-        quote_sql(&flow_node_id), flow_id
+        quote_sql(&flow_node_id),
+        flow_id
     ))
     .get_result::<FlowNode>(&mut conn)
     .optional()
@@ -3893,14 +4543,30 @@ fn start_flow_node(
     drop(conn);
 
     if command.runtime_mode == RUNTIME_MODE_INTERNAL_INTERACTIVE {
-        let session = start_interactive_command_instance(command.id, Some(&node.id), cols, rows, &app, &state)?;
-        let run = sql_query(format!("SELECT * FROM command_runs WHERE id = {}", session.run_id))
-            .get_result::<CommandRun>(&mut connect(&state.paths)?)
-            .map_err(|error| error.to_string())?;
-        Ok(FlowNodeRunStart { run, interactive_session: Some(session) })
+        let session = start_interactive_command_instance(
+            command.id,
+            Some(&node.id),
+            cols,
+            rows,
+            &app,
+            &state,
+        )?;
+        let run = sql_query(format!(
+            "SELECT * FROM command_runs WHERE id = {}",
+            session.run_id
+        ))
+        .get_result::<CommandRun>(&mut connect(&state.paths)?)
+        .map_err(|error| error.to_string())?;
+        Ok(FlowNodeRunStart {
+            run,
+            interactive_session: Some(session),
+        })
     } else {
         let run = start_non_interactive_command(command.id, Some(&node.id), &app, &state)?;
-        Ok(FlowNodeRunStart { run, interactive_session: None })
+        Ok(FlowNodeRunStart {
+            run,
+            interactive_session: None,
+        })
     }
 }
 
@@ -4138,12 +4804,18 @@ fn start_non_interactive_command(
     let mut conn = connect(&state.paths)?;
     mark_stale_running_runs(&mut conn, &state)?;
     let active_query = match flow_node_id {
-        Some(node_id) => format!("SELECT * FROM command_runs WHERE flow_node_id = '{}' AND status = 'running'", quote_sql(node_id)),
-        None => format!("SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'", command_id),
+        Some(node_id) => format!(
+            "SELECT * FROM command_runs WHERE flow_node_id = '{}' AND status = 'running'",
+            quote_sql(node_id)
+        ),
+        None => format!(
+            "SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'",
+            command_id
+        ),
     };
     let active_runs = sql_query(active_query)
-    .load::<CommandRun>(&mut conn)
-    .map_err(|error| error.to_string())?;
+        .load::<CommandRun>(&mut conn)
+        .map_err(|error| error.to_string())?;
     if !active_runs.is_empty() {
         return Err("This command is already running".to_string());
     }
@@ -4222,10 +4894,24 @@ fn start_non_interactive_command(
     );
 
     if let Some(stdout) = stdout {
-        spawn_output_reader(app.clone(), run.id, command_id, run.flow_node_id.clone(), stdout, "command://stdout");
+        spawn_output_reader(
+            app.clone(),
+            run.id,
+            command_id,
+            run.flow_node_id.clone(),
+            stdout,
+            "command://stdout",
+        );
     }
     if let Some(stderr) = stderr {
-        spawn_output_reader(app.clone(), run.id, command_id, run.flow_node_id.clone(), stderr, "command://stderr");
+        spawn_output_reader(
+            app.clone(),
+            run.id,
+            command_id,
+            run.flow_node_id.clone(),
+            stderr,
+            "command://stderr",
+        );
     }
 
     let paths = state.paths.clone();
@@ -4479,12 +5165,18 @@ fn start_interactive_command_instance(
     mark_stale_running_runs(&mut conn, &state)?;
 
     let active_query = match flow_node_id {
-        Some(node_id) => format!("SELECT * FROM command_runs WHERE flow_node_id = '{}' AND status = 'running'", quote_sql(node_id)),
-        None => format!("SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'", command_id),
+        Some(node_id) => format!(
+            "SELECT * FROM command_runs WHERE flow_node_id = '{}' AND status = 'running'",
+            quote_sql(node_id)
+        ),
+        None => format!(
+            "SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'",
+            command_id
+        ),
     };
     let active_runs = sql_query(active_query)
-    .load::<CommandRun>(&mut conn)
-    .map_err(|error| error.to_string())?;
+        .load::<CommandRun>(&mut conn)
+        .map_err(|error| error.to_string())?;
     if !active_runs.is_empty() {
         return Err("This command is already running".to_string());
     }
@@ -4616,7 +5308,9 @@ fn start_interactive_command_instance(
     let app_for_wait = app.clone();
     std::thread::spawn(move || {
         let wait_result = child.wait();
-        session_for_wait.lifecycle.store(INTERACTIVE_EXITED, Ordering::SeqCst);
+        session_for_wait
+            .lifecycle
+            .store(INTERACTIVE_EXITED, Ordering::SeqCst);
         let exit_code = wait_result.ok().and_then(interactive_exit_code);
         let was_stopped = app_for_wait
             .try_state::<AppState>()
@@ -4697,11 +5391,12 @@ fn start_project_interactive_terminal(
     }
 
     fs::create_dir_all(&state.paths.scripts_dir).map_err(|error| error.to_string())?;
-    let interactive_terminal_kind =
-        normalize_interactive_terminal_kind(Some(&terminal_kind));
+    let interactive_terminal_kind = normalize_interactive_terminal_kind(Some(&terminal_kind));
     let shell_script = match interactive_terminal_kind.as_str() {
         INTERACTIVE_TERMINAL_KIND_CMD => "@echo off\r\nchcp 65001>nul\r\ncmd /Q /K\r\n".to_string(),
-        INTERACTIVE_TERMINAL_KIND_BASH | INTERACTIVE_TERMINAL_KIND_WSL2 => "exec bash\n".to_string(),
+        INTERACTIVE_TERMINAL_KIND_BASH | INTERACTIVE_TERMINAL_KIND_WSL2 => {
+            "exec bash\n".to_string()
+        }
         INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE => "pwsh.exe -NoLogo\n".to_string(),
         _ => "powershell.exe -NoLogo\n".to_string(),
     };
@@ -4798,7 +5493,9 @@ fn start_project_interactive_terminal(
     let session_for_wait = session.clone();
     std::thread::spawn(move || {
         let wait_result = child.wait();
-        session_for_wait.lifecycle.store(INTERACTIVE_EXITED, Ordering::SeqCst);
+        session_for_wait
+            .lifecycle
+            .store(INTERACTIVE_EXITED, Ordering::SeqCst);
         let exit_code = wait_result.ok().and_then(interactive_exit_code);
         let was_stopped = app_for_wait
             .try_state::<AppState>()
@@ -4936,7 +5633,9 @@ fn stop_interactive_command(
 
     let kill_result = kill_interactive_process(&session);
     if let Err(error) = kill_result {
-        session.lifecycle.store(INTERACTIVE_RUNNING, Ordering::SeqCst);
+        session
+            .lifecycle
+            .store(INTERACTIVE_RUNNING, Ordering::SeqCst);
         state
             .stopped_runs
             .lock()
@@ -5775,6 +6474,12 @@ pub fn run() {
             list_project_files_page,
             get_project_file_info,
             project_file_exists,
+            list_dev_project_types,
+            scan_dev_project_types,
+            get_folder_dev_project_types,
+            set_folder_dev_project_types,
+            scan_dev_cache,
+            clean_dev_cache,
             create_project_file,
             create_project_folder,
             paste_project_file,
