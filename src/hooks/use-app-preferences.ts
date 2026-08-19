@@ -64,6 +64,9 @@ export function useAppPreferences() {
     const saved = localStorage.getItem("showStreamName");
     return saved === null ? true : saved === "true";
   });
+  const [allowMultipleExplorerItems, setAllowMultipleExplorerItems] = useState(() => {
+    return localStorage.getItem("explorerAllowMultipleOpen") === "true";
+  });
   const [motionLevel, setMotionLevel] = useState<MotionLevel>("off");
 
   useEffect(() => {
@@ -150,6 +153,10 @@ export function useAppPreferences() {
   }, [showStreamName]);
 
   useEffect(() => {
+    localStorage.setItem("explorerAllowMultipleOpen", String(allowMultipleExplorerItems));
+  }, [allowMultipleExplorerItems]);
+
+  useEffect(() => {
     localStorage.setItem("motionLevel", "off");
     document.documentElement.dataset.motion = "off";
     if (motionLevel !== "off") {
@@ -177,6 +184,8 @@ export function useAppPreferences() {
     setShowLogsTimestamp,
     showStreamName,
     setShowStreamName,
+    allowMultipleExplorerItems,
+    setAllowMultipleExplorerItems,
     motionLevel,
     setMotionLevel,
   };

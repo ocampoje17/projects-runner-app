@@ -1,9 +1,10 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createContext, forwardRef, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenText,
   Blocks,
   CalendarDays,
+  ChartColumnBig,
   Clipboard,
   ChevronDown,
   ChevronRight,
@@ -68,6 +69,8 @@ import { formatDateTime } from "@/lib/date-time";
 import { noteExcerpt, noteTitle, projectNoteVisibilityKey } from "@/lib/project-notes";
 import { cn } from "@/lib/utils";
 import { removePathPrefix, renamePathPrefix } from "@/lib/file-tree-paths";
+import { TabsOverlayScrollbar } from "./tabs-overlay-scrollbar";
+import { useHorizontalScroll } from "../hooks/use-horizontal-scroll";
 import { api, type Project, type ProjectCommand, type ProjectFlow } from "../lib/api";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import type { UpdateStatus } from "../hooks/use-app-updater";
@@ -112,19 +115,20 @@ const FILE_EXPLORER_SIDEBAR_KEY = "vscodeFileExplorerSidebar";
 const FILE_EXPLORER_PREFERENCES_KEY = "vscodeFileExplorerPreferences";
 
 type QuickAccessEntry = { projectId: number; relativePath: string; name: string; isDirectory: boolean };
-type FileExplorerPreferences = { quickAccess: QuickAccessEntry[]; detailsCollapsed: boolean; quickAccessCollapsed: boolean; detailsExpandedSize: number; quickAccessExpandedSize: number; panelLayout: Layout };
-const DEFAULT_FILE_EXPLORER_PREFERENCES: FileExplorerPreferences = { quickAccess: [], detailsCollapsed: false, quickAccessCollapsed: false, detailsExpandedSize: 25, quickAccessExpandedSize: 23, panelLayout: { "file-tree": 52, "file-details": 25, "quick-access": 23 } };
+type FileExplorerPreferences = { quickAccess: QuickAccessEntry[]; detailsCollapsed: boolean; quickAccessCollapsed: boolean; detailsExpandedSize: number; quickAccessExpandedSize: number; showSizeBars: boolean; panelLayout: Layout };
+const DEFAULT_FILE_EXPLORER_PREFERENCES: FileExplorerPreferences = { quickAccess: [], detailsCollapsed: false, quickAccessCollapsed: false, detailsExpandedSize: 25, quickAccessExpandedSize: 23, showSizeBars: false, panelLayout: { "file-tree": 52, "file-details": 25, "quick-access": 23 } };
 
 function readFileExplorerPreferences(): FileExplorerPreferences {
   if (typeof window === "undefined") return DEFAULT_FILE_EXPLORER_PREFERENCES;
   try {
-    const saved = JSON.parse(localStorage.getItem(FILE_EXPLORER_PREFERENCES_KEY) ?? "{}") as { quickAccess?: unknown; detailsCollapsed?: unknown; quickAccessCollapsed?: unknown; detailsExpandedSize?: unknown; quickAccessExpandedSize?: unknown; panelLayout?: unknown };
+    const saved = JSON.parse(localStorage.getItem(FILE_EXPLORER_PREFERENCES_KEY) ?? "{}") as { quickAccess?: unknown; detailsCollapsed?: unknown; quickAccessCollapsed?: unknown; detailsExpandedSize?: unknown; quickAccessExpandedSize?: unknown; showSizeBars?: unknown; panelLayout?: unknown };
     return {
       quickAccess: Array.isArray(saved.quickAccess) ? saved.quickAccess.filter((item: unknown): item is QuickAccessEntry => Boolean(item) && typeof (item as QuickAccessEntry).projectId === "number" && typeof (item as QuickAccessEntry).relativePath === "string" && typeof (item as QuickAccessEntry).name === "string" && typeof (item as QuickAccessEntry).isDirectory === "boolean") : [],
       detailsCollapsed: Boolean(saved.detailsCollapsed),
       quickAccessCollapsed: Boolean(saved.quickAccessCollapsed),
       detailsExpandedSize: typeof saved.detailsExpandedSize === "number" ? Math.max(18, saved.detailsExpandedSize) : DEFAULT_FILE_EXPLORER_PREFERENCES.detailsExpandedSize,
       quickAccessExpandedSize: typeof saved.quickAccessExpandedSize === "number" ? Math.max(14, saved.quickAccessExpandedSize) : DEFAULT_FILE_EXPLORER_PREFERENCES.quickAccessExpandedSize,
+      showSizeBars: Boolean(saved.showSizeBars),
       panelLayout: saved.panelLayout && typeof saved.panelLayout === "object" ? saved.panelLayout as Layout : DEFAULT_FILE_EXPLORER_PREFERENCES.panelLayout,
     };
   } catch {
@@ -563,7 +567,7 @@ function TreeItem({
     }
 
     function handlePointerDown(event: PointerEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) {
+      if (!menuRef.current?.contains(event.target as Node)) {
         setMenuState(null);
       }
     }
@@ -791,8 +795,8 @@ function useProjectDirectoryEntries(projectId: number | undefined, relativePath:
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setEntries([]);
     if (!enabled || !projectId) {
-      setEntries([]);
       setIsLoading(false);
       return;
     }
@@ -802,11 +806,13 @@ function useProjectDirectoryEntries(projectId: number | undefined, relativePath:
     const load = async () => {
       let offset = 0;
       let hasMore = true;
+      let loadedEntries: import("../lib/api").ProjectFileEntry[] = [];
       try {
         while (hasMore && !cancelled) {
           const page = await api.listProjectFilesPage(projectId, relativePath, offset, PROJECT_FILE_PAGE_SIZE);
           if (cancelled) return;
-          setEntries((current) => [...current, ...page.entries]);
+          loadedEntries = [...loadedEntries, ...page.entries];
+          setEntries(loadedEntries);
           offset += PROJECT_FILE_PAGE_SIZE;
           hasMore = page.has_more;
           if (hasMore) await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
@@ -818,7 +824,9 @@ function useProjectDirectoryEntries(projectId: number | undefined, relativePath:
       }
     };
     void load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [enabled, projectId, refreshVersion, relativePath]);
 
   return { entries, isLoading, error };
@@ -854,6 +862,93 @@ function ProjectFileIcon({ name, isDirectory }: { name: string; isDirectory: boo
   return <VscFile className="text-[#9cdcfe]" size={15} />;
 }
 
+const FileExplorerSizeContext = createContext<{
+  showSizeBars: boolean;
+  totalProjectSize: number;
+  registerSize: (path: string, size: number) => void;
+}>({
+  showSizeBars: false,
+  totalProjectSize: 0,
+  registerSize: () => {},
+});
+
+function ProjectItemSizeBar({
+  project,
+  entry,
+  refreshVersion,
+}: {
+  project: Project;
+  entry: import("../lib/api").ProjectFileEntry;
+  refreshVersion: number;
+}) {
+  const { showSizeBars, totalProjectSize, registerSize } = useContext(FileExplorerSizeContext);
+
+  const folderSizeQuery = useQuery({
+    queryKey: ["project-folder-size", project.id, entry.relative_path, refreshVersion],
+    queryFn: () => api.getProjectFolderSize(project.id, entry.relative_path),
+    enabled: showSizeBars && entry.is_directory,
+    staleTime: 60_000,
+  });
+
+  const sizeBytes = entry.is_directory ? (folderSizeQuery.data ?? null) : entry.size_bytes;
+
+  useEffect(() => {
+    if (sizeBytes !== null && sizeBytes > 0) {
+      registerSize(entry.relative_path, sizeBytes);
+    }
+  }, [sizeBytes, entry.relative_path, registerSize]);
+
+  if (!showSizeBars) return null;
+
+  const isLoading = entry.is_directory && folderSizeQuery.isPending;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-1.5 opacity-60">
+        <div className="h-1.5 w-12 overflow-hidden rounded-full bg-[var(--vscode-border)]">
+          <div className="h-full w-2/3 animate-pulse rounded-full bg-primary/40" />
+        </div>
+        <span className="w-12 text-right font-mono text-[10px] text-muted-foreground">…</span>
+      </div>
+    );
+  }
+
+  if (sizeBytes === null || sizeBytes === undefined) {
+    return null;
+  }
+
+  const rawRatio = totalProjectSize > 0 ? sizeBytes / totalProjectSize : 0;
+  const displayRatio = sizeBytes > 0 ? Math.min(1, Math.max(0.02, rawRatio)) : 0;
+  const percentage = Math.round(displayRatio * 100);
+  const percentageText = totalProjectSize > 0 ? `${((sizeBytes / totalProjectSize) * 100).toFixed(1)}%` : "—";
+
+  const barColor =
+    rawRatio > 0.5
+      ? "bg-rose-500/90 dark:bg-rose-400"
+      : rawRatio > 0.15
+        ? "bg-amber-500/90 dark:bg-amber-400"
+        : rawRatio > 0.03
+          ? "bg-sky-500/90 dark:bg-sky-400"
+          : "bg-primary/70";
+
+  return (
+    <div
+      className="flex items-center gap-1.5 select-none"
+      title={`Size: ${formatFileSize(sizeBytes)} (${sizeBytes.toLocaleString()} bytes)\n${percentageText} of project total (${formatFileSize(totalProjectSize)})`}
+    >
+      <div className="h-1.5 w-12 overflow-hidden rounded-full bg-[var(--vscode-border)]/60">
+        <div
+          className={cn("h-full rounded-full transition-all duration-300", barColor)}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <span className="min-w-[48px] text-right font-mono text-[10.5px] tracking-tight text-[var(--vscode-foreground)]/70">
+        {formatFileSize(sizeBytes)}
+      </span>
+    </div>
+  );
+}
+
 function ProjectFileTree({ project, entry, level, selectedPath, onSelect, clipboard, expandedPaths, onToggleExpanded, refreshVersion, onCreate, onCopy, onCut, onPaste, onRename, onDelete, onReveal, onOpenTerminal, onView, onOpenExternal, onToggleQuickAccess, onDevProjectTools, pinnedPaths }: {
   project: Project; entry: import("../lib/api").ProjectFileEntry; level: number; selectedPath: string; onSelect: (entry: import("../lib/api").ProjectFileEntry) => void; clipboard: FileClipboard; expandedPaths: Set<string>; onToggleExpanded: (path: string) => void;
   onCreate: (parentPath: string, kind: "file" | "folder") => void; onCopy: (path: string) => void; onCut: (path: string) => void; onPaste: (path: string) => void; onRename: (entry: import("../lib/api").ProjectFileEntry) => void; onDelete: (entry: import("../lib/api").ProjectFileEntry) => void; onReveal: (path: string) => void; onOpenTerminal: (relativeDirectoryPath: string) => void; onView: (entry: import("../lib/api").ProjectFileEntry) => void; onOpenExternal: (path: string) => void; onToggleQuickAccess: (entry: import("../lib/api").ProjectFileEntry) => void; onDevProjectTools: (request: DevProjectToolsRequest) => void; pinnedPaths: Set<string>; refreshVersion: number;
@@ -887,8 +982,32 @@ function ProjectFileTree({ project, entry, level, selectedPath, onSelect, clipbo
     { label: "Delete", icon: <Trash2 size={13} />, onSelect: () => onDelete(entry), tone: "danger" as const },
   ];
   return <div>
-    <TreeItem title={entry.name} level={level} active={selectedPath === entry.relative_path} icon={entry.is_directory ? (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <ProjectFileIcon name={entry.name} isDirectory={false} />} trailing={directoryEntries.isLoading ? <LoaderCircle size={12} className="animate-spin" /> : entry.line_count !== null ? <span className={cn(entry.line_count >= 1_000_000 ? "text-[var(--vscode-danger)]" : entry.line_count >= 1_000 ? "text-[#d7ba7d]" : "text-[var(--vscode-foreground)]/52")}>{formatCompactCount(entry.line_count)}</span> : undefined} onClick={() => { onSelect(entry); if (entry.is_directory) onToggleExpanded(entry.relative_path); }} onDoubleClick={() => { if (!entry.is_directory) onOpenExternal(entry.relative_path); }} menuItems={menuItems} />
-    {entry.is_directory && isExpanded ? <div>{directoryEntries.error ? <div className="px-3 py-1 text-[11px] text-[var(--vscode-danger)]" style={{ paddingLeft: `${24 + (level + 1) * 14}px` }}>{directoryEntries.error}</div> : null}{directoryEntries.entries.map((child) => <ProjectFileTree key={child.relative_path} project={project} entry={child} level={level + 1} selectedPath={selectedPath} onSelect={onSelect} clipboard={clipboard} expandedPaths={expandedPaths} onToggleExpanded={onToggleExpanded} refreshVersion={refreshVersion} onCreate={onCreate} onCopy={onCopy} onCut={onCut} onPaste={onPaste} onRename={onRename} onDelete={onDelete} onReveal={onReveal} onOpenTerminal={onOpenTerminal} onView={onView} onOpenExternal={onOpenExternal} onToggleQuickAccess={onToggleQuickAccess} onDevProjectTools={onDevProjectTools} pinnedPaths={pinnedPaths} />)}</div> : null}
+    <TreeItem
+      title={entry.name}
+      level={level}
+      active={selectedPath === entry.relative_path}
+      icon={entry.is_directory ? (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <ProjectFileIcon name={entry.name} isDirectory={false} />}
+      trailing={
+        <div className="flex items-center gap-2">
+          <ProjectItemSizeBar
+            project={project}
+            entry={entry}
+            refreshVersion={refreshVersion}
+          />
+          {directoryEntries.isLoading ? (
+            <LoaderCircle size={12} className="animate-spin" />
+          ) : entry.line_count !== null ? (
+            <span className={cn(entry.line_count >= 1_000_000 ? "text-[var(--vscode-danger)]" : entry.line_count >= 1_000 ? "text-[#d7ba7d]" : "text-[var(--vscode-foreground)]/52")}>
+              {formatCompactCount(entry.line_count)}
+            </span>
+          ) : undefined}
+        </div>
+      }
+      onClick={() => { onSelect(entry); if (entry.is_directory) onToggleExpanded(entry.relative_path); }}
+      onDoubleClick={() => { if (!entry.is_directory) onOpenExternal(entry.relative_path); }}
+      menuItems={menuItems}
+    />
+    {entry.is_directory && isExpanded ? <div>{directoryEntries.error ? <div className="px-3 py-1 text-[11px] text-[var(--vscode-danger)]" style={{ paddingLeft: `${24 + (level + 1) * 14}px` }}>{directoryEntries.error}</div> : null}{directoryEntries.entries.map((child) => <ProjectFileTree key={`${project.id}:${child.relative_path}`} project={project} entry={child} level={level + 1} selectedPath={selectedPath} onSelect={onSelect} clipboard={clipboard} expandedPaths={expandedPaths} onToggleExpanded={onToggleExpanded} refreshVersion={refreshVersion} onCreate={onCreate} onCopy={onCopy} onCut={onCut} onPaste={onPaste} onRename={onRename} onDelete={onDelete} onReveal={onReveal} onOpenTerminal={onOpenTerminal} onView={onView} onOpenExternal={onOpenExternal} onToggleQuickAccess={onToggleQuickAccess} onDevProjectTools={onDevProjectTools} pinnedPaths={pinnedPaths} />)}</div> : null}
   </div>;
 }
 
@@ -905,14 +1024,37 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
   const [missingQuickAccessEntry, setMissingQuickAccessEntry] = useState<QuickAccessEntry | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [preferences, setPreferences] = useState<FileExplorerPreferences>(() => readFileExplorerPreferences());
+  const [discoveredMaxSize, setDiscoveredMaxSize] = useState(1);
   const panelGroupRef = useRef<GroupImperativeHandle | null>(null);
   const panelGroupElementRef = useRef<HTMLDivElement | null>(null);
   const quickAccessValidationRequest = useRef(0);
   const rootDirectory = useProjectDirectoryEntries(project?.id, "", Boolean(project), refreshVersion);
+
+  const registerSize = useCallback((_path: string, size: number) => {
+    if (size > 0) {
+      setDiscoveredMaxSize((prev) => Math.max(prev, size));
+    }
+  }, []);
+
+  const projectTotalSizeQuery = useQuery({
+    queryKey: ["project-folder-size", project?.id, "", refreshVersion],
+    queryFn: () => api.getProjectFolderSize(project!.id, ""),
+    enabled: Boolean(project && preferences.showSizeBars),
+    staleTime: 60_000,
+  });
+
+  const totalProjectSize = Math.max(projectTotalSizeQuery.data ?? 0, discoveredMaxSize, 1);
+
+  const sizeContextValue = useMemo(() => ({
+    showSizeBars: preferences.showSizeBars,
+    totalProjectSize,
+    registerSize,
+  }), [preferences.showSizeBars, totalProjectSize, registerSize]);
+
   const selectedInfoQuery = useQuery({
     queryKey: ["project-file-info", project?.id, selectedPath ?? ""],
     queryFn: () => api.getProjectFileInfo(project!.id, selectedPath ?? ""),
-    enabled: Boolean(project),
+    enabled: Boolean(project && selectedPath !== null),
   });
   const invalidate = async () => {
     setRefreshVersion((current) => current + 1);
@@ -926,6 +1068,7 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
       }
     }
     await queryClient.invalidateQueries({ queryKey: ["project-file-info", project.id] });
+    await queryClient.invalidateQueries({ queryKey: ["project-folder-size", project.id] });
   };
   const run = (operation: Promise<unknown>) => void operation.then(invalidate).catch((value: unknown) => setError(value instanceof Error ? value.message : "File operation failed."));
   useEffect(() => { setError(null); setClipboard(null); setSelectedPath(null); setSelectedQuickAccessPath(null); setMissingQuickAccessEntry(null); setExpandedPaths(new Set()); setDevProjectToolsRequest(null); quickAccessValidationRequest.current += 1; }, [project?.id]);
@@ -1021,31 +1164,36 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
   const toggleQuickAccessPanel = () => {
     setPreferences((current) => ({ ...current, quickAccessCollapsed: !current.quickAccessCollapsed }));
   };
+  const toggleSizeBars = () => {
+    setPreferences((current) => ({ ...current, showSizeBars: !current.showSizeBars }));
+  };
   const toggleExpanded = (path: string) => setExpandedPaths((current) => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next; });
-  return <div className="flex min-h-0 flex-1 flex-col">
-    <div onContextMenu={(event) => { event.preventDefault(); setRootMenu({ x: event.clientX, y: event.clientY }); }} className="flex items-center justify-between border-b border-[var(--vscode-border)] px-3 py-2"><span className="flex min-w-0 items-center gap-2 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/62">{project.name}{rootDirectory.isLoading ? <LoaderCircle size={12} className="shrink-0 animate-spin" /> : null}</span><div className="flex items-center gap-0.5"><Tooltip content="New File"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => create("", "file")}><FilePlus size={14} /></button></Tooltip><Tooltip content="New Folder"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => create("", "folder")}><FolderPlus size={14} /></button></Tooltip><Tooltip content="Refresh Explorer"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => void invalidate()}><RefreshCw size={14} /></button></Tooltip><Tooltip content="Collapse All"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => setExpandedPaths(new Set())}><ChevronsUp size={14} /></button></Tooltip></div></div>
-    <Group orientation="vertical" groupRef={panelGroupRef} elementRef={panelGroupElementRef} defaultLayout={preferences.panelLayout} onLayoutChanged={(panelLayout) => setPreferences((current) => ({ ...current, panelLayout }))} className="min-h-0 flex-1">
-      <Panel id="file-tree" minSize="35%" className="min-h-0 overflow-y-auto px-2 py-2">
-        {error ? <div className="mb-2 text-[11px] text-[var(--vscode-danger)]">{error}</div> : null}
-        {rootDirectory.error ? <div className="mb-2 text-[11px] text-[var(--vscode-danger)]">{rootDirectory.error}</div> : null}
-        {rootDirectory.entries.map((entry) => <ProjectFileTree key={entry.relative_path} project={project} entry={entry} level={0} selectedPath={selectedPath ?? ""} onSelect={selectEntry} clipboard={clipboard} expandedPaths={expandedPaths} onToggleExpanded={toggleExpanded} refreshVersion={refreshVersion} onCreate={create} onCopy={(relativePath) => setClipboard({ relativePath, cut: false })} onCut={(relativePath) => setClipboard({ relativePath, cut: true })} onPaste={paste} onRename={rename} onDelete={setDeleteTarget} onReveal={(relativePath) => void api.revealProjectFile(project.id, relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to reveal item."))} onOpenTerminal={onOpenTerminal} onView={(entry) => { if (!entry.is_directory) onView(entry.relative_path); }} onOpenExternal={(relativePath) => void api.openProjectFile(project.id, relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to open item."))} onToggleQuickAccess={toggleQuickAccess} onDevProjectTools={setDevProjectToolsRequest} pinnedPaths={pinnedPaths} />)}
-      </Panel>
-      <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
-      <Panel id="file-details" defaultSize="25%" minSize="18%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.detailsCollapsed || Math.abs(current.detailsExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, detailsExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.detailsCollapsed ? { overflow: "hidden" } : undefined}>
-        <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55"><span>Details</span><button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleDetailsPanel} aria-label="Toggle details"><ChevronDown size={14} className={cn(preferences.detailsCollapsed && "-rotate-90")} /></button></div>
-        {!preferences.detailsCollapsed ? <div className="overflow-y-auto px-3 pb-3">{selectedInfoQuery.isPending ? <div className="flex items-center gap-2 text-[11px] text-[var(--vscode-foreground)]/55"><LoaderCircle size={12} className="animate-spin" />Loading details…</div> : selectedInfoError ? <div className="text-[11px] text-[var(--vscode-danger)]">{selectedInfoError}</div> : selectedInfo ? <div className="grid gap-1.5 text-[11px] text-[var(--vscode-foreground)]/72"><div className="flex items-center gap-2 truncate font-medium text-foreground"><ProjectFileIcon name={selectedInfo.name} isDirectory={selectedInfo.is_directory} />{selectedInfo.name || project.name}</div><FileDetailRow icon={selectedInfo.file_kind === "folder" ? <Folder size={13} /> : <FileText size={13} />}>{selectedInfo.file_kind === "folder" ? "Folder" : `${selectedInfo.file_kind === "text" ? "Text" : "Binary"} file`}</FileDetailRow><FileDetailRow icon={<HardDrive size={13} />}>Size: {formatFileSize(selectedInfo.size_bytes)} ({selectedInfo.size_bytes.toLocaleString()} bytes)</FileDetailRow>{selectedInfo.file_kind === "folder" ? <FileDetailRow icon={<Folder size={13} />}>{selectedInfo.child_folder_count.toLocaleString()} folders · {selectedInfo.child_file_count.toLocaleString()} files</FileDetailRow> : null}{selectedInfo.line_count !== null ? <FileDetailRow icon={<List size={13} />}>Lines: {selectedInfo.line_count.toLocaleString()}</FileDetailRow> : null}<FileDetailRow icon={<CalendarDays size={13} />}>Created: {selectedInfo.created_at ? formatDateTime(selectedInfo.created_at) : "—"}</FileDetailRow><FileDetailRow icon={<CalendarDays size={13} />}>Modified: {selectedInfo.modified_at ? formatDateTime(selectedInfo.modified_at) : "—"}</FileDetailRow></div> : <div className="text-[11px] text-[var(--vscode-foreground)]/55">Select a file or folder.</div>}</div> : null}
-      </Panel>
-      <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
-      <Panel id="quick-access" defaultSize="23%" minSize="14%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.quickAccessCollapsed || Math.abs(current.quickAccessExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, quickAccessExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.quickAccessCollapsed ? { overflow: "hidden" } : undefined}>
-        <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55"><span>Quick Access</span><button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleQuickAccessPanel} aria-label="Toggle quick access"><ChevronDown size={14} className={cn(preferences.quickAccessCollapsed && "-rotate-90")} /></button></div>
-        {!preferences.quickAccessCollapsed ? <div className="overflow-y-auto px-2 pb-2">{quickAccess.length === 0 ? <div className="px-1 py-1 text-[11px] text-[var(--vscode-foreground)]/55">Pin a file or folder to open it quickly.</div> : quickAccess.map((entry) => <TreeItem key={entry.relativePath} title={entry.name} active={selectedQuickAccessPath === entry.relativePath} icon={<ProjectFileIcon name={entry.name} isDirectory={entry.isDirectory} />} onClick={() => selectQuickAccess(entry)} onDoubleClick={() => { void api.openProjectFile(project.id, entry.relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to open Quick Access item.")); }} menuItems={[{ label: "Remove from Quick Access", icon: <PinOff size={13} />, onSelect: () => removeQuickAccess(entry.relativePath), tone: "danger" }]} />)}</div> : null}
-      </Panel>
-    </Group>
-    <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }} title="Delete file or folder" description={`Delete “${deleteTarget?.name ?? ""}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (deleteTarget) deleteEntry(deleteTarget); setDeleteTarget(null); }} />
-    <ConfirmDialog open={missingQuickAccessEntry !== null} onOpenChange={(open) => { if (!open) setMissingQuickAccessEntry(null); }} title="Quick Access item is unavailable" description={`“${missingQuickAccessEntry?.name ?? ""}” no longer exists in this project. Remove it from Quick Access?`} confirmLabel="Remove" onConfirm={() => { if (missingQuickAccessEntry) { removeQuickAccess(missingQuickAccessEntry.relativePath); if (selectedPath === missingQuickAccessEntry.relativePath) setSelectedPath(null); } setMissingQuickAccessEntry(null); }} />
-    {rootMenu ? <TabContextMenu x={rootMenu.x} y={rootMenu.y} onClose={() => setRootMenu(null)} items={[{ label: "Set Dev Project Type…", icon: <Blocks size={13} />, onSelect: () => setDevProjectToolsRequest({ mode: "types", relativePath: "" }) }, { label: "Clean Dev Cache…", icon: <WandSparkles size={13} />, onSelect: () => setDevProjectToolsRequest({ mode: "clean", relativePath: "" }) }]} /> : null}
-    <DevProjectToolsDialogs project={project} request={devProjectToolsRequest} onRequestChange={setDevProjectToolsRequest} onCleaned={() => void invalidate()} />
-  </div>;
+  return <FileExplorerSizeContext.Provider value={sizeContextValue}>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div onContextMenu={(event) => { event.preventDefault(); setRootMenu({ x: event.clientX, y: event.clientY }); }} className="flex items-center justify-between border-b border-[var(--vscode-border)] px-3 py-2"><span className="flex min-w-0 items-center gap-2 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/62">{project.name}{rootDirectory.isLoading ? <LoaderCircle size={12} className="shrink-0 animate-spin" /> : null}</span><div className="flex items-center gap-0.5"><Tooltip content={preferences.showSizeBars ? "Hide size bars" : "Show relative size bars (TreeSize)"}><button type="button" className={cn("rounded p-1 transition-colors hover:bg-[var(--vscode-list-hover)]", preferences.showSizeBars && "bg-[var(--vscode-list-active)] text-foreground shadow-sm")} onClick={toggleSizeBars} aria-label="Toggle relative size bars"><ChartColumnBig size={14} /></button></Tooltip><Tooltip content="New File"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => create("", "file")}><FilePlus size={14} /></button></Tooltip><Tooltip content="New Folder"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => create("", "folder")}><FolderPlus size={14} /></button></Tooltip><Tooltip content="Refresh Explorer"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => void invalidate()}><RefreshCw size={14} /></button></Tooltip><Tooltip content="Collapse All"><button type="button" className="p-1 hover:bg-[var(--vscode-list-hover)]" onClick={() => setExpandedPaths(new Set())}><ChevronsUp size={14} /></button></Tooltip></div></div>
+      <Group orientation="vertical" groupRef={panelGroupRef} elementRef={panelGroupElementRef} defaultLayout={preferences.panelLayout} onLayoutChanged={(panelLayout) => setPreferences((current) => ({ ...current, panelLayout }))} className="min-h-0 flex-1">
+        <Panel id="file-tree" minSize="35%" className="min-h-0 overflow-y-auto px-2 py-2">
+          {error ? <div className="mb-2 text-[11px] text-[var(--vscode-danger)]">{error}</div> : null}
+          {rootDirectory.error ? <div className="mb-2 text-[11px] text-[var(--vscode-danger)]">{rootDirectory.error}</div> : null}
+          {rootDirectory.entries.map((entry) => <ProjectFileTree key={`${project.id}:${entry.relative_path}`} project={project} entry={entry} level={0} selectedPath={selectedPath ?? ""} onSelect={selectEntry} clipboard={clipboard} expandedPaths={expandedPaths} onToggleExpanded={toggleExpanded} refreshVersion={refreshVersion} onCreate={create} onCopy={(relativePath) => setClipboard({ relativePath, cut: false })} onCut={(relativePath) => setClipboard({ relativePath, cut: true })} onPaste={paste} onRename={rename} onDelete={setDeleteTarget} onReveal={(relativePath) => void api.revealProjectFile(project.id, relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to reveal item."))} onOpenTerminal={onOpenTerminal} onView={(entry) => { if (!entry.is_directory) onView(entry.relative_path); }} onOpenExternal={(relativePath) => void api.openProjectFile(project.id, relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to open item."))} onToggleQuickAccess={toggleQuickAccess} onDevProjectTools={setDevProjectToolsRequest} pinnedPaths={pinnedPaths} />)}
+        </Panel>
+        <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
+        <Panel id="file-details" defaultSize="25%" minSize="18%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.detailsCollapsed || Math.abs(current.detailsExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, detailsExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.detailsCollapsed ? { overflow: "hidden" } : undefined}>
+          <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55"><span>Details</span><button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleDetailsPanel} aria-label="Toggle details"><ChevronDown size={14} className={cn(preferences.detailsCollapsed && "-rotate-90")} /></button></div>
+          {!preferences.detailsCollapsed ? <div className="overflow-y-auto px-3 pb-3">{selectedInfoQuery.isPending ? <div className="flex items-center gap-2 text-[11px] text-[var(--vscode-foreground)]/55"><LoaderCircle size={12} className="animate-spin" />Loading details…</div> : selectedInfoError ? <div className="text-[11px] text-[var(--vscode-danger)]">{selectedInfoError}</div> : selectedInfo ? <div className="grid gap-1.5 text-[11px] text-[var(--vscode-foreground)]/72"><div className="flex items-center gap-2 truncate font-medium text-foreground"><ProjectFileIcon name={selectedInfo.name} isDirectory={selectedInfo.is_directory} />{selectedInfo.name || project.name}</div><FileDetailRow icon={selectedInfo.file_kind === "folder" ? <Folder size={13} /> : <FileText size={13} />}>{selectedInfo.file_kind === "folder" ? "Folder" : `${selectedInfo.file_kind === "text" ? "Text" : "Binary"} file`}</FileDetailRow><FileDetailRow icon={<HardDrive size={13} />}>Size: {formatFileSize(selectedInfo.size_bytes)} ({selectedInfo.size_bytes.toLocaleString()} bytes)</FileDetailRow>{selectedInfo.file_kind === "folder" ? <FileDetailRow icon={<Folder size={13} />}>{selectedInfo.child_folder_count.toLocaleString()} folders · {selectedInfo.child_file_count.toLocaleString()} files</FileDetailRow> : null}{selectedInfo.line_count !== null ? <FileDetailRow icon={<List size={13} />}>Lines: {selectedInfo.line_count.toLocaleString()}</FileDetailRow> : null}<FileDetailRow icon={<CalendarDays size={13} />}>Created: {selectedInfo.created_at ? formatDateTime(selectedInfo.created_at) : "—"}</FileDetailRow><FileDetailRow icon={<CalendarDays size={13} />}>Modified: {selectedInfo.modified_at ? formatDateTime(selectedInfo.modified_at) : "—"}</FileDetailRow></div> : <div className="text-[11px] text-[var(--vscode-foreground)]/55">Select a file or folder.</div>}</div> : null}
+        </Panel>
+        <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
+        <Panel id="quick-access" defaultSize="23%" minSize="14%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.quickAccessCollapsed || Math.abs(current.quickAccessExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, quickAccessExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.quickAccessCollapsed ? { overflow: "hidden" } : undefined}>
+          <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55"><span>Quick Access</span><button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleQuickAccessPanel} aria-label="Toggle quick access"><ChevronDown size={14} className={cn(preferences.quickAccessCollapsed && "-rotate-90")} /></button></div>
+          {!preferences.quickAccessCollapsed ? <div className="overflow-y-auto px-2 pb-2">{quickAccess.length === 0 ? <div className="px-1 py-1 text-[11px] text-[var(--vscode-foreground)]/55">Pin a file or folder to open it quickly.</div> : quickAccess.map((entry) => <TreeItem key={entry.relativePath} title={entry.name} active={selectedQuickAccessPath === entry.relativePath} icon={<ProjectFileIcon name={entry.name} isDirectory={entry.isDirectory} />} onClick={() => selectQuickAccess(entry)} onDoubleClick={() => { void api.openProjectFile(project.id, entry.relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to open Quick Access item.")); }} menuItems={[{ label: "Remove from Quick Access", icon: <PinOff size={13} />, onSelect: () => removeQuickAccess(entry.relativePath), tone: "danger" }]} />)}</div> : null}
+        </Panel>
+      </Group>
+      <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }} title="Delete file or folder" description={`Delete “${deleteTarget?.name ?? ""}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (deleteTarget) deleteEntry(deleteTarget); setDeleteTarget(null); }} />
+      <ConfirmDialog open={missingQuickAccessEntry !== null} onOpenChange={(open) => { if (!open) setMissingQuickAccessEntry(null); }} title="Quick Access item is unavailable" description={`“${missingQuickAccessEntry?.name ?? ""}” no longer exists in this project. Remove it from Quick Access?`} confirmLabel="Remove" onConfirm={() => { if (missingQuickAccessEntry) { removeQuickAccess(missingQuickAccessEntry.relativePath); if (selectedPath === missingQuickAccessEntry.relativePath) setSelectedPath(null); } setMissingQuickAccessEntry(null); }} />
+      {rootMenu ? <TabContextMenu x={rootMenu.x} y={rootMenu.y} onClose={() => setRootMenu(null)} items={[{ label: "Set Dev Project Type…", icon: <Blocks size={13} />, onSelect: () => setDevProjectToolsRequest({ mode: "types", relativePath: "" }) }, { label: "Clean Dev Cache…", icon: <WandSparkles size={13} />, onSelect: () => setDevProjectToolsRequest({ mode: "clean", relativePath: "" }) }]} /> : null}
+      <DevProjectToolsDialogs project={project} request={devProjectToolsRequest} onRequestChange={setDevProjectToolsRequest} onCleaned={() => void invalidate()} />
+    </div>
+  </FileExplorerSizeContext.Provider>;
 }
 
 const SYNTAX_KEYWORDS = new Set([
@@ -1960,6 +2108,22 @@ type VSCodeShellProps = {
   onOpenLogs: (commandId: number) => void;
 };
 
+const TREE_EXPANDED_KEY = "vscodeTreeExpandedState";
+
+function readTreeExpandedState(): Record<string, boolean> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(TREE_EXPANDED_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === "object" && parsed !== null) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return {};
+}
+
 export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(function VSCodeShell({
   projects,
   selectedProject,
@@ -2040,6 +2204,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const [flowDirtyById, setFlowDirtyById] = useState<Record<number, boolean>>({});
   const [pendingTabCloseIds, setPendingTabCloseIds] = useState<string[] | null>(null);
   const [tabContextMenu, setTabContextMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
+  const [isTabsHeaderHovered, setIsTabsHeaderHovered] = useState(false);
+  const tabsContainerRef = useHorizontalScroll<HTMLDivElement>();
   const [isSecondarySidebarVisible, setIsSecondarySidebarVisible] = useState(() => readFileExplorerSidebar().secondarySidebarVisible);
   const [isFileExplorerVisible, setIsFileExplorerVisible] = useState(() => readFileExplorerSidebar().fileExplorerVisible);
   const [fileExplorerWidth, setFileExplorerWidth] = useState(() => readFileExplorerSidebar().fileExplorerWidth);
@@ -2066,9 +2232,35 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const renameCancelledRef = useRef(false);
   const [flowToDelete, setFlowToDelete] = useState<ProjectFlow | null>(null);
   const [sectionToDelete, setSectionToDelete] = useState<{ project: Project; section: CommandSection } | null>(null);
-  const [commandsExpanded, setCommandsExpanded] = useState(() => localStorage.getItem("vscodeCommandsExpanded") !== "false");
-  const [notesExpanded, setNotesExpanded] = useState(() => localStorage.getItem("vscodeNotesExpanded") !== "false");
-  const [flowsExpanded, setFlowsExpanded] = useState(() => localStorage.getItem("vscodeFlowsExpanded") !== "false");
+  const [treeExpandedState, setTreeExpandedState] = useState<Record<string, boolean>>(() => readTreeExpandedState());
+  const allowMultipleExplorerItems = Boolean(settingsProps?.allowMultipleExplorerItems);
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<number>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const saved = JSON.parse(localStorage.getItem("vscodeExpandedProjectIds") ?? "[]");
+      return new Set(Array.isArray(saved) ? saved : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(TREE_EXPANDED_KEY, JSON.stringify(treeExpandedState));
+  }, [treeExpandedState]);
+
+  const isTreeItemExpanded = useCallback(
+    (key: string, defaultValue = true) => {
+      return treeExpandedState[key] ?? defaultValue;
+    },
+    [treeExpandedState],
+  );
+
+  const toggleTreeItemExpanded = useCallback((key: string, defaultValue = true) => {
+    setTreeExpandedState((prev) => {
+      const current = prev[key] ?? defaultValue;
+      return { ...prev, [key]: !current };
+    });
+  }, []);
   const [sidebarLayout, setSidebarLayout] = useState<{ sidebar: number; editor: number }>(() => readSidebarLayout());
   const runningCount = Object.values(runs).filter((run) => run.status === "running").length;
   const activeTabProjectId = getProjectIdFromTab(tabs.find((tab) => tab.id === activeTabId) ?? welcomeTab());
@@ -2076,6 +2268,39 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const selectedProjectCommands = activeContextProject ? commandsByProjectId[activeContextProject.id] ?? [] : [];
   const selectedProjectNotes = activeContextProject ? sortedProjectNotesByProjectId[activeContextProject.id] ?? [] : [];
   const selectedProjectFlows = activeContextProject ? flowsByProjectId[activeContextProject.id] ?? [] : [];
+
+  useEffect(() => {
+    if (allowMultipleExplorerItems) {
+      localStorage.setItem("vscodeExpandedProjectIds", JSON.stringify([...expandedProjectIds]));
+    }
+  }, [expandedProjectIds, allowMultipleExplorerItems]);
+
+  const previousActiveProjectIdRef = useRef<number | null>(activeContextProject?.id ?? null);
+  useEffect(() => {
+    if (allowMultipleExplorerItems && activeContextProject && activeContextProject.id !== previousActiveProjectIdRef.current) {
+      previousActiveProjectIdRef.current = activeContextProject.id;
+      setExpandedProjectIds((prev) => {
+        if (prev.has(activeContextProject.id)) return prev;
+        const next = new Set(prev);
+        next.add(activeContextProject.id);
+        return next;
+      });
+    }
+  }, [allowMultipleExplorerItems, activeContextProject]);
+
+  useEffect(() => {
+    if (!activeTabId || !tabsContainerRef.current) {
+      return;
+    }
+    const activeTabEl = tabsContainerRef.current.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(activeTabId)}"]`);
+    if (activeTabEl) {
+      activeTabEl.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "nearest",
+      });
+    }
+  }, [activeTabId, tabsContainerRef]);
 
   useLayoutEffect(() => {
     const pendingLayout = pendingFileExplorerLayoutRef.current;
@@ -2209,10 +2434,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   useEffect(() => {
     localStorage.setItem(FILE_EXPLORER_SIDEBAR_KEY, JSON.stringify({ secondarySidebarVisible: isSecondarySidebarVisible, fileExplorerVisible: isFileExplorerVisible, fileExplorerWidth }));
   }, [fileExplorerWidth, isFileExplorerVisible, isSecondarySidebarVisible]);
-
-  useEffect(() => { localStorage.setItem("vscodeCommandsExpanded", String(commandsExpanded)); }, [commandsExpanded]);
-  useEffect(() => { localStorage.setItem("vscodeNotesExpanded", String(notesExpanded)); }, [notesExpanded]);
-  useEffect(() => { localStorage.setItem("vscodeFlowsExpanded", String(flowsExpanded)); }, [flowsExpanded]);
 
   useEffect(() => {
     if (!selectedProject) {
@@ -2358,6 +2579,32 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     }
   }
 
+  function handleToggleProjectExpansion(projectId: number) {
+    if (allowMultipleExplorerItems) {
+      setExpandedProjectIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(projectId)) {
+          next.delete(projectId);
+        } else {
+          next.add(projectId);
+        }
+        return next;
+      });
+    }
+    handleSelectProject(projectId);
+  }
+
+  function handleCollapseAllProjects() {
+    setExpandedProjectIds(new Set());
+    setTreeExpandedState((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const key of Object.keys(prev)) {
+        next[key] = false;
+      }
+      return next;
+    });
+  }
+
   function handleOpenSettings() {
     setActiveSidebarView("settings");
     openTab(settingsTab());
@@ -2414,18 +2661,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     if (!activeContextProject) return;
     handleOpenNotesOverviewForProject(activeContextProject);
     setActiveSidebarView("notes");
-  }
-
-  function handleOpenCommandsOverview() {
-    if (!activeContextProject) return;
-    handleOpenCommandsOverviewForProject(activeContextProject);
-    setActiveSidebarView("explorer");
-  }
-
-  function handleOpenProjectOverview() {
-    if (!activeContextProject) return;
-    handleOpenProjectOverviewForProject(activeContextProject);
-    setActiveSidebarView("explorer");
   }
 
   function handleOpenProjectOverviewForProject(project: Project) {
@@ -3085,6 +3320,18 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         <div className="mb-2 flex items-center justify-between px-2">
           <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/46">Projects</span>
           <div className="flex items-center gap-1">
+            {allowMultipleExplorerItems ? (
+              <Tooltip content="Collapse All" side="bottom">
+                <button
+                  type="button"
+                  onClick={handleCollapseAllProjects}
+                  className="rounded-[6px] border border-transparent p-1 text-[var(--vscode-icon)] transition-[background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]"
+                  aria-label="Collapse All"
+                >
+                  <ChevronsUp size={14} />
+                </button>
+              </Tooltip>
+            ) : null}
             <Tooltip content="Add Project" side="bottom">
               <button
                 type="button"
@@ -3110,99 +3357,128 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
             const projectCommands = commandsByProjectId[project.id] ?? [];
             const projectNotes = sortedProjectNotesByProjectId[project.id] ?? [];
             const projectSections = commandSectionsByProjectId[project.id] ?? [];
-            const activeProject = activeContextProject?.id === project.id;
+            const isProjectActive = activeContextProject?.id === project.id;
+            const isProjectExpanded = allowMultipleExplorerItems
+              ? expandedProjectIds.has(project.id)
+              : isProjectActive;
+            const isCommandsExpanded = isTreeItemExpanded(`commands:${project.id}`, true);
+            const isFlowsExpanded = isTreeItemExpanded(`flows:${project.id}`, true);
+            const isNotesExpanded = isTreeItemExpanded(`notes:${project.id}`, true);
             return (
               <div key={project.id} className="space-y-1">
                 <TreeItem
                   title={project.name}
                   icon={<FolderKanban size={14} />}
-                  active={activeProject}
-                  onClick={() => handleSelectProject(project.id)}
+                  active={isProjectActive}
+                  onClick={() => handleToggleProjectExpansion(project.id)}
                   menuItems={getProjectMenuItems(project)}
                 />
-                {activeProject ? (
+                {isProjectExpanded ? (
                   <>
                     <TreeItem
                       title="Overview"
                       level={1}
                       icon={<LayoutGrid size={13} />}
-                      active={activeTab.kind === "project-overview"}
-                      onClick={handleOpenProjectOverview}
+                      active={activeTab.kind === "project-overview" && activeTab.projectId === project.id}
+                      onClick={() => {
+                        handleSelectProject(project.id);
+                        openTab(projectOverviewTab(project));
+                      }}
                       menuItems={[
                         {
                           label: "Open overview",
                           icon: <LayoutGrid size={13} />,
-                          onSelect: handleOpenProjectOverview,
+                          onSelect: () => {
+                            handleSelectProject(project.id);
+                            openTab(projectOverviewTab(project));
+                          },
                         },
                       ]}
                     />
                     <TreeItem
                       title="Commands"
                       level={1}
-                      icon={commandsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                      active={activeTab.kind === "commands-overview" || activeTab.kind === "command"}
-                      onClick={() => setCommandsExpanded((current) => !current)}
+                      icon={isCommandsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      active={(activeTab.kind === "commands-overview" || activeTab.kind === "command") && activeTab.projectId === project.id}
+                      onClick={() => toggleTreeItemExpanded(`commands:${project.id}`, true)}
                       trailing={projectCommands.length}
                       menuItems={[
                         {
-                          label: commandsExpanded ? "Collapse commands" : "Expand commands",
-                          icon: commandsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />,
-                          onSelect: () => setCommandsExpanded((current) => !current),
+                          label: isCommandsExpanded ? "Collapse commands" : "Expand commands",
+                          icon: isCommandsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />,
+                          onSelect: () => toggleTreeItemExpanded(`commands:${project.id}`, true),
                         },
                         { separator: true },
                         ...getCommandsMenuItems(project),
                       ]}
                     />
-                    {commandsExpanded ? (
+                    {isCommandsExpanded ? (
                       <>
                         <TreeItem
                           title="Open commands view"
                           level={2}
-                          active={activeTab.kind === "commands-overview"}
-                          onClick={handleOpenCommandsOverview}
+                          active={activeTab.kind === "commands-overview" && activeTab.projectId === project.id}
+                          onClick={() => {
+                            handleSelectProject(project.id);
+                            openTab(commandsOverviewTab(project));
+                          }}
                           menuItems={getCommandsMenuItems(project)}
                         />
-                        {projectSections.map((section) => (
-                          <div key={section.section}>
-                            <TreeItem
-                              title={section.section}
-                              level={2}
-                              icon={<ListTree size={12} />}
-                              trailing={section.commands.length}
-                              menuItems={getSectionMenuItems(project, section)}
-                              editTitle={renameEditorFor("section", section.id)}
-                            />
-                            {section.commands.map((command) => (
+                        {projectSections.map((section) => {
+                          const isSectionExpanded = isTreeItemExpanded(`section:${project.id}:${section.id}`, true);
+                          return (
+                            <div key={section.section}>
                               <TreeItem
-                                key={command.id}
-                                level={3}
-                                title={command.name}
-                                active={activeTab.kind === "command" && activeTab.commandId === command.id}
-                                trailing={runs[command.id]?.status === "running" ? "run" : undefined}
-                                onClick={() => handleOpenCommandTab(command)}
-                                menuItems={getCommandMenuItems(command)}
+                                title={section.section}
+                                level={2}
+                                icon={isSectionExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                trailing={section.commands.length}
+                                onClick={() => toggleTreeItemExpanded(`section:${project.id}:${section.id}`, true)}
+                                menuItems={[
+                                  {
+                                    label: isSectionExpanded ? "Collapse section" : "Expand section",
+                                    icon: isSectionExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />,
+                                    onSelect: () => toggleTreeItemExpanded(`section:${project.id}:${section.id}`, true),
+                                  },
+                                  { separator: true },
+                                  ...getSectionMenuItems(project, section),
+                                ]}
+                                editTitle={renameEditorFor("section", section.id)}
                               />
-                            ))}
-                          </div>
-                        ))}
+                              {isSectionExpanded ? (
+                                section.commands.map((command) => (
+                                  <TreeItem
+                                    key={command.id}
+                                    level={3}
+                                    title={command.name}
+                                    active={activeTab.kind === "command" && activeTab.commandId === command.id}
+                                    trailing={runs[command.id]?.status === "running" ? "run" : undefined}
+                                    onClick={() => handleOpenCommandTab(command)}
+                                    menuItems={getCommandMenuItems(command)}
+                                  />
+                                ))
+                              ) : null}
+                            </div>
+                          );
+                        })}
                       </>
                     ) : null}
                     <TreeItem
                       title="Flows"
                       level={1}
-                      icon={flowsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                      active={activeTab.kind === "flow" || activeTab.kind === "flows-overview"}
-                      onClick={() => setFlowsExpanded((current) => !current)}
+                      icon={isFlowsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      active={(activeTab.kind === "flow" || activeTab.kind === "flows-overview") && activeTab.projectId === project.id}
+                      onClick={() => toggleTreeItemExpanded(`flows:${project.id}`, true)}
                       trailing={(flowsByProjectId[project.id] ?? []).length}
                       menuItems={[
-                        { label: "Open flows view", icon: <LayoutGrid size={13} />, onSelect: handleOpenFlowsOverview },
+                        { label: "Open flows view", icon: <LayoutGrid size={13} />, onSelect: () => handleOpenFlowsOverviewForProject(project) },
                         { separator: true },
-                        { label: flowsExpanded ? "Collapse flows" : "Expand flows", icon: flowsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />, onSelect: () => setFlowsExpanded((current) => !current) },
+                        { label: isFlowsExpanded ? "Collapse flows" : "Expand flows", icon: isFlowsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />, onSelect: () => toggleTreeItemExpanded(`flows:${project.id}`, true) },
                       ]}
                     />
-                    {flowsExpanded ? (
+                    {isFlowsExpanded ? (
                       <>
-                        <TreeItem title="Open flows view" level={2} active={activeTab.kind === "flows-overview"} onClick={handleOpenFlowsOverview} />
+                        <TreeItem title="Open flows view" level={2} active={activeTab.kind === "flows-overview" && activeTab.projectId === project.id} onClick={() => handleOpenFlowsOverviewForProject(project)} />
                         {(flowsByProjectId[project.id] ?? []).map((flow) => (
                           <TreeItem key={flow.id} level={2} title={flow.name} icon={<GitBranch size={12} />} active={activeTab.kind === "flow" && activeTab.flowId === flow.id} onClick={() => handleOpenFlowTab(project, flow)} menuItems={getFlowMenuItems(project, flow)} editTitle={renameEditorFor("flow", flow.id)} />
                         ))}
@@ -3211,27 +3487,30 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                     <TreeItem
                       title="Notes"
                       level={1}
-                      icon={notesExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                      active={activeTab.kind === "notes-overview" || activeTab.kind === "note"}
-                      onClick={() => setNotesExpanded((current) => !current)}
+                      icon={isNotesExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      active={(activeTab.kind === "notes-overview" || activeTab.kind === "note") && activeTab.projectId === project.id}
+                      onClick={() => toggleTreeItemExpanded(`notes:${project.id}`, true)}
                       trailing={projectNotes.length}
                       menuItems={[
                         {
-                          label: notesExpanded ? "Collapse notes" : "Expand notes",
-                          icon: notesExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />,
-                          onSelect: () => setNotesExpanded((current) => !current),
+                          label: isNotesExpanded ? "Collapse notes" : "Expand notes",
+                          icon: isNotesExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />,
+                          onSelect: () => toggleTreeItemExpanded(`notes:${project.id}`, true),
                         },
                         { separator: true },
                         ...getNotesMenuItems(project),
                       ]}
                     />
-                    {notesExpanded ? (
+                    {isNotesExpanded ? (
                       <>
                         <TreeItem
                           title="Open notes view"
                           level={2}
-                          active={activeTab.kind === "notes-overview"}
-                          onClick={handleOpenNotesOverview}
+                          active={activeTab.kind === "notes-overview" && activeTab.projectId === project.id}
+                          onClick={() => {
+                            handleSelectProject(project.id);
+                            openTab(notesOverviewTab(project));
+                          }}
                           menuItems={getNotesMenuItems(project)}
                         />
                         {projectNotes.map((note) => (
@@ -3339,15 +3618,29 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         <Panel id="editor" minSize={EDITOR_MIN_SIZE} className="min-h-0 min-w-0">
           <section className="editor-container flex h-full min-h-0 min-w-0 basis-0 flex-col overflow-hidden bg-[var(--vscode-editor)]">
             {activeTab.kind === "settings" ? null : (
-              <header className="flex min-h-9 shrink-0 items-center border-b border-[var(--vscode-border)] bg-[var(--vscode-tabs)]">
-                <div className="flex min-w-0 flex-1 overflow-x-auto">
+              <header
+                className="relative flex min-h-9 shrink-0 items-center border-b border-[var(--vscode-border)] bg-[var(--vscode-tabs)]"
+                onMouseEnter={() => setIsTabsHeaderHovered(true)}
+                onMouseLeave={() => setIsTabsHeaderHovered(false)}
+              >
+                <div
+                  ref={tabsContainerRef}
+                  className="editor-tabs-bar flex min-w-0 flex-1 overflow-x-auto"
+                >
                   {tabs.map((tab) => (
                     <div
                       key={tab.id}
+                      data-tab-id={tab.id}
                       className={cn(
-                        "group flex h-9 min-w-[160px] max-w-[240px] items-center border-r border-[var(--vscode-border)] px-3 text-[12px] text-[var(--vscode-foreground)]/76 transition-[background-color,color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
+                        "group flex h-9 min-w-[160px] max-w-[240px] shrink-0 items-center border-r border-[var(--vscode-border)] px-3 text-[12px] text-[var(--vscode-foreground)]/76 transition-[background-color,color] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
                         activeTabId === tab.id && "bg-[var(--vscode-editor)] text-foreground",
                       )}
+                      onMouseDown={(event) => {
+                        if (event.button === 1 && tab.kind !== "welcome") {
+                          event.preventDefault();
+                          closeTab(tab.id);
+                        }
+                      }}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         setTabContextMenu({ tabId: tab.id, x: event.clientX, y: event.clientY });
@@ -3365,7 +3658,10 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                             "ml-2 rounded-[4px] border border-transparent p-1 text-[var(--vscode-icon)] transition-[opacity,background-color,border-color,color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]",
                             activeTabId === tab.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                           )}
-                          onClick={() => closeTab(tab.id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            closeTab(tab.id);
+                          }}
                           aria-label={`Close ${tab.title}`}
                         >
                           <X size={12} />
@@ -3374,6 +3670,10 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                     </div>
                   ))}
                 </div>
+                <TabsOverlayScrollbar
+                  containerRef={tabsContainerRef}
+                  isHeaderHovered={isTabsHeaderHovered}
+                />
               </header>
             )}
 
@@ -3431,7 +3731,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
             <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--vscode-foreground)]/58">Files</span>
             <button type="button" onClick={toggleFileExplorer} className="rounded-[4px] p-1 text-[var(--vscode-icon)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground" aria-label="Close file explorer"><X size={15} /></button>
           </div>
-          <ProjectFileExplorer project={activeContextProject} onView={(relativePath) => {
+          <ProjectFileExplorer key={activeContextProject?.id ?? "none"} project={activeContextProject} onView={(relativePath) => {
             if (activeContextProject) openTab(fileViewTab(activeContextProject, relativePath));
           }} onOpenTerminal={(relativeDirectoryPath) => {
             if (activeContextProject) onOpenAdHocInteractiveTerminal(activeContextProject, defaultInteractiveTerminalKind, relativeDirectoryPath ? `${activeContextProject.path}/${relativeDirectoryPath}` : activeContextProject.path);

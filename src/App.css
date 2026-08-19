@@ -522,6 +522,15 @@ p {
   container-type: inline-size;
 }
 
+.editor-tabs-bar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.editor-tabs-bar::-webkit-scrollbar {
+  display: none;
+}
+
 .empty-editor-actions {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
 }

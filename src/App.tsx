@@ -343,6 +343,8 @@ function App() {
     setShowLogsTimestamp,
     showStreamName,
     setShowStreamName,
+    allowMultipleExplorerItems,
+    setAllowMultipleExplorerItems,
     motionLevel,
     setMotionLevel,
   } = useAppPreferences();
@@ -985,6 +987,8 @@ function App() {
     setShowLogsTimestamp,
     showStreamName,
     setShowStreamName,
+    allowMultipleExplorerItems,
+    setAllowMultipleExplorerItems,
     motionLevel,
     setMotionLevel,
     projectCount: projects.length,

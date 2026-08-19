@@ -1,5 +1,6 @@
 import {
   Check,
+  FolderKanban,
   Info,
   Moon,
   Palette,
@@ -103,6 +104,8 @@ export function AppearanceSettingsPanel({
   setAccent,
   dateFormat,
   setDateFormat,
+  allowMultipleExplorerItems,
+  setAllowMultipleExplorerItems,
 }: {
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
@@ -110,6 +113,8 @@ export function AppearanceSettingsPanel({
   setAccent: (accent: AccentColor) => void;
   dateFormat: DateFormatPreference;
   setDateFormat: (format: DateFormatPreference) => void;
+  allowMultipleExplorerItems: boolean;
+  setAllowMultipleExplorerItems: (allow: boolean) => void;
   motionLevel: MotionLevel;
   setMotionLevel: (level: MotionLevel) => void;
 }) {
@@ -227,6 +232,22 @@ export function AppearanceSettingsPanel({
             </SelectContent>
           </Select>
         </div>
+      </SettingsSection>
+
+      <SettingsSection
+        icon={<FolderKanban size={16} />}
+        title="Sidebar Explorer"
+        description="Tùy chỉnh hành vi hiển thị và mở rộng các mục trong sidebar Explorer"
+      >
+        <SettingsRow
+          title="Mở nhiều mục cùng lúc"
+          description="Cho phép mở rộng nhiều dự án cùng lúc trong sidebar explorer thay vì tự động thu gọn các dự án khác"
+        >
+          <Switch
+            checked={allowMultipleExplorerItems}
+            onCheckedChange={setAllowMultipleExplorerItems}
+          />
+        </SettingsRow>
       </SettingsSection>
 
     </div>

@@ -30,6 +30,8 @@ export interface SettingsPageProps {
   setShowStreamName: (show: boolean) => void;
   motionLevel: MotionLevel;
   setMotionLevel: (level: MotionLevel) => void;
+  allowMultipleExplorerItems: boolean;
+  setAllowMultipleExplorerItems: (allow: boolean) => void;
   projectCount: number;
   commandCount: number;
   onResetCache: () => void;
@@ -59,6 +61,8 @@ export function SettingsPage({
   setShowLogsTimestamp,
   showStreamName,
   setShowStreamName,
+  allowMultipleExplorerItems,
+  setAllowMultipleExplorerItems,
   motionLevel,
   setMotionLevel,
   onResetCache,
@@ -77,6 +81,8 @@ export function SettingsPage({
         setAccent={setAccent}
         dateFormat={dateFormat}
         setDateFormat={setDateFormat}
+        allowMultipleExplorerItems={allowMultipleExplorerItems}
+        setAllowMultipleExplorerItems={setAllowMultipleExplorerItems}
         motionLevel={motionLevel}
         setMotionLevel={setMotionLevel}
       />

@@ -26,7 +26,6 @@ use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
-use walkdir::WalkDir;
 
 use dev_cache::{DevCacheCandidate, DevProjectType, DevProjectTypeScan};
 
@@ -3379,11 +3378,43 @@ fn is_text_file(path: &Path, metadata: &fs::Metadata) -> bool {
     if metadata.is_dir() || metadata.len() > 32 * 1024 * 1024 {
         return false;
     }
+    let ext = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    // Fast path: known text extensions
+    if matches!(
+        ext.as_str(),
+        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "json" | "rs" | "py" | "go" | "java"
+            | "c" | "cpp" | "h" | "hpp" | "cs" | "php" | "rb" | "lua" | "sh" | "bash"
+            | "zsh" | "ps1" | "bat" | "cmd" | "css" | "scss" | "sass" | "less" | "html"
+            | "htm" | "xml" | "svg" | "yaml" | "yml" | "toml" | "ini" | "cfg" | "conf"
+            | "md" | "mdx" | "txt" | "sql" | "graphql" | "gql" | "prisma" | "env"
+            | "gitignore" | "dockerignore" | "editorconfig" | "lock"
+    ) {
+        return true;
+    }
+
+    // Fast path: known binary extensions
+    if matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "ico" | "bmp" | "tiff" | "pdf"
+            | "zip" | "tar" | "gz" | "7z" | "rar" | "bz2" | "xz" | "exe" | "dll" | "so"
+            | "dylib" | "bin" | "wasm" | "mp3" | "mp4" | "wav" | "ogg" | "mov" | "avi"
+            | "flv" | "mkv" | "webm" | "ttf" | "otf" | "woff" | "woff2" | "eot" | "lockb"
+            | "db" | "sqlite" | "sqlite3" | "jar" | "war" | "class" | "pyc" | "pyd"
+    ) {
+        return false;
+    }
+
+    // Fallback: check first 4KB for null bytes
     let mut file = match fs::File::open(path) {
         Ok(file) => file,
         Err(_) => return false,
     };
-    let mut sample = [0_u8; 8192];
+    let mut sample = [0_u8; 4096];
     let count = match file.read(&mut sample) {
         Ok(count) => count,
         Err(_) => return false,
@@ -3391,9 +3422,36 @@ fn is_text_file(path: &Path, metadata: &fs::Metadata) -> bool {
     !sample[..count].contains(&0)
 }
 
-fn count_text_lines(path: &Path) -> Option<u64> {
-    let file = fs::File::open(path).ok()?;
-    Some(BufReader::new(file).lines().count() as u64)
+fn count_text_lines(path: &Path, metadata: &fs::Metadata) -> Option<u64> {
+    if metadata.len() > 1024 * 1024 {
+        return None;
+    }
+    let mut file = fs::File::open(path).ok()?;
+    let mut buffer = [0_u8; 32768];
+    let mut count = 0_u64;
+    let mut has_content = false;
+    let mut last_byte_was_newline = false;
+    loop {
+        let bytes_read = match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(_) => return None,
+        };
+        has_content = true;
+        for &b in &buffer[..bytes_read] {
+            if b == b'\n' {
+                count += 1;
+            }
+        }
+        last_byte_was_newline = buffer[bytes_read - 1] == b'\n';
+    }
+    if !has_content {
+        return Some(0);
+    }
+    if !last_byte_was_newline {
+        count += 1;
+    }
+    Some(count)
 }
 
 fn project_file_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry, String> {
@@ -3404,19 +3462,21 @@ fn project_file_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry, Stri
     let mut child_folder_count = 0;
     if is_directory {
         size_bytes = 0;
-        for entry in WalkDir::new(path)
-            .follow_links(false)
-            .into_iter()
-            .filter_map(Result::ok)
-            .skip(1)
-        {
-            let file_type = entry.file_type();
-            if file_type.is_dir() {
-                child_folder_count += 1;
-            }
-            if file_type.is_file() {
-                child_file_count += 1;
-                size_bytes += entry.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+        if let Ok(read_dir) = fs::read_dir(path) {
+            for entry in read_dir.filter_map(Result::ok) {
+                if entry.file_name().to_string_lossy() == ".git" {
+                    continue;
+                }
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        child_folder_count += 1;
+                    } else if file_type.is_file() {
+                        child_file_count += 1;
+                        if let Ok(child_meta) = entry.metadata() {
+                            size_bytes += child_meta.len();
+                        }
+                    }
+                }
             }
         }
     }
@@ -3428,7 +3488,7 @@ fn project_file_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry, Stri
         "binary".to_string()
     };
     let line_count = if file_kind == "text" {
-        count_text_lines(path)
+        count_text_lines(path, &metadata)
     } else {
         None
     };
@@ -3481,117 +3541,165 @@ fn project_file_tree_entry(root: &Path, path: &Path) -> Result<ProjectFileEntry,
         modified_at: format_system_time(metadata.modified()),
         file_kind: file_kind.clone(),
         line_count: if file_kind == "text" {
-            count_text_lines(path)
+            count_text_lines(path, &metadata)
         } else {
             None
         },
     })
 }
 
+struct SortedDirEntry {
+    path: PathBuf,
+    is_directory: bool,
+    sort_key: String,
+}
+
 fn sorted_project_directory_paths(root: &Path, directory: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut entries = fs::read_dir(directory)
-        .map_err(|error| error.to_string())?
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_name().to_string_lossy() != ".git")
-        .filter_map(|entry| {
-            let path = entry.path();
-            let canonical = path.canonicalize().ok()?;
-            if canonical.starts_with(root) {
-                Some(path)
+    let mut entries = Vec::new();
+    let read_dir = fs::read_dir(directory).map_err(|error| error.to_string())?;
+    for entry in read_dir.filter_map(Result::ok) {
+        let file_name = entry.file_name();
+        let name_str = file_name.to_string_lossy();
+        if name_str == ".git" {
+            continue;
+        }
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if file_type.is_symlink() {
+            if let Ok(canonical) = path.canonicalize() {
+                if !canonical.starts_with(root) {
+                    continue;
+                }
             } else {
-                None
+                continue;
             }
-        })
-        .collect::<Vec<_>>();
-    entries.sort_by(|left, right| {
-        let left_is_directory = left.is_dir();
-        let right_is_directory = right.is_dir();
-        right_is_directory.cmp(&left_is_directory).then_with(|| {
-            left.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_lowercase()
-                .cmp(
-                    &right
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_lowercase(),
-                )
-        })
-    });
-    Ok(entries)
-}
-
-#[tauri::command]
-fn list_project_files_page(
-    project_id: i64,
-    relative_path: String,
-    offset: usize,
-    limit: usize,
-    state: State<AppState>,
-) -> Result<ProjectFilePage, String> {
-    let root = project_root(project_id, &state)?;
-    let directory = safe_project_relative_path(&root, &relative_path)?;
-    if !directory.is_dir() {
-        return Err("Path is not a folder".to_string());
+        }
+        entries.push(SortedDirEntry {
+            is_directory: file_type.is_dir(),
+            sort_key: name_str.to_lowercase(),
+            path,
+        });
     }
-    let paths = sorted_project_directory_paths(&root, &directory)?;
-    let page_size = limit.clamp(1, 100);
-    let has_more = offset.saturating_add(page_size) < paths.len();
-    let entries = paths
-        .into_iter()
-        .skip(offset)
-        .take(page_size)
-        .filter_map(|path| project_file_tree_entry(&root, &path).ok())
-        .collect();
-    Ok(ProjectFilePage { entries, has_more })
-}
-
-#[tauri::command]
-fn list_project_files(
-    project_id: i64,
-    relative_path: String,
-    state: State<AppState>,
-) -> Result<Vec<ProjectFileEntry>, String> {
-    let root = project_root(project_id, &state)?;
-    let directory = safe_project_relative_path(&root, &relative_path)?;
-    if !directory.is_dir() {
-        return Err("Path is not a folder".to_string());
-    }
-    let mut entries = fs::read_dir(directory)
-        .map_err(|error| error.to_string())?
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            if entry.file_name().to_string_lossy() == ".git" {
-                return None;
-            }
-            let path = entry.path();
-            let canonical = path.canonicalize().ok()?;
-            if !canonical.starts_with(&root) {
-                return None;
-            }
-            project_file_entry(&root, &path).ok()
-        })
-        .collect::<Vec<_>>();
     entries.sort_by(|left, right| {
         right
             .is_directory
             .cmp(&left.is_directory)
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+            .then_with(|| left.sort_key.cmp(&right.sort_key))
     });
-    Ok(entries)
+    Ok(entries.into_iter().map(|entry| entry.path).collect())
 }
 
 #[tauri::command]
-fn get_project_file_info(
+async fn list_project_files_page(
     project_id: i64,
     relative_path: String,
-    state: State<AppState>,
+    offset: usize,
+    limit: usize,
+    state: State<'_, AppState>,
+) -> Result<ProjectFilePage, String> {
+    let root = project_root(project_id, &state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let directory = safe_project_relative_path(&root, &relative_path)?;
+        if !directory.is_dir() {
+            return Err("Path is not a folder".to_string());
+        }
+        let paths = sorted_project_directory_paths(&root, &directory)?;
+        let page_size = limit.clamp(1, 100);
+        let has_more = offset.saturating_add(page_size) < paths.len();
+        let entries = paths
+            .into_iter()
+            .skip(offset)
+            .take(page_size)
+            .filter_map(|path| project_file_tree_entry(&root, &path).ok())
+            .collect();
+        Ok(ProjectFilePage { entries, has_more })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn list_project_files(
+    project_id: i64,
+    relative_path: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ProjectFileEntry>, String> {
+    let root = project_root(project_id, &state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let directory = safe_project_relative_path(&root, &relative_path)?;
+        if !directory.is_dir() {
+            return Err("Path is not a folder".to_string());
+        }
+        let paths = sorted_project_directory_paths(&root, &directory)?;
+        let entries = paths
+            .into_iter()
+            .filter_map(|path| project_file_entry(&root, &path).ok())
+            .collect();
+        Ok(entries)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn get_project_file_info(
+    project_id: i64,
+    relative_path: String,
+    state: State<'_, AppState>,
 ) -> Result<ProjectFileEntry, String> {
     let root = project_root(project_id, &state)?;
-    let path = safe_project_relative_path(&root, &relative_path)?;
-    project_file_entry(&root, &path)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = safe_project_relative_path(&root, &relative_path)?;
+        project_file_entry(&root, &path)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn get_project_folder_size(
+    project_id: i64,
+    relative_path: String,
+    state: State<'_, AppState>,
+) -> Result<u64, String> {
+    let root = project_root(project_id, &state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = safe_project_relative_path(&root, &relative_path)?;
+        if !path.is_dir() {
+            return Err("Path is not a folder".to_string());
+        }
+        let mut total_bytes = 0_u64;
+        let mut stack = vec![path];
+        while let Some(current_dir) = stack.pop() {
+            if let Ok(read_dir) = fs::read_dir(&current_dir) {
+                for entry in read_dir.filter_map(Result::ok) {
+                    let file_name = entry.file_name();
+                    let name_str = file_name.to_string_lossy();
+                    if name_str == ".git" {
+                        continue;
+                    }
+                    if let Ok(file_type) = entry.file_type() {
+                        if file_type.is_symlink() {
+                            continue;
+                        }
+                        if file_type.is_dir() {
+                            stack.push(entry.path());
+                        } else if file_type.is_file() {
+                            if let Ok(meta) = entry.metadata() {
+                                total_bytes += meta.len();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(total_bytes)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -3728,77 +3836,85 @@ fn set_folder_dev_project_types(
 }
 
 #[tauri::command]
-fn scan_dev_cache(
+async fn scan_dev_cache(
     project_id: i64,
     relative_path: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Vec<DevCacheCandidate>, String> {
     let (_, folder_root) = dev_folder_root(project_id, &relative_path, &state)?;
     let type_ids = stored_folder_project_types(project_id, &relative_path, &state)?;
-    Ok(dev_cache::scan_cache(&folder_root, &type_ids))
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(dev_cache::scan_cache(&folder_root, &type_ids))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-fn clean_dev_cache(
+async fn clean_dev_cache(
     project_id: i64,
     relative_path: String,
     candidate_ids: Vec<String>,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<DevCacheCleanResult, String> {
     let (project_root, folder_root) = dev_folder_root(project_id, &relative_path, &state)?;
-    let folder_canonical = folder_root
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
-    let project_canonical = project_root
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
     let type_ids = stored_folder_project_types(project_id, &relative_path, &state)?;
-    let candidates = dev_cache::scan_cache(&folder_root, &type_ids);
-    let requested = candidate_ids.into_iter().collect::<HashSet<_>>();
-    let mut deleted_ids = Vec::new();
-    let mut failed_items = Vec::new();
-    let mut freed_bytes = 0;
-    for id in requested {
-        let Some(candidate) = dev_cache::resolve_candidate(&candidates, &id) else {
-            failed_items.push(DevCacheCleanFailure {
-                id,
-                relative_path: String::new(),
-                error: "Candidate is no longer available".to_string(),
-            });
-            continue;
-        };
-        let path = folder_root.join(&candidate.relative_path);
-        let validation = (|| {
-            let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
-            if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                return Err("Candidate is not a removable directory".to_string());
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder_canonical = folder_root
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let project_canonical = project_root
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let candidates = dev_cache::scan_cache(&folder_root, &type_ids);
+        let requested = candidate_ids.into_iter().collect::<HashSet<_>>();
+        let mut deleted_ids = Vec::new();
+        let mut failed_items = Vec::new();
+        let mut freed_bytes = 0;
+        for id in requested {
+            let Some(candidate) = dev_cache::resolve_candidate(&candidates, &id) else {
+                failed_items.push(DevCacheCleanFailure {
+                    id,
+                    relative_path: String::new(),
+                    error: "Candidate is no longer available".to_string(),
+                });
+                continue;
+            };
+            let path = folder_root.join(&candidate.relative_path);
+            let validation = (|| {
+                let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+                if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                    return Err("Candidate is not a removable directory".to_string());
+                }
+                let canonical = path.canonicalize().map_err(|error| error.to_string())?;
+                if canonical == folder_canonical
+                    || !canonical.starts_with(&folder_canonical)
+                    || !canonical.starts_with(&project_canonical)
+                {
+                    return Err("Candidate must remain inside the selected project folder".to_string());
+                }
+                fs::remove_dir_all(&canonical).map_err(|error| error.to_string())
+            })();
+            match validation {
+                Ok(()) => {
+                    freed_bytes += candidate.size_bytes;
+                    deleted_ids.push(candidate.id.clone());
+                }
+                Err(error) => failed_items.push(DevCacheCleanFailure {
+                    id: candidate.id.clone(),
+                    relative_path: candidate.relative_path.clone(),
+                    error,
+                }),
             }
-            let canonical = path.canonicalize().map_err(|error| error.to_string())?;
-            if canonical == folder_canonical
-                || !canonical.starts_with(&folder_canonical)
-                || !canonical.starts_with(&project_canonical)
-            {
-                return Err("Candidate must remain inside the selected project folder".to_string());
-            }
-            fs::remove_dir_all(&canonical).map_err(|error| error.to_string())
-        })();
-        match validation {
-            Ok(()) => {
-                freed_bytes += candidate.size_bytes;
-                deleted_ids.push(candidate.id.clone());
-            }
-            Err(error) => failed_items.push(DevCacheCleanFailure {
-                id: candidate.id.clone(),
-                relative_path: candidate.relative_path.clone(),
-                error,
-            }),
         }
-    }
-    Ok(DevCacheCleanResult {
-        deleted_ids,
-        failed_items,
-        freed_bytes,
+        Ok(DevCacheCleanResult {
+            deleted_ids,
+            failed_items,
+            freed_bytes,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -4003,41 +4119,45 @@ async fn open_project_file(
 }
 
 #[tauri::command]
-fn read_project_file(
+async fn read_project_file(
     project_id: i64,
     relative_path: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<ProjectFileContent, String> {
     let root = project_root(project_id, &state)?;
-    let path = safe_project_relative_path(&root, &relative_path)?;
-    let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
-    if metadata.is_dir() {
-        return Err("Folders cannot be viewed".to_string());
-    }
-    if metadata.len() > 20 * 1024 * 1024 {
-        return Err("Files larger than 20 MB cannot be viewed".to_string());
-    }
-    let mime = MimeGuess::from_path(&path).first_or_octet_stream();
-    if mime.type_().as_str() == "image" {
-        let bytes = fs::read(path).map_err(|error| error.to_string())?;
-        return Ok(ProjectFileContent {
-            file_kind: "image".to_string(),
-            content: None,
-            data_url: Some(format!(
-                "data:{};base64,{}",
-                mime.essence_str(),
-                BASE64_STANDARD.encode(bytes)
-            )),
-        });
-    }
-    if !is_text_file(&path, &metadata) {
-        return Err("This binary file cannot be viewed internally".to_string());
-    }
-    Ok(ProjectFileContent {
-        file_kind: "text".to_string(),
-        content: Some(fs::read_to_string(path).map_err(|error| error.to_string())?),
-        data_url: None,
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = safe_project_relative_path(&root, &relative_path)?;
+        let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+        if metadata.is_dir() {
+            return Err("Folders cannot be viewed".to_string());
+        }
+        if metadata.len() > 20 * 1024 * 1024 {
+            return Err("Files larger than 20 MB cannot be viewed".to_string());
+        }
+        let mime = MimeGuess::from_path(&path).first_or_octet_stream();
+        if mime.type_().as_str() == "image" {
+            let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+            return Ok(ProjectFileContent {
+                file_kind: "image".to_string(),
+                content: None,
+                data_url: Some(format!(
+                    "data:{};base64,{}",
+                    mime.essence_str(),
+                    BASE64_STANDARD.encode(bytes)
+                )),
+            });
+        }
+        if !is_text_file(&path, &metadata) {
+            return Err("This binary file cannot be viewed internally".to_string());
+        }
+        Ok(ProjectFileContent {
+            file_kind: "text".to_string(),
+            content: Some(fs::read_to_string(path).map_err(|error| error.to_string())?),
+            data_url: None,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -6473,6 +6593,7 @@ pub fn run() {
             list_project_files,
             list_project_files_page,
             get_project_file_info,
+            get_project_folder_size,
             project_file_exists,
             list_dev_project_types,
             scan_dev_project_types,

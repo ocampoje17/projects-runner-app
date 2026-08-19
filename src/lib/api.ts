@@ -511,6 +511,8 @@ export const api = {
     invokeDesktop<ProjectFilePage>("list_project_files_page", { projectId, relativePath, offset, limit }),
   getProjectFileInfo: (projectId: number, relativePath = "") =>
     invokeDesktop<ProjectFileEntry>("get_project_file_info", { projectId, relativePath }),
+  getProjectFolderSize: (projectId: number, relativePath = "") =>
+    invokeDesktop<number>("get_project_folder_size", { projectId, relativePath }),
   projectFileExists: (projectId: number, relativePath: string) =>
     invokeDesktop<boolean>("project_file_exists", { projectId, relativePath }),
   listDevProjectTypes: () => invokeDesktop<DevProjectType[]>("list_dev_project_types"),
