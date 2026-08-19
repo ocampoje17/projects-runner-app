@@ -11,7 +11,7 @@ function fail(message) {
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     stdio: "inherit",
-    shell: false,
+    shell: process.platform === "win32",
     ...options,
   });
 
@@ -23,7 +23,7 @@ function run(command, args, options = {}) {
 function capture(command, args) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
-    shell: false,
+    shell: process.platform === "win32",
   });
 
   if (result.status !== 0) {
