@@ -9,9 +9,10 @@ function fail(message) {
 }
 
 function run(command, args, options = {}) {
+  const needsShell = process.platform === "win32" && (command.endsWith(".cmd") || command.endsWith(".bat") || command === "npm");
   const result = spawnSync(command, args, {
     stdio: "inherit",
-    shell: process.platform === "win32",
+    shell: needsShell,
     ...options,
   });
 
@@ -21,9 +22,10 @@ function run(command, args, options = {}) {
 }
 
 function capture(command, args) {
+  const needsShell = process.platform === "win32" && (command.endsWith(".cmd") || command.endsWith(".bat") || command === "npm");
   const result = spawnSync(command, args, {
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: needsShell,
   });
 
   if (result.status !== 0) {
