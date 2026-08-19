@@ -94,9 +94,7 @@ const [packageJson, packageLock, tauriConfig, cargoToml, cargoLock] = await Prom
   readFile(cargoLockPath, "utf8"),
 ]);
 
-if (packageJson.version === version && tauriConfig.version === version && cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1] === version) {
-  fail(`Version '${version}' is already set. Choose a new version before publishing.`);
-}
+const isAlreadySet = packageJson.version === version && tauriConfig.version === version && cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1] === version;
 
 packageJson.version = version;
 packageLock.version = version;
@@ -128,7 +126,12 @@ run("git", [
   "src-tauri/Cargo.toml",
   "src-tauri/Cargo.lock",
 ]);
-run("git", ["commit", "-m", `Release v${version}`]);
+
+const staged = capture("git", ["diff", "--staged", "--name-only"]);
+if (staged) {
+  run("git", ["commit", "-m", `Release v${version}`]);
+}
+
 run("git", ["push", "origin", "master"]);
 run("git", ["tag", "-a", tag, "-m", `Release ${tag}`]);
 run("git", ["push", "origin", tag]);
