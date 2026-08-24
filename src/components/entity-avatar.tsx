@@ -23,8 +23,18 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { cn } from "@/lib/utils";
+import { DevIcon } from "../lib/dev-icons";
 
 const LUCIDE_ICON_PREFIX = "lucide:";
+const DEVICON_PREFIX = "devicon:";
+
+export function deviconIconValue(id: string) {
+  return `${DEVICON_PREFIX}${id}`;
+}
+
+export function deviconIconId(value: string | null | undefined) {
+  return value?.startsWith(DEVICON_PREFIX) ? value.slice(DEVICON_PREFIX.length) : null;
+}
 
 export type IconOption = { id: string; label: string; Icon: LucideIcon };
 
@@ -274,7 +284,7 @@ function initials(value: string) {
 }
 
 function avatarSrc(path: string | null | undefined) {
-  if (!path || lucideIconId(path)) {
+  if (!path || lucideIconId(path) || deviconIconId(path)) {
     return undefined;
   }
 
@@ -296,12 +306,19 @@ export function EntityAvatar({
 }) {
   const iconOption = lucideIconOption(path);
   const Icon = iconOption?.Icon;
+  const devIconId = deviconIconId(path);
 
   return (
     <Avatar className={className}>
       <AvatarImage src={avatarSrc(path)} alt="" />
       <AvatarFallback className={cn(fallbackClassName)}>
-        {Icon ? <Icon size={iconSize} /> : initials(name) || "PR"}
+        {devIconId ? (
+          <DevIcon typeId={devIconId} style={{ fontSize: iconSize }} />
+        ) : Icon ? (
+          <Icon size={iconSize} />
+        ) : (
+          initials(name) || "PR"
+        )}
       </AvatarFallback>
     </Avatar>
   );

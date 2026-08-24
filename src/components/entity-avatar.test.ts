@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildSuggestedIconOptions,
+  deviconIconId,
+  deviconIconValue,
   getLucideIconOption,
   getRecentIconIds,
   saveRecentIconId,
@@ -149,6 +151,22 @@ describe("entity-avatar icon utilities", () => {
 
       expect(suggested.length).toBe(20);
       expect(suggested[0]?.id).toBe("terminal");
+    });
+  });
+
+  describe("deviconIconValue and deviconIconId", () => {
+    it("encodes devicon prefix properly", () => {
+      expect(deviconIconValue("react")).toBe("devicon:react");
+      expect(deviconIconValue("tauri")).toBe("devicon:tauri");
+    });
+
+    it("extracts devicon id from prefixed path", () => {
+      expect(deviconIconId("devicon:react")).toBe("react");
+      expect(deviconIconId("devicon:rust")).toBe("rust");
+      expect(deviconIconId("lucide:terminal")).toBeNull();
+      expect(deviconIconId("/path/to/icon.png")).toBeNull();
+      expect(deviconIconId(null)).toBeNull();
+      expect(deviconIconId(undefined)).toBeNull();
     });
   });
 });

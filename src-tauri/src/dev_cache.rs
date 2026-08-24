@@ -68,7 +68,7 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
         "Node.js project",
         ["package.json"],
         [],
-        ["dist", "build", "out", "coverage", ".cache"],
+        ["dist", "build", "out", "coverage", ".cache", ".temp", ".tmp", ".turbo", ".rollup.cache", ".eslintcache", "storybook-static"],
         ["node_modules"]
     ),
     project_type!(
@@ -78,7 +78,7 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
         "Bun runtime project",
         ["bun.lock", "bun.lockb"],
         [],
-        ["dist", "build", ".cache"],
+        ["dist", "build", ".cache", ".temp", "coverage"],
         ["node_modules"]
     ),
     project_type!(
@@ -88,31 +88,31 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
         "Deno runtime project",
         ["deno.json", "deno.jsonc", "deno.lock"],
         [],
-        ["dist", "coverage"],
+        ["dist", "coverage", ".cache"],
         ["node_modules", ".deno"]
     ),
-    project_type!("vite", "Vite", "JavaScript & Web", "Vite-powered application", [], ["package.json" => "vite"], ["dist", ".vite"], ["node_modules"]),
-    project_type!("webpack", "Webpack", "JavaScript & Web", "Webpack application", ["webpack.config.js", "webpack.config.ts", "webpack.config.cjs", "webpack.config.mjs"], ["package.json" => "webpack"], ["dist", "build", ".cache"], ["node_modules"]),
-    project_type!("parcel", "Parcel", "JavaScript & Web", "Parcel application", [], ["package.json" => "parcel"], ["dist", ".parcel-cache"], ["node_modules"]),
-    project_type!("react", "React", "JavaScript & Web", "React application", [], ["package.json" => "react"], ["dist", "build", "coverage"], ["node_modules"]),
-    project_type!("nextjs", "Next.js", "JavaScript & Web", "Next.js application", ["next.config.js", "next.config.ts", "next.config.mjs"], ["package.json" => "next"], [".next", "out", "coverage"], ["node_modules"]),
-    project_type!("remix", "Remix / React Router", "JavaScript & Web", "Remix or React Router framework project", ["remix.config.js"], ["package.json" => "@remix-run", "package.json" => "react-router"], ["build", ".react-router"], ["node_modules"]),
-    project_type!("gatsby", "Gatsby", "JavaScript & Web", "Gatsby site", ["gatsby-config.js", "gatsby-config.ts"], ["package.json" => "gatsby"], ["public", ".cache"], ["node_modules"]),
-    project_type!("vue", "Vue", "JavaScript & Web", "Vue application", [], ["package.json" => "vue"], ["dist", "coverage"], ["node_modules"]),
-    project_type!("nuxt", "Nuxt", "JavaScript & Web", "Nuxt application", ["nuxt.config.ts", "nuxt.config.js"], ["package.json" => "nuxt"], [".nuxt", ".output", "dist"], ["node_modules"]),
-    project_type!("angular", "Angular", "JavaScript & Web", "Angular application", ["angular.json"], ["package.json" => "@angular/core"], ["dist", ".angular/cache", "coverage"], ["node_modules"]),
-    project_type!("svelte", "Svelte", "JavaScript & Web", "Svelte application", ["svelte.config.js", "svelte.config.ts"], ["package.json" => "svelte"], ["dist", "build", ".svelte-kit"], ["node_modules"]),
-    project_type!("sveltekit", "SvelteKit", "JavaScript & Web", "SvelteKit application", ["svelte.config.js", "svelte.config.ts"], ["package.json" => "@sveltejs/kit"], [".svelte-kit", "build"], ["node_modules"]),
-    project_type!("astro", "Astro", "JavaScript & Web", "Astro site", ["astro.config.mjs", "astro.config.ts", "astro.config.js"], ["package.json" => "astro"], ["dist", ".astro"], ["node_modules"]),
-    project_type!("solidstart", "SolidStart", "JavaScript & Web", "SolidStart application", [], ["package.json" => "@solidjs/start"], [".output", "dist"], ["node_modules"]),
-    project_type!("qwik", "Qwik", "JavaScript & Web", "Qwik application", [], ["package.json" => "@builder.io/qwik"], ["dist", "server"], ["node_modules"]),
+    project_type!("vite", "Vite", "JavaScript & Web", "Vite-powered application", ["vite.config.js", "vite.config.ts", "vite.config.mjs", "vite.config.cjs"], ["package.json" => "vite"], ["dist", ".vite", "build", "coverage", ".cache"], ["node_modules"]),
+    project_type!("webpack", "Webpack", "JavaScript & Web", "Webpack application", ["webpack.config.js", "webpack.config.ts", "webpack.config.cjs", "webpack.config.mjs"], ["package.json" => "webpack"], ["dist", "build", ".cache", ".webpack", "coverage"], ["node_modules"]),
+    project_type!("parcel", "Parcel", "JavaScript & Web", "Parcel application", [], ["package.json" => "parcel"], ["dist", ".parcel-cache", ".cache"], ["node_modules"]),
+    project_type!("react", "React", "JavaScript & Web", "React application", [], ["package.json" => "react"], ["dist", "build", "coverage", ".cache"], ["node_modules"]),
+    project_type!("nextjs", "Next.js", "JavaScript & Web", "Next.js application", ["next.config.js", "next.config.ts", "next.config.mjs", "next.config.cjs"], ["package.json" => "next"], [".next", "out", "dist", "build", "coverage", ".cache"], ["node_modules"]),
+    project_type!("remix", "Remix / React Router", "JavaScript & Web", "Remix or React Router framework project", ["remix.config.js"], ["package.json" => "@remix-run", "package.json" => "react-router"], ["build", ".react-router", "dist", "coverage"], ["node_modules"]),
+    project_type!("gatsby", "Gatsby", "JavaScript & Web", "Gatsby site", ["gatsby-config.js", "gatsby-config.ts"], ["package.json" => "gatsby"], ["public", ".cache", "dist"], ["node_modules"]),
+    project_type!("vue", "Vue", "JavaScript & Web", "Vue application", [], ["package.json" => "vue"], ["dist", "coverage", ".cache"], ["node_modules"]),
+    project_type!("nuxt", "Nuxt", "JavaScript & Web", "Nuxt application", ["nuxt.config.ts", "nuxt.config.js", "nuxt.config.mjs"], ["package.json" => "nuxt"], [".nuxt", ".output", "dist", "build", "coverage"], ["node_modules"]),
+    project_type!("angular", "Angular", "JavaScript & Web", "Angular application", ["angular.json"], ["package.json" => "@angular/core"], ["dist", ".angular/cache", ".angular", "coverage"], ["node_modules"]),
+    project_type!("svelte", "Svelte", "JavaScript & Web", "Svelte application", ["svelte.config.js", "svelte.config.ts", "svelte.config.mjs"], ["package.json" => "svelte"], ["dist", "build", ".svelte-kit", "coverage"], ["node_modules"]),
+    project_type!("sveltekit", "SvelteKit", "JavaScript & Web", "SvelteKit application", ["svelte.config.js", "svelte.config.ts", "svelte.config.mjs"], ["package.json" => "@sveltejs/kit"], [".svelte-kit", "build", "dist", "coverage"], ["node_modules"]),
+    project_type!("astro", "Astro", "JavaScript & Web", "Astro site", ["astro.config.mjs", "astro.config.ts", "astro.config.js", "astro.config.cjs"], ["package.json" => "astro"], ["dist", ".astro", "coverage", ".cache"], ["node_modules"]),
+    project_type!("solidstart", "SolidStart", "JavaScript & Web", "SolidStart application", [], ["package.json" => "@solidjs/start"], [".output", "dist", ".solid"], ["node_modules"]),
+    project_type!("qwik", "Qwik", "JavaScript & Web", "Qwik application", [], ["package.json" => "@builder.io/qwik"], ["dist", "server", ".qwik"], ["node_modules"]),
     project_type!("ember", "Ember", "JavaScript & Web", "Ember application", ["ember-cli-build.js"], ["package.json" => "ember-cli"], ["dist", "tmp"], ["node_modules"]),
     project_type!("nestjs", "NestJS", "JavaScript & Web", "NestJS service", ["nest-cli.json"], ["package.json" => "@nestjs/core"], ["dist", "coverage"], ["node_modules"]),
     project_type!("express", "Express", "JavaScript & Web", "Express service", [], ["package.json" => "express"], ["dist", "build", "coverage"], ["node_modules"]),
     project_type!("fastify", "Fastify", "JavaScript & Web", "Fastify service", [], ["package.json" => "fastify"], ["dist", "build", "coverage"], ["node_modules"]),
     project_type!("adonisjs", "AdonisJS", "JavaScript & Web", "AdonisJS service", ["adonisrc.ts", ".adonisrc.json"], ["package.json" => "@adonisjs/core"], ["build", "tmp"], ["node_modules"]),
-    project_type!("turborepo", "Turborepo", "Workspace, Desktop & Mobile", "Turborepo workspace", ["turbo.json"], ["package.json" => "turbo"], [".turbo"], ["node_modules"]),
-    project_type!("nx", "Nx", "Workspace, Desktop & Mobile", "Nx workspace", ["nx.json"], ["package.json" => "nx"], [".nx/cache", "dist"], ["node_modules"]),
+    project_type!("turborepo", "Turborepo", "Workspace, Desktop & Mobile", "Turborepo workspace", ["turbo.json"], ["package.json" => "turbo"], [".turbo", "dist", ".cache"], ["node_modules"]),
+    project_type!("nx", "Nx", "Workspace, Desktop & Mobile", "Nx workspace", ["nx.json"], ["package.json" => "nx"], [".nx/cache", ".nx", "dist"], ["node_modules"]),
     project_type!(
         "lerna",
         "Lerna",
@@ -120,11 +120,32 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
         "Lerna workspace",
         ["lerna.json"],
         [],
-        ["dist"],
+        ["dist", ".cache"],
         ["node_modules"]
     ),
-    project_type!("js-workspace", "pnpm / Yarn Workspace", "Workspace, Desktop & Mobile", "JavaScript monorepo workspace", ["pnpm-workspace.yaml"], ["package.json" => "workspaces"], ["dist", "build", ".cache"], ["node_modules", ".pnpm-store"]),
-    project_type!("tauri", "Tauri", "Workspace, Desktop & Mobile", "Tauri desktop application", ["src-tauri/tauri.conf.json", "src-tauri/Cargo.toml"], ["package.json" => "@tauri-apps"], ["src-tauri/target", "dist"], ["node_modules"]),
+    project_type!("js-workspace", "pnpm / Yarn Workspace", "Workspace, Desktop & Mobile", "JavaScript monorepo workspace", ["pnpm-workspace.yaml"], ["package.json" => "workspaces"], ["dist", "build", ".cache", ".turbo"], ["node_modules", ".pnpm-store"]),
+    project_type!(
+        "tauri",
+        "Tauri",
+        "Workspace, Desktop & Mobile",
+        "Tauri desktop application",
+        ["src-tauri/tauri.conf.json", "src-tauri/tauri.conf.json5", "src-tauri/Cargo.toml", "tauri.conf.json"],
+        ["package.json" => "@tauri-apps"],
+        [
+            "src-tauri/target",
+            "src-tauri/target-test",
+            "src-tauri/target/debug",
+            "src-tauri/target-test/debug",
+            "src-tauri/gen/schemas",
+            "target",
+            "target-test",
+            "target/debug",
+            "target-test/debug",
+            "dist",
+            "build"
+        ],
+        ["node_modules"]
+    ),
     project_type!("electron", "Electron", "Workspace, Desktop & Mobile", "Electron desktop application", [], ["package.json" => "electron"], ["dist", "build", "out", ".webpack"], ["node_modules"]),
     project_type!(
         "wails",
@@ -141,16 +162,16 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
     project_type!("ionic-capacitor", "Ionic / Capacitor", "Workspace, Desktop & Mobile", "Ionic or Capacitor application", ["ionic.config.json", "capacitor.config.ts", "capacitor.config.json"], ["package.json" => "@capacitor/core"], ["www", "dist", "android/build", "ios/build"], ["node_modules", "ios/App/Pods"]),
     project_type!("cordova", "Cordova", "Workspace, Desktop & Mobile", "Cordova application", ["config.xml"], ["package.json" => "cordova"], ["platforms", "plugins", "www"], ["node_modules"]),
     project_type!("nativescript", "NativeScript", "Workspace, Desktop & Mobile", "NativeScript application", ["nativescript.config.ts", "nativescript.config.js"], ["package.json" => "@nativescript/core"], ["platforms", "hooks"], ["node_modules"]),
-    project_type!("flutter", "Flutter", "Workspace, Desktop & Mobile", "Flutter application", ["pubspec.yaml"], ["pubspec.yaml" => "flutter:"], ["build", ".dart_tool"], [".pub-cache", "ios/Pods"]),
-    project_type!("android-gradle", "Android / Gradle", "Workspace, Desktop & Mobile", "Android Gradle application", ["settings.gradle", "settings.gradle.kts", "gradlew"], ["build.gradle" => "com.android", "build.gradle.kts" => "com.android"], [".gradle", "build", "app/build"]),
+    project_type!("flutter", "Flutter", "Workspace, Desktop & Mobile", "Flutter application", ["pubspec.yaml"], ["pubspec.yaml" => "flutter:"], ["build", ".dart_tool", ".flutter-plugins", ".flutter-plugins-dependencies", "android/.gradle", "android/build", "android/app/build", "ios/build"], [".pub-cache", "ios/Pods", "ios/.symlinks"]),
+    project_type!("android-gradle", "Android / Gradle", "Workspace, Desktop & Mobile", "Android Gradle application", ["settings.gradle", "settings.gradle.kts", "gradlew"], ["build.gradle" => "com.android", "build.gradle.kts" => "com.android"], [".gradle", "build", "app/build", ".cxx"]),
     project_type!("ios-xcode", "iOS / Xcode", "Workspace, Desktop & Mobile", "Xcode application", [], ["project.pbxproj" => "PBXProject"], ["build", "DerivedData"], ["Pods", "Carthage/Build"]),
-    project_type!("dotnet", ".NET / MSBuild", "Microsoft & JVM", ".NET or MSBuild project", ["*.csproj", "*.fsproj", "*.vbproj", "*.sln"], ["global.json" => "sdk"], ["bin", "obj", ".vs", "TestResults"], ["packages"]),
-    project_type!("aspnet", "ASP.NET Core", "Microsoft & JVM", "ASP.NET Core project", [], ["Program.cs" => "WebApplication", "Startup.cs" => "IApplicationBuilder"], ["bin", "obj", ".vs", "TestResults"], ["packages", "node_modules"]),
-    project_type!("blazor", "Blazor", "Microsoft & JVM", "Blazor project", [], ["Program.cs" => "AddRazorComponents", "Program.cs" => "WebAssemblyHostBuilder"], ["bin", "obj", ".vs"], ["packages", "node_modules"]),
-    project_type!("winui3", "WinUI 3", "Microsoft & JVM", "Windows App SDK / WinUI 3 project", [], ["Package.appxmanifest" => "uap", "App.xaml" => "Microsoft.UI.Xaml"], ["bin", "obj", ".vs", "AppPackages"], ["packages"]),
-    project_type!("wpf", "WPF", "Microsoft & JVM", "WPF application", [], ["App.xaml" => "presentation", "MainWindow.xaml" => "presentation"], ["bin", "obj", ".vs"], ["packages"]),
+    project_type!("dotnet", ".NET / MSBuild", "Microsoft & JVM", ".NET or MSBuild project", ["*.csproj", "*.fsproj", "*.vbproj", "*.sln"], ["global.json" => "sdk"], ["bin", "obj", ".vs", "TestResults", "AppPackages", "BundleArtifacts"], ["packages"]),
+    project_type!("aspnet", "ASP.NET Core", "Microsoft & JVM", "ASP.NET Core project", [], ["Program.cs" => "WebApplication", "Startup.cs" => "IApplicationBuilder"], ["bin", "obj", ".vs", "TestResults", "AppPackages"], ["packages", "node_modules"]),
+    project_type!("blazor", "Blazor", "Microsoft & JVM", "Blazor project", [], ["Program.cs" => "AddRazorComponents", "Program.cs" => "WebAssemblyHostBuilder"], ["bin", "obj", ".vs", "TestResults"], ["packages", "node_modules"]),
+    project_type!("winui3", "WinUI 3", "Microsoft & JVM", "Windows App SDK / WinUI 3 project", [], ["Package.appxmanifest" => "uap", "App.xaml" => "Microsoft.UI.Xaml"], ["bin", "obj", ".vs", "AppPackages", "BundleArtifacts"], ["packages"]),
+    project_type!("wpf", "WPF", "Microsoft & JVM", "WPF application", [], ["App.xaml" => "presentation", "MainWindow.xaml" => "presentation"], ["bin", "obj", ".vs", "AppPackages"], ["packages"]),
     project_type!("winforms", "Windows Forms", "Microsoft & JVM", "Windows Forms application", [], ["Program.cs" => "Application.Run"], ["bin", "obj", ".vs"], ["packages"]),
-    project_type!("maui", ".NET MAUI", "Microsoft & JVM", ".NET MAUI application", [], ["MauiProgram.cs" => "MauiApp"], ["bin", "obj", ".vs"], ["packages"]),
+    project_type!("maui", ".NET MAUI", "Microsoft & JVM", ".NET MAUI application", [], ["MauiProgram.cs" => "MauiApp"], ["bin", "obj", ".vs", "AppPackages"], ["packages"]),
     project_type!("avalonia", "Avalonia", "Microsoft & JVM", "Avalonia UI application", [], ["App.axaml" => "Avalonia", "package.json" => "avalonia"], ["bin", "obj", ".vs"], ["packages", "node_modules"]),
     project_type!("uno", "Uno Platform", "Microsoft & JVM", "Uno Platform application", [], ["App.xaml" => "Uno", "global.json" => "uno"], ["bin", "obj", ".vs"], ["packages"]),
     project_type!(
@@ -158,9 +179,9 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
         "Maven",
         "Microsoft & JVM",
         "Maven project",
-        ["pom.xml", "mvnw"],
+        ["pom.xml", "mvnw", "mvnw.cmd"],
         [],
-        ["target"]
+        ["target", "target-test", "target/debug", "out", "build"]
     ),
     project_type!(
         "gradle",
@@ -171,10 +192,12 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
             "build.gradle",
             "build.gradle.kts",
             "settings.gradle",
-            "settings.gradle.kts"
+            "settings.gradle.kts",
+            "gradlew",
+            "gradlew.bat"
         ],
         [],
-        [".gradle", "build"]
+        [".gradle", "build", "app/build", "out"]
     ),
     project_type!(
         "java",
@@ -183,18 +206,25 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
         "Java project",
         ["pom.xml", "build.gradle", "build.gradle.kts"],
         [],
-        ["target", "build", "out"]
+        ["target", "target-test", "target/debug", "build", "out", "bin"]
     ),
-    project_type!("kotlin", "Kotlin", "Microsoft & JVM", "Kotlin project", [], ["build.gradle.kts" => "kotlin", "pom.xml" => "kotlin"], ["build", "target", "out"]),
-    project_type!("spring-boot", "Spring Boot", "Microsoft & JVM", "Spring Boot service", [], ["pom.xml" => "spring-boot", "build.gradle" => "spring-boot", "build.gradle.kts" => "spring-boot"], ["target", "build"]),
+    project_type!("kotlin", "Kotlin", "Microsoft & JVM", "Kotlin project", [], ["build.gradle.kts" => "kotlin", "pom.xml" => "kotlin"], ["build", "target", "target-test", "out", ".kotlin"]),
+    project_type!("spring-boot", "Spring Boot", "Microsoft & JVM", "Spring Boot service", [], ["pom.xml" => "spring-boot", "build.gradle" => "spring-boot", "build.gradle.kts" => "spring-boot"], ["target", "target-test", "build", "out"]),
     project_type!(
         "rust",
         "Rust / Cargo",
         "Native & Backend",
         "Rust Cargo project",
-        ["Cargo.toml"],
+        ["Cargo.toml", "Cargo.lock"],
         [],
-        ["target"],
+        [
+            "target",
+            "target-test",
+            "target/debug",
+            "target-test/debug",
+            "target/release",
+            "target-test/release"
+        ],
         ["vendor"]
     ),
     project_type!(
@@ -204,7 +234,7 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
         "Go module",
         ["go.mod", "go.work"],
         [],
-        ["bin", "build", "dist", "coverage"],
+        ["bin", "build", "dist", "coverage", ".cover", ".coverage"],
         ["vendor"]
     ),
     project_type!(
@@ -225,9 +255,13 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
             ".mypy_cache",
             ".ruff_cache",
             ".tox",
+            ".nox",
             "htmlcov",
             "dist",
-            "build"
+            "build",
+            ".eggs",
+            "*.egg-info",
+            ".coverage"
         ],
         [".venv", "venv", "env", ".env", "__pypackages__", ".conda"]
     ),
@@ -242,15 +276,16 @@ static PROJECT_TYPES: &[ProjectTypeDefinition] = &[
             "__pycache__",
             ".pytest_cache",
             ".ruff_cache",
+            ".mypy_cache",
             "dist",
             "build"
         ],
         [".venv", "venv", ".uv"]
     ),
-    project_type!("poetry", "Poetry", "Native & Backend", "Poetry Python project", ["poetry.lock"], ["pyproject.toml" => "[tool.poetry]"], ["__pycache__", ".pytest_cache", "dist", "build"], [".venv", "venv"]),
-    project_type!("django", "Django", "Native & Backend", "Django application", ["manage.py"], ["requirements.txt" => "django", "pyproject.toml" => "django"], ["__pycache__", ".pytest_cache", "staticfiles"], [".venv", "venv", "env", ".env"]),
-    project_type!("flask", "Flask", "Native & Backend", "Flask application", [], ["requirements.txt" => "flask", "pyproject.toml" => "flask"], ["__pycache__", ".pytest_cache"], [".venv", "venv", "env", ".env"]),
-    project_type!("fastapi", "FastAPI", "Native & Backend", "FastAPI application", [], ["requirements.txt" => "fastapi", "pyproject.toml" => "fastapi"], ["__pycache__", ".pytest_cache"], [".venv", "venv", "env", ".env"]),
+    project_type!("poetry", "Poetry", "Native & Backend", "Poetry Python project", ["poetry.lock"], ["pyproject.toml" => "[tool.poetry]"], ["__pycache__", ".pytest_cache", ".mypy_cache", "dist", "build"], [".venv", "venv"]),
+    project_type!("django", "Django", "Native & Backend", "Django application", ["manage.py"], ["requirements.txt" => "django", "pyproject.toml" => "django"], ["__pycache__", ".pytest_cache", "staticfiles", "dist", "build"], [".venv", "venv", "env", ".env"]),
+    project_type!("flask", "Flask", "Native & Backend", "Flask application", [], ["requirements.txt" => "flask", "pyproject.toml" => "flask"], ["__pycache__", ".pytest_cache", "dist", "build"], [".venv", "venv", "env", ".env"]),
+    project_type!("fastapi", "FastAPI", "Native & Backend", "FastAPI application", [], ["requirements.txt" => "fastapi", "pyproject.toml" => "fastapi"], ["__pycache__", ".pytest_cache", "dist", "build"], [".venv", "venv", "env", ".env"]),
     project_type!(
         "php-composer",
         "PHP / Composer",
@@ -519,6 +554,10 @@ fn candidate_id(relative_path: &str) -> String {
 }
 
 fn matches_cache_pattern(relative: &str, name: &str, pattern: &str) -> bool {
+    if pattern.starts_with("*.") {
+        let suffix = pattern.trim_start_matches('*');
+        return name.ends_with(suffix);
+    }
     relative == pattern
         || relative.ends_with(&format!("/{pattern}"))
         || (!pattern.contains('/') && name == pattern)
@@ -676,6 +715,20 @@ mod tests {
         .unwrap();
         let scan = scan_project_types(&root);
         assert!(scan.detected_type_ids.contains(&"winui3".to_string()));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cache_scan_finds_tauri_target_test_and_debug() {
+        let root = fixture("tauri-cache");
+        fs::create_dir_all(root.join("src-tauri/target/debug")).unwrap();
+        fs::write(root.join("src-tauri/target/debug/app.exe"), "binary").unwrap();
+        fs::create_dir_all(root.join("src-tauri/target-test/debug")).unwrap();
+        fs::write(root.join("src-tauri/target-test/debug/test.exe"), "binary").unwrap();
+        let candidates = scan_cache(&root, &["tauri".to_string()]);
+        let paths: HashSet<String> = candidates.into_iter().map(|c| c.relative_path).collect();
+        assert!(paths.contains("src-tauri/target"));
+        assert!(paths.contains("src-tauri/target-test"));
         let _ = fs::remove_dir_all(root);
     }
 }

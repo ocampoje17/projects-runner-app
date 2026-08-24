@@ -17,15 +17,21 @@ type ProjectNoteDraft = {
 type DraftsByProjectId = Record<number, ProjectNoteDraft>;
 
 function buildProjectMap(projects: Project[]): ProjectById {
+  if (!Array.isArray(projects)) return {};
   return projects.reduce<ProjectById>((acc, project) => {
-    acc[project.id] = project;
+    if (project) {
+      acc[project.id] = project;
+    }
     return acc;
   }, {});
 }
 
 function buildNotesMap(projects: Project[]): ProjectNotesById {
+  if (!Array.isArray(projects)) return {};
   return projects.reduce<ProjectNotesById>((acc, project) => {
-    acc[project.id] = parseProjectNotes(project.notes);
+    if (project) {
+      acc[project.id] = parseProjectNotes(project.notes);
+    }
     return acc;
   }, {});
 }
@@ -37,7 +43,7 @@ export function useProjectNotes({
   projects: Project[];
   onPersist: (projectId: number, input: ProjectInput, successTitle: string) => void;
 }) {
-  const [projectNotesById, setProjectNotesById] = useState<ProjectNotesById>({});
+  const [projectNotesById, setProjectNotesById] = useState<ProjectNotesById>(() => buildNotesMap(projects));
   const [newProjectNotesById, setNewProjectNotesById] = useState<DraftsByProjectId>({});
   const [noteVisibility, setNoteVisibility] = useState<Record<string, boolean>>(() => {
     try {
@@ -56,8 +62,12 @@ export function useProjectNotes({
     setProjectNotesById(buildNotesMap(projects));
     setNewProjectNotesById((current) => {
       const next: DraftsByProjectId = {};
-      for (const project of projects) {
-        next[project.id] = current[project.id] ?? { title: "", content: "" };
+      if (Array.isArray(projects)) {
+        for (const project of projects) {
+          if (project) {
+            next[project.id] = current[project.id] ?? { title: "", content: "" };
+          }
+        }
       }
       return next;
     });

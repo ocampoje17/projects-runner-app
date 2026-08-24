@@ -1,10 +1,13 @@
+import { useCallback, useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Download, FolderOpen, Save, Trash2 } from "lucide-react";
+import { Blocks, Download, FolderOpen, Save, Trash2 } from "lucide-react";
 
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { EntityAvatar, lucideIconValue } from "./entity-avatar";
+import { deviconIconValue, EntityAvatar } from "./entity-avatar";
 import { AvatarPicker, FieldError } from "./dialog-shared";
+import { DevIcon, getDevIconOption } from "../lib/dev-icons";
+import { DevProjectToolsDialogs, type DevProjectToolsRequest } from "./dev-project-tools-dialogs";
 import { Button } from "./ui/button";
 import { StatefulButton } from "./ui/stateful-button";
 import {
@@ -18,6 +21,7 @@ import { DialogField, DialogFooter, DialogForm, DialogInlineField } from "./ui/d
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
+import { MiddleEllipsisText } from "./middle-ellipsis-text";
 import { api, Project, ProjectInput } from "../lib/api";
 
 const projectSchema = z.object({
@@ -46,6 +50,9 @@ export function ProjectDialog({
   onOpenChange: (open: boolean) => void;
   onSubmit: (input: ProjectInput) => void;
 }) {
+  const [projectTypes, setProjectTypes] = useState<string[]>([]);
+  const [devProjectToolsRequest, setDevProjectToolsRequest] = useState<DevProjectToolsRequest>(null);
+
   const form = useForm<ProjectFormValues>({
     resolver: zodResolver(projectSchema),
     defaultValues: {
@@ -56,6 +63,31 @@ export function ProjectDialog({
     },
   });
   const avatar = form.watch("avatar_path");
+
+  const loadProjectTypes = useCallback(async () => {
+    if (!project) {
+      setProjectTypes([]);
+      return;
+    }
+    try {
+      const types = await api.getFolderDevProjectTypes(project.id, "");
+      setProjectTypes(types);
+    } catch {
+      setProjectTypes([]);
+    }
+  }, [project]);
+
+  useEffect(() => {
+    if (open) {
+      form.reset({
+        name: project?.name ?? "",
+        path: project?.path ?? "",
+        description: project?.description ?? "",
+        avatar_path: project?.avatar_path ?? null,
+      });
+      void loadProjectTypes();
+    }
+  }, [form, loadProjectTypes, open, project]);
 
   async function pickFolder() {
     const path = await api.pickProjectFolder();
@@ -76,69 +108,134 @@ export function ProjectDialog({
   }
 
   function pickIcon(iconId: string) {
-    form.setValue("avatar_path", lucideIconValue(iconId), { shouldValidate: true });
+    form.setValue("avatar_path", deviconIconValue(iconId), { shouldValidate: true });
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(500px,calc(100vw-20px))]">
-        <DialogHeader>
-          <DialogTitle>{project ? "Edit project" : "Add project"}</DialogTitle>
-          <DialogDescription>Save a folder you work in and group its commands.</DialogDescription>
-        </DialogHeader>
-        <DialogForm className="flex flex-col gap-2.5" onSubmit={form.handleSubmit((values) => onSubmit(values))}>
-          <AvatarPicker
-            name={form.watch("name") || "Project"}
-            avatarPath={avatar}
-            onPickImage={pickAvatar}
-            onPickIcon={pickIcon}
-          />
-          <DialogField>
-            <Label>Name</Label>
-            <Input {...form.register("name")} placeholder="Frontend app" />
-            <FieldError message={form.formState.errors.name?.message} />
-          </DialogField>
-
-          <DialogField>
-            <Label>Folder</Label>
-            <DialogInlineField>
-              <Input {...form.register("path")} placeholder="/Users/you/projects/my-app or C:\\Projects\\my-app" />
-              <Button type="button" variant="secondary" onClick={pickFolder}>
-                <FolderOpen size={16} />
-              </Button>
-            </DialogInlineField>
-            <FieldError message={form.formState.errors.path?.message} />
-          </DialogField>
-
-          <DialogField>
-            <Label>Description</Label>
-            <Textarea
-              {...form.register("description")}
-              rows={3}
-              placeholder="Optional notes"
-              className="bg-[var(--vscode-editor)] text-[12px] leading-6"
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="w-[min(540px,calc(100vw-20px))]">
+          <DialogHeader>
+            <DialogTitle>{project ? "Edit project" : "Add project"}</DialogTitle>
+            <DialogDescription>Save a folder you work in and group its commands.</DialogDescription>
+          </DialogHeader>
+          <DialogForm className="flex flex-col gap-3" onSubmit={form.handleSubmit((values) => onSubmit(values))}>
+            <AvatarPicker
+              name={form.watch("name") || "Project"}
+              avatarPath={avatar}
+              isProject={true}
+              onPickImage={pickAvatar}
+              onPickIcon={pickIcon}
             />
-          </DialogField>
+            <DialogField>
+              <Label>Name</Label>
+              <Input {...form.register("name")} placeholder="Frontend app" />
+              <FieldError message={form.formState.errors.name?.message} />
+            </DialogField>
 
-          <DialogFooter>
-            {project && (
-              <Button type="button" variant="danger" onClick={() => onDelete(project)}>
-                <Trash2 size={16} />
-                Delete
-              </Button>
+            <DialogField>
+              <Label>Folder</Label>
+              <DialogInlineField>
+                <Input {...form.register("path")} placeholder="/Users/you/projects/my-app or C:\\Projects\\my-app" />
+                <Button type="button" variant="secondary" onClick={pickFolder}>
+                  <FolderOpen size={16} />
+                </Button>
+              </DialogInlineField>
+              <FieldError message={form.formState.errors.path?.message} />
+            </DialogField>
+
+            <DialogField>
+              <Label>Description</Label>
+              <Textarea
+                {...form.register("description")}
+                rows={3}
+                placeholder="Optional notes"
+                className="bg-[var(--vscode-editor)] text-[12px] leading-6"
+              />
+            </DialogField>
+
+            {project ? (
+              <div className="rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor)] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <Label className="text-[12px] font-medium text-foreground">Project Types</Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      {projectTypes.length > 0
+                        ? `${projectTypes.length} development type${projectTypes.length === 1 ? "" : "s"} configured`
+                        : "No development types configured yet"}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setDevProjectToolsRequest({ mode: "types", relativePath: "" })}
+                    className="h-8 text-[11.5px]"
+                  >
+                    <Blocks size={14} />
+                    Set project type
+                  </Button>
+                </div>
+                {projectTypes.length > 0 && (
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    {projectTypes.map((typeId, index) => {
+                      const option = getDevIconOption(typeId);
+                      return (
+                        <span
+                          key={typeId}
+                          className="flex items-center gap-1.5 rounded-[4px] border border-[var(--vscode-border)] bg-[var(--vscode-bg)] px-2 py-0.5 text-[11px] text-foreground"
+                        >
+                          <DevIcon typeId={typeId} className="text-[13px]" />
+                          <span>{option?.label ?? typeId}</span>
+                          {index === 0 && (
+                            <span className="rounded bg-primary/15 px-1 py-0.2 text-[9px] font-semibold uppercase text-primary">
+                              Main
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-[6px] border border-dashed border-[var(--vscode-border)] bg-[var(--vscode-editor)]/50 p-3 text-[11.5px] text-muted-foreground">
+                <Blocks size={14} className="shrink-0 text-muted-foreground" />
+                <span>Development project types can be configured after the project is created.</span>
+              </div>
             )}
-            <StatefulButton
-              type="submit"
-              state={isPending ? "loading" : "idle"}
-              icon={<Save size={16} />}
-              loadingText="Saving"
-            >
-              Save
-            </StatefulButton>
-          </DialogFooter>
-        </DialogForm>
-      </DialogContent>
-    </Dialog>
+            <DialogFooter>
+              {project && (
+                <Button type="button" variant="danger" onClick={() => onDelete(project)}>
+                  <Trash2 size={16} />
+                  Delete
+                </Button>
+              )}
+              <StatefulButton
+                type="submit"
+                state={isPending ? "loading" : "idle"}
+                icon={<Save size={16} />}
+                loadingText="Saving"
+              >
+                Save
+              </StatefulButton>
+            </DialogFooter>
+          </DialogForm>
+        </DialogContent>
+      </Dialog>
+
+      {project && devProjectToolsRequest ? (
+        <DevProjectToolsDialogs
+          project={project}
+          request={devProjectToolsRequest}
+          onRequestChange={setDevProjectToolsRequest}
+          onTypesSaved={() => {
+            void loadProjectTypes();
+          }}
+          onCleaned={() => {}}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -166,7 +263,7 @@ export function ExportProjectDialog({
           <EntityAvatar name={project.name} path={project.avatar_path} />
           <div className="min-w-0">
             <strong className="block truncate text-[12px] text-foreground">{project.name}</strong>
-            <span className="block truncate font-mono text-[11px] text-muted-foreground">{project.path}</span>
+            <MiddleEllipsisText text={project.path} endLength={16} className="font-mono text-[11px] text-muted-foreground" />
           </div>
         </div>
         <DialogFooter>
@@ -183,4 +280,3 @@ export function ExportProjectDialog({
     </Dialog>
   );
 }
-

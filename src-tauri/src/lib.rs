@@ -14,7 +14,7 @@ use portable_pty::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 #[cfg(not(target_os = "windows"))]
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -3742,6 +3742,14 @@ struct StoredProjectTypeId {
     project_type_id: String,
 }
 
+#[derive(QueryableByName)]
+struct StoredFolderProjectTypeRow {
+    #[diesel(sql_type = Text)]
+    relative_path: String,
+    #[diesel(sql_type = Text)]
+    project_type_id: String,
+}
+
 fn stored_folder_project_types(
     project_id: i64,
     relative_path: &str,
@@ -3749,13 +3757,33 @@ fn stored_folder_project_types(
 ) -> Result<Vec<String>, String> {
     let mut conn = connect(&state.paths)?;
     sql_query(format!(
-        "SELECT project_type_id FROM folder_dev_project_types WHERE project_id = {} AND relative_path = '{}' ORDER BY project_type_id",
+        "SELECT project_type_id FROM folder_dev_project_types WHERE project_id = {} AND relative_path = '{}' ORDER BY rowid ASC",
         project_id,
         quote_sql(relative_path),
     ))
     .load::<StoredProjectTypeId>(&mut conn)
     .map(|rows| rows.into_iter().map(|row| row.project_type_id).collect())
     .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn list_all_folder_dev_project_types(
+    project_id: i64,
+    state: State<AppState>,
+) -> Result<HashMap<String, Vec<String>>, String> {
+    let mut conn = connect(&state.paths)?;
+    let rows = sql_query(format!(
+        "SELECT relative_path, project_type_id FROM folder_dev_project_types WHERE project_id = {} ORDER BY relative_path, rowid ASC",
+        project_id,
+    ))
+    .load::<StoredFolderProjectTypeRow>(&mut conn)
+    .map_err(|error| error.to_string())?;
+
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for row in rows {
+        map.entry(row.relative_path).or_default().push(row.project_type_id);
+    }
+    Ok(map)
 }
 
 fn dev_folder_root(
@@ -3808,9 +3836,15 @@ fn set_folder_dev_project_types(
         .into_iter()
         .map(|item| item.id)
         .collect::<HashSet<_>>();
-    let unique_ids = project_type_ids.into_iter().collect::<BTreeSet<_>>();
-    if unique_ids.iter().any(|id| !known_ids.contains(id)) {
-        return Err("Unknown development project type".to_string());
+    let mut unique_ids = Vec::new();
+    let mut seen = HashSet::new();
+    for id in project_type_ids {
+        if !known_ids.contains(&id) {
+            return Err("Unknown development project type".to_string());
+        }
+        if seen.insert(id.clone()) {
+            unique_ids.push(id);
+        }
     }
     let mut conn = connect(&state.paths)?;
     conn.batch_execute("BEGIN IMMEDIATE TRANSACTION;")
@@ -6607,6 +6641,7 @@ pub fn run() {
             list_dev_project_types,
             scan_dev_project_types,
             get_folder_dev_project_types,
+            list_all_folder_dev_project_types,
             set_folder_dev_project_types,
             scan_dev_cache,
             clean_dev_cache,

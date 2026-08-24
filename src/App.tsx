@@ -34,8 +34,10 @@ import { buildTitlebarSearchCollections, type TitlebarSearchItem } from "./lib/t
 import { MotionLevelProvider } from "./lib/motion";
 import { getTerminalController } from "./lib/terminal-registry";
 import { partitionTerminalIds, terminalCloseAction } from "./lib/terminal-tabs";
+import { readSavedSelectedProjectId, writeSavedSelectedProjectId } from "./lib/sidebar-state";
 import appIcon from "./assets/app-icon.png";
 import { UpdateDialog } from "./components/update-dialog";
+import { MiddleEllipsisText } from "./components/middle-ellipsis-text";
 
 type PrdOpenRequestPayload = {
   file_path: string;
@@ -235,8 +237,8 @@ function AppTitleBar({
         <div className="flex min-w-0 flex-1 justify-center">
           <TitlebarSearch collections={searchCollections} onSelect={onSearchSelect} />
         </div>
-        <div className="hidden min-w-0 max-w-[28%] shrink truncate text-[11px] text-[var(--vscode-foreground)]/60 xl:block">
-          {projectLabel}
+        <div className="hidden min-w-0 max-w-[28%] shrink text-[11px] text-[var(--vscode-foreground)]/60 xl:block">
+          <MiddleEllipsisText text={projectLabel} endLength={16} />
         </div>
       </div>
       <div className="relative z-10 flex shrink-0 items-stretch">
@@ -320,7 +322,7 @@ function App() {
     y: number;
     items: AppContextMenuItem[];
   } | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(() => readSavedSelectedProjectId());
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [commandDialogOpen, setCommandDialogOpen] = useState(false);
   const {
@@ -345,6 +347,8 @@ function App() {
     setShowStreamName,
     allowMultipleExplorerItems,
     setAllowMultipleExplorerItems,
+    restoreOpenTabs,
+    setRestoreOpenTabs,
     motionLevel,
     setMotionLevel,
   } = useAppPreferences();
@@ -372,7 +376,7 @@ function App() {
     queryFn: api.listProjects,
   });
 
-  const projects = projectsQuery.data ?? [];
+  const projects = useMemo(() => (projectsQuery.data ?? []).filter((p): p is Project => Boolean(p) && typeof p.id === "number"), [projectsQuery.data]);
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null;
   const commandDialogProject = projects.find((project) => project.id === commandDialogProjectId) ?? null;
   const exportProject = projects.find((project) => project.id === exportProjectId) ?? null;
@@ -392,8 +396,20 @@ function App() {
   });
 
   useEffect(() => {
-    if (selectedProjectId === null && projects.length > 0) {
-      setSelectedProjectId(projects[0].id);
+    writeSavedSelectedProjectId(selectedProjectId);
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (projects.length === 0) {
+      return;
+    }
+    if (selectedProjectId === null || !projects.some((project) => project.id === selectedProjectId)) {
+      const savedId = readSavedSelectedProjectId();
+      if (savedId !== null && projects.some((project) => project.id === savedId)) {
+        setSelectedProjectId(savedId);
+      } else if (projects[0]?.id !== undefined) {
+        setSelectedProjectId(projects[0].id);
+      }
     }
   }, [projects, selectedProjectId]);
 
@@ -620,7 +636,10 @@ function App() {
   const commandsByProjectId = useMemo(
     () =>
       projects.reduce<Record<number, ProjectCommand[]>>((acc, project, index) => {
-        acc[project.id] = commandQueries[index]?.data ?? [];
+        const query = commandQueries[index];
+        if (query?.data !== undefined) {
+          acc[project.id] = query.data;
+        }
         return acc;
       }, {}),
     [commandQueries, projects],
@@ -635,10 +654,14 @@ function App() {
   });
 
   const flowsByProjectId = useMemo(
-    () => projects.reduce<Record<number, import("./lib/api").ProjectFlow[]>>((acc, project, index) => {
-      acc[project.id] = flowQueries[index]?.data ?? [];
-      return acc;
-    }, {}),
+    () =>
+      projects.reduce<Record<number, import("./lib/api").ProjectFlow[]>>((acc, project, index) => {
+        const query = flowQueries[index];
+        if (query?.data !== undefined) {
+          acc[project.id] = query.data;
+        }
+        return acc;
+      }, {}),
     [flowQueries, projects],
   );
 
@@ -989,6 +1012,8 @@ function App() {
     setShowStreamName,
     allowMultipleExplorerItems,
     setAllowMultipleExplorerItems,
+    restoreOpenTabs,
+    setRestoreOpenTabs,
     motionLevel,
     setMotionLevel,
     projectCount: projects.length,
@@ -1090,6 +1115,7 @@ function App() {
           <VSCodeShell
             ref={shellRef}
             projects={projects}
+            isProjectsLoaded={projectsQuery.isSuccess}
             selectedProject={selectedProject}
             selectedProjectId={selectedProject?.id ?? null}
             commands={allCommandsWithAdHocTerminals}

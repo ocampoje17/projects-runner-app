@@ -36,9 +36,10 @@ export function useCommandSections({
   queryClient: QueryClient;
   onError: (error: unknown) => void;
 }) {
+  const safeProjects = useMemo(() => (Array.isArray(projects) ? projects.filter((p): p is Project => Boolean(p) && typeof p.id === "number") : []), [projects]);
   const migrationStartedRef = useRef(false);
   const sectionQueries = useQueries({
-    queries: projects.map((project) => ({
+    queries: safeProjects.map((project) => ({
       queryKey: ["command-sections", project.id],
       queryFn: () => api.listCommandSections(project.id),
       enabled: true,
@@ -47,23 +48,23 @@ export function useCommandSections({
 
   const persistedSectionsByProjectId = useMemo(
     () =>
-      projects.reduce<Record<number, ProjectCommandSection[]>>((acc, project, index) => {
+      safeProjects.reduce<Record<number, ProjectCommandSection[]>>((acc, project, index) => {
         acc[project.id] = sectionQueries[index]?.data ?? [];
         return acc;
       }, {}),
-    [projects, sectionQueries],
+    [safeProjects, sectionQueries],
   );
 
   const commandSectionsByProjectId = useMemo(
     () =>
-      projects.reduce<Record<number, CommandSection[]>>((acc, project) => {
+      safeProjects.reduce<Record<number, CommandSection[]>>((acc, project) => {
         acc[project.id] = buildCommandSections(
           commandsByProjectId[project.id] ?? [],
           persistedSectionsByProjectId[project.id] ?? [],
         );
         return acc;
       }, {}),
-    [commandsByProjectId, persistedSectionsByProjectId, projects],
+    [commandsByProjectId, persistedSectionsByProjectId, safeProjects],
   );
 
   useEffect(() => {

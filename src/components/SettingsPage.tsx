@@ -32,6 +32,8 @@ export interface SettingsPageProps {
   setMotionLevel: (level: MotionLevel) => void;
   allowMultipleExplorerItems: boolean;
   setAllowMultipleExplorerItems: (allow: boolean) => void;
+  restoreOpenTabs: boolean;
+  setRestoreOpenTabs: (restore: boolean) => void;
   projectCount: number;
   commandCount: number;
   onResetCache: () => void;
@@ -63,6 +65,8 @@ export function SettingsPage({
   setShowStreamName,
   allowMultipleExplorerItems,
   setAllowMultipleExplorerItems,
+  restoreOpenTabs,
+  setRestoreOpenTabs,
   motionLevel,
   setMotionLevel,
   onResetCache,
@@ -83,6 +87,8 @@ export function SettingsPage({
         setDateFormat={setDateFormat}
         allowMultipleExplorerItems={allowMultipleExplorerItems}
         setAllowMultipleExplorerItems={setAllowMultipleExplorerItems}
+        restoreOpenTabs={restoreOpenTabs}
+        setRestoreOpenTabs={setRestoreOpenTabs}
         motionLevel={motionLevel}
         setMotionLevel={setMotionLevel}
       />

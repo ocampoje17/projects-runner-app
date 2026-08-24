@@ -106,6 +106,8 @@ export function AppearanceSettingsPanel({
   setDateFormat,
   allowMultipleExplorerItems,
   setAllowMultipleExplorerItems,
+  restoreOpenTabs,
+  setRestoreOpenTabs,
 }: {
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
@@ -115,6 +117,8 @@ export function AppearanceSettingsPanel({
   setDateFormat: (format: DateFormatPreference) => void;
   allowMultipleExplorerItems: boolean;
   setAllowMultipleExplorerItems: (allow: boolean) => void;
+  restoreOpenTabs: boolean;
+  setRestoreOpenTabs: (restore: boolean) => void;
   motionLevel: MotionLevel;
   setMotionLevel: (level: MotionLevel) => void;
 }) {
@@ -236,8 +240,8 @@ export function AppearanceSettingsPanel({
 
       <SettingsSection
         icon={<FolderKanban size={16} />}
-        title="Sidebar Explorer"
-        description="Tùy chỉnh hành vi hiển thị và mở rộng các mục trong sidebar Explorer"
+        title="Sidebar & Tabs"
+        description="Tùy chỉnh hành vi hiển thị của sidebar Explorer và các tab trong workspace"
       >
         <SettingsRow
           title="Mở nhiều mục cùng lúc"
@@ -246,6 +250,15 @@ export function AppearanceSettingsPanel({
           <Switch
             checked={allowMultipleExplorerItems}
             onCheckedChange={setAllowMultipleExplorerItems}
+          />
+        </SettingsRow>
+        <SettingsRow
+          title="Khôi phục các tab đang mở khi mở lại app"
+          description="Tự động mở lại tất cả các tab đang mở khi thoát app. Các tab đã ghim luôn được giữ lại bất kể cài đặt này"
+        >
+          <Switch
+            checked={restoreOpenTabs}
+            onCheckedChange={setRestoreOpenTabs}
           />
         </SettingsRow>
       </SettingsSection>

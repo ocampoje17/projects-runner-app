@@ -21,6 +21,7 @@ import {
 import { EntityAvatar } from "./entity-avatar";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
+import { MiddleEllipsisText } from "./middle-ellipsis-text";
 import type {
   TitlebarCommandSearchItem,
   TitlebarFlowSearchItem,
@@ -371,7 +372,9 @@ function ProjectResultContent({ item }: { item: TitlebarProjectSearchItem }) {
         <span className="truncate text-[12px] font-normal text-foreground">{item.title}</span>
         <Badge variant="muted">Project</Badge>
       </div>
-      <div className="mt-1 truncate font-mono text-[11px] text-[var(--vscode-foreground)]/64">{item.path}</div>
+      <div className="mt-1 font-mono text-[11px] text-[var(--vscode-foreground)]/64">
+        <MiddleEllipsisText text={item.path} endLength={16} />
+      </div>
       {item.description ? <div className="mt-1 line-clamp-2 text-[11.5px] text-[var(--vscode-foreground)]/74">{item.description}</div> : null}
     </>
   );

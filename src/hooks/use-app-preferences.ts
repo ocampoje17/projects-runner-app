@@ -67,6 +67,10 @@ export function useAppPreferences() {
   const [allowMultipleExplorerItems, setAllowMultipleExplorerItems] = useState(() => {
     return localStorage.getItem("explorerAllowMultipleOpen") === "true";
   });
+  const [restoreOpenTabs, setRestoreOpenTabs] = useState(() => {
+    const saved = localStorage.getItem("restoreOpenTabs");
+    return saved === null ? true : saved === "true";
+  });
   const [motionLevel, setMotionLevel] = useState<MotionLevel>("off");
 
   useEffect(() => {
@@ -157,6 +161,10 @@ export function useAppPreferences() {
   }, [allowMultipleExplorerItems]);
 
   useEffect(() => {
+    localStorage.setItem("restoreOpenTabs", String(restoreOpenTabs));
+  }, [restoreOpenTabs]);
+
+  useEffect(() => {
     localStorage.setItem("motionLevel", "off");
     document.documentElement.dataset.motion = "off";
     if (motionLevel !== "off") {
@@ -186,6 +194,8 @@ export function useAppPreferences() {
     setShowStreamName,
     allowMultipleExplorerItems,
     setAllowMultipleExplorerItems,
+    restoreOpenTabs,
+    setRestoreOpenTabs,
     motionLevel,
     setMotionLevel,
   };

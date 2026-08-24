@@ -9,6 +9,11 @@ dist-ssr/
 # Tauri / Rust build output
 .tauri-build/
 src-tauri/target/
+release-artifacts/
+
+# Coverage and test output
+coverage/
+*.tsbuildinfo
 
 # Logs
 logs/

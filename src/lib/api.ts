@@ -520,6 +520,10 @@ export const api = {
     invokeDesktop<DevProjectTypeScan>("scan_dev_project_types", { projectId, relativePath }),
   getFolderDevProjectTypes: (projectId: number, relativePath: string) =>
     invokeDesktop<string[]>("get_folder_dev_project_types", { projectId, relativePath }),
+  listAllFolderDevProjectTypes: (projectId: number) =>
+    isDesktopRuntime()
+      ? invokeDesktop<Record<string, string[]>>("list_all_folder_dev_project_types", { projectId })
+      : Promise.resolve<Record<string, string[]>>({}),
   setFolderDevProjectTypes: (projectId: number, relativePath: string, projectTypeIds: string[]) =>
     invokeDesktop<string[]>("set_folder_dev_project_types", { projectId, relativePath, projectTypeIds }),
   scanDevCache: (projectId: number, relativePath: string) =>
