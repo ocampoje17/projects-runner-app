@@ -70,12 +70,16 @@ jobs:
             libxrandr-dev \
             libwayland-dev \
             libegl-dev \
+            libgbm-dev \
+            libdrm-dev \
             libx11-dev \
             libxtst-dev
 
       - name: Verify Linux capture dependencies
         if: matrix.platform == 'linux'
-        run: pkg-config --print-errors --atleast-version=0.3.65 libpipewire-0.3
+        run: |
+          pkg-config --print-errors --atleast-version=0.3.65 libpipewire-0.3
+          pkg-config --print-errors --exists gbm libdrm egl xcb xrandr wayland-client wayland-server
 
       - name: Install npm dependencies
         run: npm ci
