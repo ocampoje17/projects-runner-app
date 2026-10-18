@@ -64,4 +64,4 @@ The helper script:
 
 - Windows release builds use the standard WebView2 bootstrapper instead of the local `skip` mode from the legacy PowerShell script.
 - macOS release builds use ad-hoc signing (`APPLE_SIGNING_IDENTITY="-"`) for Apple Silicon bundles.
-- Linux release builds target `ubuntu-22.04` and package `AppImage` plus `DEB`.
+- Linux release builds target `ubuntu-24.04` and package `AppImage` plus `DEB`. The screen capture dependency requires PipeWire 0.3.65 or newer; Ubuntu 22.04's 0.3.48 headers are incompatible. Linux packages are built against Ubuntu 24.04 system libraries, so compatibility with older distributions is not guaranteed.

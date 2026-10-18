@@ -19,7 +19,7 @@ jobs:
             runs_on: windows-latest
             tauri_args: --bundles nsis
           - platform: linux
-            runs_on: ubuntu-22.04
+            runs_on: ubuntu-24.04
             tauri_args: --bundles appimage,deb
           - platform: macos
             runs_on: macos-26
@@ -72,6 +72,10 @@ jobs:
             libegl-dev \
             libx11-dev \
             libxtst-dev
+
+      - name: Verify Linux capture dependencies
+        if: matrix.platform == 'linux'
+        run: pkg-config --print-errors --atleast-version=0.3.65 libpipewire-0.3
 
       - name: Install npm dependencies
         run: npm ci
