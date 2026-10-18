@@ -4253,7 +4253,7 @@ dependencies = [
 
 [[package]]
 name = "projects-runner-app"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "argon2",
  "base64 0.22.1",
