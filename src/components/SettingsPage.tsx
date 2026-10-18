@@ -3,9 +3,14 @@ import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/
 import type { AccentColor, ThemePreference } from "../lib/theme";
 import type { MotionLevel } from "../lib/motion";
 import type { DateFormatPreference } from "../lib/date-time";
-import { AppearanceSettingsPanel, SystemSettingsPanel, TerminalSettingsPanel } from "./settings-panels";
+import {
+  AppearanceSettingsPanel,
+  SystemSettingsPanel,
+  TerminalSettingsPanel,
+  TwofaSettingsPanel,
+} from "./settings-panels";
 
-export type SettingsSectionId = "appearance" | "terminal" | "system";
+export type SettingsSectionId = "appearance" | "terminal" | "system" | "twofa";
 
 export interface SettingsPageProps {
   appInfo?: AppInfo;
@@ -108,6 +113,8 @@ export function SettingsPage({
         showStreamName={showStreamName}
         setShowStreamName={setShowStreamName}
       />
+    ) : currentSection === "twofa" ? (
+      <TwofaSettingsPanel />
     ) : (
       <SystemSettingsPanel
         appInfo={appInfo}

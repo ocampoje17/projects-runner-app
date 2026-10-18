@@ -23,6 +23,7 @@ import {
   publishTerminalOutput,
   removeRegisteredTerminal,
 } from "../lib/terminal-registry";
+import { TerminalSessionManager } from "../lib/terminal-session-manager";
 import type { LogLine, RunState } from "../components/project-runtime";
 
 const ANSI_ESCAPE_PATTERN =
@@ -34,19 +35,17 @@ function cleanTerminalLine(line: string) {
 
 const DEFAULT_INTERACTIVE_COLS = 120;
 const DEFAULT_INTERACTIVE_ROWS = 32;
-const FLOW_TERMINAL_ID_OFFSET = 1_000_000_000;
 const MAX_HEADLESS_TERMINAL_CHARS = 1024 * 1024;
 const MAX_LOG_LINES = 10_000;
+const MAX_PENDING_INPUT_BYTES = 256 * 1024;
+const MAX_INPUT_CHUNK_SIZE = 16 * 1024;
+const BATCH_WINDOW_MS = 4;
 let nextAdHocTerminalId = -1;
 
 type InteractiveTerminalSize = {
   cols: number;
   rows: number;
 };
-
-function terminalIdForEvent(commandId: number, runId: number, flowNodeId: string | null) {
-  return flowNodeId ? -(FLOW_TERMINAL_ID_OFFSET + runId) : commandId;
-}
 
 function appendBoundedTerminalContent(current: string, next: string) {
   const combined = `${current}${next}`;
@@ -73,11 +72,6 @@ async function waitForMeasuredTerminalSize(
   };
 }
 
-export type FlowNodeExecution = {
-  flowNodeId: string;
-  runId: number;
-  terminalId: number;
-};
 
 function buildAdHocInteractiveCommand(project: Project, terminalKind: InteractiveTerminalKind): ProjectCommand {
   const timestamp = new Date().toISOString();
@@ -132,12 +126,13 @@ export function useCommandRuntime({
   const [terminalContentByCommandId, setTerminalContentByCommandId] = useState<Record<number, string>>({});
   const [interactiveSessionsByCommandId, setInteractiveSessionsByCommandId] = useState<Record<number, InteractiveSession>>({});
   const [adHocInteractiveCommands, setAdHocInteractiveCommands] = useState<ProjectCommand[]>([]);
-  const [flowExecutionCommands, setFlowExecutionCommands] = useState<ProjectCommand[]>([]);
   const [openLogCommandIds, setOpenLogCommandIds] = useState<number[]>([]);
   const [activeLogCommandId, setActiveLogCommandId] = useState<number | null>(null);
   const [stoppingRunIds, setStoppingRunIds] = useState<Set<number>>(new Set());
   const [stoppingCommandIds, setStoppingCommandIds] = useState<Set<number>>(new Set());
   const [restartPendingCommandIds, setRestartPendingCommandIds] = useState<number[]>([]);
+  const restartPendingCommandIdsRef = useRef<Set<number>>(new Set());
+  const inputBatchesRef = useRef<Map<string, { buffer: string; timer: ReturnType<typeof setTimeout> | null; bytes: number }>>(new Map());
   const [scanningCommandId, setScanningCommandId] = useState<number | null>(null);
   const [killPortsCommand, setKillPortsCommand] = useState<ProjectCommand | null>(null);
   const [portProcesses, setPortProcesses] = useState<PortProcess[]>([]);
@@ -205,7 +200,7 @@ export function useCommandRuntime({
 
     const unlisteners = [
       listen<RunStartedPayload>("command://started", (event) => {
-        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
+        const terminalId = event.payload.command_id;
         setRuns((current) => ({
           ...current,
           [terminalId]: {
@@ -221,7 +216,7 @@ export function useCommandRuntime({
         setActiveLogCommandId(terminalId);
       }),
       listen<RunOutputPayload>("command://stdout", (event) => {
-        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
+        const terminalId = event.payload.command_id;
         const cleanedLine = cleanTerminalLine(event.payload.line);
         const timestamp = formatTime(new Date());
         setLogs((current) => [
@@ -244,7 +239,7 @@ export function useCommandRuntime({
         }));
       }),
       listen<RunOutputPayload>("command://stderr", (event) => {
-        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
+        const terminalId = event.payload.command_id;
         const cleanedLine = cleanTerminalLine(event.payload.line);
         const timestamp = formatTime(new Date());
         setLogs((current) => [
@@ -267,7 +262,7 @@ export function useCommandRuntime({
         }));
       }),
       listen<RunFinishedPayload>("command://finished", (event) => {
-        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
+        const terminalId = event.payload.command_id;
         setRuns((current) => ({
           ...current,
           [terminalId]: {
@@ -285,26 +280,25 @@ export function useCommandRuntime({
           },
         }));
 
-        setRestartPendingCommandIds((current) => {
-          if (event.payload.flow_node_id || !current.includes(event.payload.command_id)) {
-            return current;
-          }
+        const cmdId = event.payload.command_id;
+        if (restartPendingCommandIdsRef.current.has(cmdId)) {
+          restartPendingCommandIdsRef.current.delete(cmdId);
+          setRestartPendingCommandIds((current) => current.filter((id) => id !== cmdId));
 
           if (autoClearLogs) {
-            setLogs((lines) => lines.filter((line) => line.commandId !== event.payload.command_id));
-            clearRegisteredTerminal(event.payload.command_id);
+            setLogs((lines) => lines.filter((line) => line.commandId !== cmdId));
+            clearRegisteredTerminal(cmdId);
             setTerminalContentByCommandId((terminalContent) => ({
               ...terminalContent,
-              [event.payload.command_id]: "",
+              [cmdId]: "",
             }));
           }
-          void api.runCommand(event.payload.command_id).catch(onErrorRef.current);
-          return current.filter((id) => id !== event.payload.command_id);
-        });
+          void api.runCommand(cmdId).catch(onErrorRef.current);
+        }
       }),
       listen<InteractiveSession>("pty://started", (event) => {
         stoppingInteractiveSessionIdsRef.current.delete(event.payload.session_id);
-        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
+        const terminalId = event.payload.command_id;
         const measuredSize = interactiveSizesByCommandIdRef.current[terminalId];
         const sessionSize = {
           cols: event.payload.cols,
@@ -343,7 +337,7 @@ export function useCommandRuntime({
         setActiveLogCommandId(terminalId);
       }),
       listen<InteractiveSessionDataPayload>("pty://data", (event) => {
-        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
+        const terminalId = event.payload.command_id;
         const activeSession = interactiveSessionsByCommandIdRef.current[terminalId];
         if (activeSession?.session_id !== event.payload.session_id) {
           return;
@@ -352,7 +346,7 @@ export function useCommandRuntime({
       }),
       listen<InteractiveSessionExitedPayload>("pty://exit", (event) => {
         stoppingInteractiveSessionIdsRef.current.delete(event.payload.session_id);
-        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
+        const terminalId = event.payload.command_id;
         const activeSession = interactiveSessionsByCommandIdRef.current[terminalId];
         if (activeSession?.session_id !== event.payload.session_id) {
           return;
@@ -374,7 +368,7 @@ export function useCommandRuntime({
         if (stoppingInteractiveSessionIdsRef.current.has(event.payload.session_id)) {
           return;
         }
-        const terminalId = terminalIdForEvent(event.payload.command_id, event.payload.run_id, event.payload.flow_node_id);
+        const terminalId = event.payload.command_id;
         if (interactiveSessionsByCommandIdRef.current[terminalId]?.session_id !== event.payload.session_id) {
           return;
         }
@@ -386,6 +380,88 @@ export function useCommandRuntime({
       void Promise.all(unlisteners).then((items) => items.forEach((unlisten) => unlisten()));
     };
   }, [autoClearLogs, showLogsTimestamp, showStreamName]);
+
+  const prepareInteractiveSession = useCallback((terminalId: number) => {
+    const session = TerminalSessionManager.getOrCreate(terminalId, {
+      fontSize: 15,
+    });
+    session.onChannelEvent = (event) => {
+      if (event.type === "started") {
+        const tId = event.command_id;
+        stoppingInteractiveSessionIdsRef.current.delete(event.session_id);
+        const measuredSize = interactiveSizesByCommandIdRef.current[tId];
+        const sessionSize = { cols: event.cols, rows: event.rows };
+        const effectiveSize = measuredSize ?? sessionSize;
+        if (measuredSize && (measuredSize.cols !== event.cols || measuredSize.rows !== event.rows)) {
+          void api.resizeInteractiveTerminal(event.session_id, measuredSize.cols, measuredSize.rows).catch(() => {});
+        }
+        const info: InteractiveSession = {
+          session_id: event.session_id,
+          run_id: event.run_id,
+          command_id: event.command_id,
+          cols: effectiveSize.cols,
+          rows: effectiveSize.rows,
+          started_at: event.started_at,
+        };
+        interactiveSessionsByCommandIdRef.current = {
+          ...interactiveSessionsByCommandIdRef.current,
+          [tId]: info,
+        };
+        setInteractiveSessionsByCommandId((current) => ({
+          ...current,
+          [tId]: info,
+        }));
+        setRuns((current) => ({
+          ...current,
+          [tId]: {
+            runId: event.run_id,
+            commandId: event.command_id,
+            status: "running",
+            startedAt: event.started_at,
+          },
+        }));
+      } else if (event.type === "exited") {
+        stoppingInteractiveSessionIdsRef.current.delete(event.session_id);
+        const tId = event.command_id;
+        const nextSessions = { ...interactiveSessionsByCommandIdRef.current };
+        delete nextSessions[tId];
+        interactiveSessionsByCommandIdRef.current = nextSessions;
+        pendingResizeBySessionRef.current.delete(event.session_id);
+        inputQueuesRef.current.delete(event.session_id);
+        setInteractiveSessionsByCommandId((current) => {
+          const next = { ...current };
+          delete next[tId];
+          return next;
+        });
+        setStoppingCommandIds((current) => {
+          const next = new Set(current);
+          next.delete(tId);
+          return next;
+        });
+        setRuns((current) => ({
+          ...current,
+          [tId]: {
+            runId: event.run_id,
+            commandId: event.command_id,
+            status:
+              event.status === "failed"
+                ? "failed"
+                : event.status === "exited"
+                  ? "exited"
+                  : "stopped",
+            startedAt: current[tId]?.startedAt ?? event.ended_at,
+            endedAt: event.ended_at,
+            exitCode: event.exit_code,
+          },
+        }));
+      } else if (event.type === "error") {
+        if (!stoppingInteractiveSessionIdsRef.current.has(event.session_id)) {
+          onErrorRef.current(new Error(event.error));
+        }
+      }
+    };
+    return session.createChannel();
+  }, []);
 
   const openLogCommandTab = useCallback((commandId: number) => {
     setOpenLogCommandIds((current) => (current.includes(commandId) ? current : [...current, commandId]));
@@ -403,12 +479,14 @@ export function useCommandRuntime({
         command.id,
         interactiveSizesByCommandIdRef,
       );
+      const onEvent = prepareInteractiveSession(command.id);
       await api.startProjectInteractiveTerminal(
         workingDirectory ?? project.path,
         command.id,
         terminalKind,
         size.cols,
         size.rows,
+        onEvent,
       );
     } catch (error) {
       setAdHocInteractiveCommands((current) => current.filter((item) => item.id !== command.id));
@@ -445,7 +523,8 @@ export function useCommandRuntime({
           command.id,
           interactiveSizesByCommandIdRef,
         );
-        await api.startInteractiveCommand(command.id, size.cols, size.rows);
+        const onEvent = prepareInteractiveSession(command.id);
+        await api.startInteractiveCommand(command.id, size.cols, size.rows, onEvent);
       } else {
         await runMutation.mutateAsync(command.id);
       }
@@ -456,37 +535,10 @@ export function useCommandRuntime({
     }
   }
 
-  const startFlowNodeRun = useCallback(async (
-    flowId: number,
-    flowNodeId: string,
-    command: ProjectCommand,
-    label: string,
-  ): Promise<FlowNodeExecution> => {
-    const result = await api.startFlowNode(flowId, flowNodeId, DEFAULT_INTERACTIVE_COLS, DEFAULT_INTERACTIVE_ROWS);
-    const terminalId = terminalIdForEvent(command.id, result.run.id, flowNodeId);
-    const executionCommand = { ...command, id: terminalId, name: label };
-    setFlowExecutionCommands((current) => current.some((item) => item.id === terminalId) ? current : [...current, executionCommand]);
-    setRuns((current) => ({
-      ...current,
-      [terminalId]: current[terminalId] ?? {
-        runId: result.run.id,
-        commandId: command.id,
-        status: "running",
-        startedAt: result.run.started_at,
-      },
-    }));
-    if (command.runtime_mode === "external_terminal") {
-      setTerminalContentByCommandId((current) => ({
-        ...current,
-        [terminalId]: "This command is running in an external terminal window.\r\n",
-      }));
-    }
-    openLogCommandTab(terminalId);
-    return { flowNodeId, runId: result.run.id, terminalId };
-  }, [openLogCommandTab]);
 
   async function handleRestartCommand(command: ProjectCommand) {
     openLogCommandTab(command.id);
+    restartPendingCommandIdsRef.current.add(command.id);
     setRestartPendingCommandIds((current) => (current.includes(command.id) ? current : [...current, command.id]));
 
     try {
@@ -499,7 +551,9 @@ export function useCommandRuntime({
           clearRegisteredTerminal(command.id);
           setTerminalContentByCommandId((current) => ({ ...current, [command.id]: "" }));
         }
-        await api.restartInteractiveCommand(command.id, size.cols, size.rows);
+        const onEvent = prepareInteractiveSession(command.id);
+        await api.restartInteractiveCommand(command.id, size.cols, size.rows, onEvent);
+        restartPendingCommandIdsRef.current.delete(command.id);
         setRestartPendingCommandIds((current) => current.filter((id) => id !== command.id));
         return;
       }
@@ -512,8 +566,10 @@ export function useCommandRuntime({
         }));
       }
       await api.restartCommand(command.id);
+      restartPendingCommandIdsRef.current.delete(command.id);
       setRestartPendingCommandIds((current) => current.filter((id) => id !== command.id));
     } catch (error) {
+      restartPendingCommandIdsRef.current.delete(command.id);
       setRestartPendingCommandIds((current) => current.filter((id) => id !== command.id));
       onErrorRef.current(error);
     }
@@ -565,7 +621,7 @@ export function useCommandRuntime({
   }
 
   const stopInteractiveSession = useCallback(async (session: InteractiveSession) => {
-    const terminalId = terminalIdForEvent(session.command_id, session.run_id, session.flow_node_id);
+    const terminalId = session.command_id;
     const stoppingSessionIds = stoppingInteractiveSessionIdsRef.current;
     if (stoppingSessionIds.has(session.session_id)) {
       return;
@@ -647,9 +703,9 @@ export function useCommandRuntime({
     delete nextSizes[commandId];
     interactiveSizesByCommandIdRef.current = nextSizes;
     setAdHocInteractiveCommands((current) => current.filter((command) => command.id !== commandId));
-    setFlowExecutionCommands((current) => current.filter((command) => command.id !== commandId));
     setActiveLogCommandId((current) => (current === commandId ? nextActiveLogCommandId : current));
     removeRegisteredTerminal(commandId);
+    TerminalSessionManager.destroy(commandId);
   }, []);
 
   const closeLogTabsNow = useCallback(async (commandIds: number[]) => {
@@ -679,27 +735,64 @@ export function useCommandRuntime({
     }
 
     const sessionId = interactiveSession.session_id;
-    const previous = inputQueuesRef.current.get(sessionId) ?? Promise.resolve();
-    const next = previous
-      .catch(() => undefined)
-      .then(async () => {
-        const activeSession = interactiveSessionsByCommandIdRef.current[commandId];
-        if (
-          activeSession?.session_id !== sessionId ||
-          stoppingInteractiveSessionIdsRef.current.has(sessionId)
-        ) {
-          return;
-        }
-        await api.writeInteractiveTerminal(sessionId, data);
-      })
-      .catch(onErrorRef.current)
-      .then(() => undefined);
-    inputQueuesRef.current.set(sessionId, next);
-    void next.finally(() => {
-      if (inputQueuesRef.current.get(sessionId) === next) {
-        inputQueuesRef.current.delete(sessionId);
+    let entry = inputBatchesRef.current.get(sessionId);
+    if (!entry) {
+      entry = { buffer: "", timer: null, bytes: 0 };
+      inputBatchesRef.current.set(sessionId, entry);
+    }
+
+    // Limit pending input to 256 KiB
+    const newBytes = data.length;
+    if (entry.bytes + newBytes > MAX_PENDING_INPUT_BYTES) {
+      const allowed = Math.max(0, MAX_PENDING_INPUT_BYTES - entry.bytes);
+      if (allowed > 0) {
+        entry.buffer += data.slice(0, allowed);
+        entry.bytes += allowed;
       }
-    });
+      return;
+    }
+
+    entry.buffer += data;
+    entry.bytes += newBytes;
+
+    if (entry.timer === null) {
+      entry.timer = setTimeout(() => {
+        const currentEntry = inputBatchesRef.current.get(sessionId);
+        if (!currentEntry) return;
+        currentEntry.timer = null;
+        const textToSend = currentEntry.buffer;
+        currentEntry.buffer = "";
+        currentEntry.bytes = 0;
+
+        if (!textToSend) return;
+
+        const previous = inputQueuesRef.current.get(sessionId) ?? Promise.resolve();
+        const next = previous
+          .catch(() => undefined)
+          .then(async () => {
+            const activeSession = interactiveSessionsByCommandIdRef.current[commandId];
+            if (
+              activeSession?.session_id !== sessionId ||
+              stoppingInteractiveSessionIdsRef.current.has(sessionId)
+            ) {
+              return;
+            }
+            for (let i = 0; i < textToSend.length; i += MAX_INPUT_CHUNK_SIZE) {
+              const chunk = textToSend.slice(i, i + MAX_INPUT_CHUNK_SIZE);
+              await api.writeInteractiveTerminal(sessionId, chunk);
+            }
+          })
+          .catch(onErrorRef.current)
+          .then(() => undefined);
+
+        inputQueuesRef.current.set(sessionId, next);
+        void next.finally(() => {
+          if (inputQueuesRef.current.get(sessionId) === next) {
+            inputQueuesRef.current.delete(sessionId);
+          }
+        });
+      }, BATCH_WINDOW_MS);
+    }
   }, []);
 
   const handleTerminalResize = useCallback((commandId: number, cols: number, rows: number) => {
@@ -755,7 +848,6 @@ export function useCommandRuntime({
     logs,
     terminalContentByCommandId,
     adHocInteractiveCommands,
-    flowExecutionCommands,
     interactiveSessionsByCommandId,
     openLogCommandIds,
     activeLogCommandId,
@@ -770,7 +862,6 @@ export function useCommandRuntime({
     setKillPortsDialogOpen,
     killingPorts,
     startCommandRun,
-    startFlowNodeRun,
     handleRestartCommand,
     handleKillPortsClick,
     handleKillProcesses,

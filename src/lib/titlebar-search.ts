@@ -1,4 +1,4 @@
-import type { Project, ProjectCommand, ProjectFlow } from "./api";
+import type { Project, ProjectCommand, TwofaAccountSummary } from "./api";
 import { noteExcerpt, noteTitle, projectNoteVisibilityKey } from "./project-notes";
 import type { ProjectNote } from "../components/project-detail-types";
 
@@ -40,40 +40,39 @@ export type TitlebarNoteSearchItem = {
   hidden: boolean;
 };
 
-export type TitlebarFlowSearchItem = {
+export type TitlebarTwofaSearchItem = {
   id: string;
-  kind: "flow";
-  projectId: number;
-  flowId: number;
+  kind: "twofa";
+  accountId: string;
   title: string;
   subtitle: string;
-  projectName: string;
-  nodeCount: number;
+  issuer: string;
+  accountName: string;
 };
 
 export type TitlebarSearchItem =
   | TitlebarProjectSearchItem
   | TitlebarCommandSearchItem
   | TitlebarNoteSearchItem
-  | TitlebarFlowSearchItem;
+  | TitlebarTwofaSearchItem;
 
 export type TitlebarSearchCollections = {
   projects: TitlebarProjectSearchItem[];
   commands: TitlebarCommandSearchItem[];
   notes: TitlebarNoteSearchItem[];
-  flows: TitlebarFlowSearchItem[];
+  twofa: TitlebarTwofaSearchItem[];
 };
 
 export function buildTitlebarSearchCollections({
   projects,
   commandsByProjectId,
-  flowsByProjectId,
+  twofaAccounts = [],
   notesByProjectId,
   noteVisibility,
 }: {
   projects: Project[];
   commandsByProjectId: Record<number, ProjectCommand[]>;
-  flowsByProjectId: Record<number, ProjectFlow[]>;
+  twofaAccounts?: TwofaAccountSummary[];
   notesByProjectId: Record<number, ProjectNote[]>;
   noteVisibility: Record<string, boolean>;
 }): TitlebarSearchCollections {
@@ -119,23 +118,20 @@ export function buildTitlebarSearchCollections({
     })),
   );
 
-  const flowItems = projects.flatMap<TitlebarFlowSearchItem>((project) =>
-    (flowsByProjectId[project.id] ?? []).map((flow) => ({
-      id: `flow:${flow.id}`,
-      kind: "flow",
-      projectId: project.id,
-      flowId: flow.id,
-      title: flow.name,
-      subtitle: `${project.name} • ${flow.node_count ?? 0} command nodes`,
-      projectName: project.name,
-      nodeCount: flow.node_count ?? 0,
-    })),
-  );
+  const twofaItems = twofaAccounts.map<TitlebarTwofaSearchItem>((account) => ({
+    id: `twofa:${account.id}`,
+    kind: "twofa",
+    accountId: account.id,
+    title: account.issuer || "2FA Account",
+    subtitle: account.account || "—",
+    issuer: account.issuer,
+    accountName: account.account || "",
+  }));
 
   return {
     projects: projectItems,
     commands: commandItems,
     notes: noteItems,
-    flows: flowItems,
+    twofa: twofaItems,
   };
 }

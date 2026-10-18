@@ -1,6 +1,7 @@
 [package]
 name = "projects-runner-app"
-version = "0.5.2"
+version = "0.7.0"
+default-run = "projects-runner-app"
 description = "A desktop command runner for coding projects"
 authors = ["Projects Runner"]
 edition = "2021"
@@ -40,3 +41,15 @@ which = "8.0.4"
 walkdir = "2.5.0"
 tauri-plugin-clipboard-manager = "2"
 tokio = { version = "1", features = ["time"] }
+argon2 = "0.6.0"
+chacha20poly1305 = "0.11.0"
+zeroize = { version = "1.9.1", features = ["derive"] }
+rand = "0.10.3"
+rqrr = "0.11.0"
+qrcode = { version = "0.14.1", features = ["image"] }
+xcap = "0.9.8"
+image = { version = "0.25.10", features = ["png", "jpeg", "webp"] }
+totp-rs = { version = "6.0.0", features = ["otpauth", "gen_secret"] }
+user-idle = "0.6.0"
+ts-rs = "12.0.1"
+keyring = "4.2.0"

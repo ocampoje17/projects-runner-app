@@ -10,7 +10,7 @@ import {
   Terminal,
   Trash2,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode } from "react";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import appIcon from "../assets/app-icon.png";
 import { Button } from "./ui/button";
@@ -241,11 +241,11 @@ export function AppearanceSettingsPanel({
       <SettingsSection
         icon={<FolderKanban size={16} />}
         title="Sidebar & Tabs"
-        description="Tùy chỉnh hành vi hiển thị của sidebar Explorer và các tab trong workspace"
+        description="Customize display behavior for the Explorer sidebar and workspace tabs"
       >
         <SettingsRow
-          title="Mở nhiều mục cùng lúc"
-          description="Cho phép mở rộng nhiều dự án cùng lúc trong sidebar explorer thay vì tự động thu gọn các dự án khác"
+          title="Allow multiple open items"
+          description="Allow multiple projects to remain expanded simultaneously in the Explorer sidebar instead of auto-collapsing others"
         >
           <Switch
             checked={allowMultipleExplorerItems}
@@ -253,8 +253,8 @@ export function AppearanceSettingsPanel({
           />
         </SettingsRow>
         <SettingsRow
-          title="Khôi phục các tab đang mở khi mở lại app"
-          description="Tự động mở lại tất cả các tab đang mở khi thoát app. Các tab đã ghim luôn được giữ lại bất kể cài đặt này"
+          title="Restore open tabs on startup"
+          description="Automatically reopen all open tabs when relaunching the app. Pinned tabs are always preserved regardless of this setting"
         >
           <Switch
             checked={restoreOpenTabs}
@@ -469,16 +469,16 @@ export function SystemSettingsPanel({
 
       <SettingsSection
         icon={<RefreshCw size={16} />}
-        title="Kiểm tra cập nhật"
-        description="Tìm bản phát hành mới nhất từ GitHub"
+        title="Software updates"
+        description="Check for the latest releases from GitHub"
       >
         <SettingsRow
-          title="Kiểm tra bản cập nhật mới"
-          description="Bạn sẽ được thông báo nếu có phiên bản mới tương thích với thiết bị này"
+          title="Check for new updates"
+          description="You will be notified if a newer release compatible with this device is available"
         >
           <Button variant="outline" onClick={onCheckUpdates} disabled={isCheckingUpdates}>
             <RefreshCw className={isCheckingUpdates ? "animate-spin" : undefined} size={14} />
-            {isCheckingUpdates ? "Đang kiểm tra" : "Kiểm tra cập nhật"}
+            {isCheckingUpdates ? "Checking for updates..." : "Check for updates"}
           </Button>
         </SettingsRow>
       </SettingsSection>
@@ -501,3 +501,5 @@ export function SystemSettingsPanel({
     </div>
   );
 }
+
+export { TwofaSettingsPanel } from "./twofa/twofa-settings-panel";

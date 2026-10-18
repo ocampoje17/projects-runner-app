@@ -1,14 +1,32 @@
 import "@xterm/xterm/css/xterm.css";
 
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  CaseSensitive,
+  ChevronDown,
+  Regex,
+  WholeWord,
+  X,
+} from "lucide-react";
 import {
   registerTerminalController,
   type RegisteredTerminalController,
 } from "../lib/terminal-registry";
+import {
+  TerminalSessionManager,
+  ManagedTerminalSession,
+  terminalTheme,
+} from "../lib/terminal-session-manager";
 
 export type XtermTerminalHandle = RegisteredTerminalController & {
   fit: () => void;
@@ -30,91 +48,84 @@ async function writeClipboardText(value: string) {
   }
 }
 
-function terminalTheme(theme: "light" | "dark" | undefined) {
-  const isDark = theme === "dark";
-  return {
-    background: "#00000000",
-    foreground: isDark ? "#e8e8e8" : "#18181b",
-    black: isDark ? "#1f1f23" : "#27272a",
-    blue: isDark ? "#60a5fa" : "#2563eb",
-    brightBlack: isDark ? "#71717a" : "#52525b",
-    brightBlue: isDark ? "#93c5fd" : "#3b82f6",
-    brightCyan: isDark ? "#67e8f9" : "#0891b2",
-    brightGreen: isDark ? "#4ade80" : "#16a34a",
-    brightMagenta: isDark ? "#c084fc" : "#9333ea",
-    brightRed: isDark ? "#fb7185" : "#dc2626",
-    brightWhite: isDark ? "#fafafa" : "#27272a",
-    brightYellow: isDark ? "#facc15" : "#d97706",
-    cyan: isDark ? "#22d3ee" : "#0f766e",
-    green: isDark ? "#22c55e" : "#15803d",
-    magenta: isDark ? "#a78bfa" : "#7e22ce",
-    red: isDark ? "#f87171" : "#b91c1c",
-    white: isDark ? "#e4e4e7" : "#3f3f46",
-    yellow: isDark ? "#fbbf24" : "#ca8a04",
-  };
-}
-
-export const XtermTerminal = forwardRef<XtermTerminalHandle, {
-  terminalId?: number;
-  active?: boolean;
-  content: string;
-  fontFamily?: string;
-  fontSize?: number;
-  onData?: (data: string) => void;
-  onSizeChange?: (cols: number, rows: number) => void;
-  readOnly?: boolean;
-  theme?: "light" | "dark";
-}>(function XtermTerminal({
-  terminalId,
-  active = true,
-  content,
-  fontFamily,
-  fontSize,
-  onData,
-  onSizeChange,
-  readOnly = true,
-  theme,
-}, forwardedRef) {
+export const XtermTerminal = forwardRef<
+  XtermTerminalHandle,
+  {
+    terminalId?: number;
+    active?: boolean;
+    content: string;
+    fontFamily?: string;
+    fontSize?: number;
+    onData?: (data: string) => void;
+    onSizeChange?: (cols: number, rows: number) => void;
+    readOnly?: boolean;
+    theme?: "light" | "dark";
+  }
+>(function XtermTerminal(
+  {
+    terminalId,
+    active = true,
+    content,
+    fontFamily,
+    fontSize,
+    onData,
+    onSizeChange,
+    readOnly = true,
+    theme,
+  },
+  forwardedRef,
+) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const terminalRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
+  const sessionRef = useRef<ManagedTerminalSession | null>(null);
   const lastContentRef = useRef("");
   const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null);
   const onDataRef = useRef(onData);
   const onSizeChangeRef = useRef(onSizeChange);
   const activeRef = useRef(active);
 
+  // Search UI state
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchCase, setMatchCase] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
+  const [useRegex, setUseRegex] = useState(false);
+  const [regexError, setRegexError] = useState<string | null>(null);
+
+  // Scroll state (updated by session callback)
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const [hasNewOutput, setHasNewOutput] = useState(false);
+
   const controllerRef = useRef<XtermTerminalHandle>({
     clear: () => {
-      const terminal = terminalRef.current;
-      if (!terminal) return;
-      terminal.clear();
-      terminal.write("\x1b[2J\x1b[H");
+      const session = sessionRef.current;
+      if (!session) return;
+      session.terminal.clear();
+      session.terminal.write("\x1b[2J\x1b[H");
       lastContentRef.current = "";
     },
     copySelection: async () => {
-      const terminal = terminalRef.current;
-      if (!terminal?.hasSelection()) return false;
-      await writeClipboardText(terminal.getSelection());
+      const session = sessionRef.current;
+      if (!session?.terminal.hasSelection()) return false;
+      await writeClipboardText(session.terminal.getSelection());
       return true;
     },
-    fit: () => fitAddonRef.current?.fit(),
-    focus: () => terminalRef.current?.focus(),
-    hasSelection: () => terminalRef.current?.hasSelection() ?? false,
+    fit: () => sessionRef.current?.fitAddon.fit(),
+    focus: () => sessionRef.current?.terminal.focus(),
+    hasSelection: () => sessionRef.current?.terminal.hasSelection() ?? false,
     pasteFromClipboard: async () => {
-      const terminal = terminalRef.current;
-      if (!terminal || terminal.options.disableStdin) return;
-      terminal.paste(await readClipboardText());
-      terminal.focus();
+      const session = sessionRef.current;
+      if (!session || session.terminal.options.disableStdin) return;
+      session.terminal.paste(await readClipboardText());
+      session.terminal.focus();
     },
-    selectAll: () => terminalRef.current?.selectAll(),
+    selectAll: () => sessionRef.current?.terminal.selectAll(),
     write: (data: string) => {
-      const terminal = terminalRef.current;
-      if (!terminal) return;
-      const buffer = terminal.buffer.active;
-      const wasAtBottom = buffer.viewportY >= buffer.baseY;
-      terminal.write(data, () => {
-        if (wasAtBottom) terminal.scrollToBottom();
+      const session = sessionRef.current;
+      if (!session) return;
+      const buffer = session.terminal.buffer.active;
+      const wasAtBottom = buffer.viewportY >= buffer.baseY - 1;
+      session.terminal.write(data, () => {
+        if (wasAtBottom) session.terminal.scrollToBottom();
       });
     },
   });
@@ -132,43 +143,52 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, {
   useEffect(() => {
     activeRef.current = active;
     if (active) {
+      sessionRef.current?.enableWebgl();
       requestAnimationFrame(() => {
-        fitAddonRef.current?.fit();
-        terminalRef.current?.focus();
+        sessionRef.current?.fitAddon.fit();
+        sessionRef.current?.terminal.focus();
       });
+    } else {
+      sessionRef.current?.disableWebgl();
     }
   }, [active]);
 
+  // Attach / Detach managed session without destroying terminal instance
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) {
-      return;
-    }
+    if (!container) return;
 
-    const terminal = new Terminal({
-      allowTransparency: true,
-      convertEol: false,
-      cursorBlink: !readOnly,
-      cursorStyle: "block",
-      disableStdin: readOnly,
+    const id = terminalId ?? -999999;
+    const session = TerminalSessionManager.getOrCreate(id, {
       fontFamily,
       fontSize,
-      scrollback: 10000,
-      theme: terminalTheme(theme),
+      theme,
     });
-    const fitAddon = new FitAddon();
-    fitAddonRef.current = fitAddon;
-    terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon());
-    terminal.open(container);
-    terminalRef.current = terminal;
+    sessionRef.current = session;
+
+    session.onStateChange = () => {
+      setIsScrolledUp(session.isScrolledUp);
+      setHasNewOutput(session.hasNewOutput);
+    };
+
+    session.attachTo(container, activeRef.current);
+    if (activeRef.current) {
+      session.enableWebgl();
+    } else {
+      session.disableWebgl();
+    }
+
+    const handleToggleSearch = () => {
+      setShowSearch((prev) => !prev);
+    };
+    container.addEventListener("terminal:toggle-search", handleToggleSearch);
 
     const syncSize = () => {
       if (!activeRef.current || container.clientWidth === 0 || container.clientHeight === 0) {
         return;
       }
-      fitAddon.fit();
-      const nextSize = { cols: terminal.cols, rows: terminal.rows };
+      session.fitAddon.fit();
+      const nextSize = { cols: session.terminal.cols, rows: session.terminal.rows };
       const previousSize = lastSizeRef.current;
       if (previousSize?.cols === nextSize.cols && previousSize?.rows === nextSize.rows) {
         return;
@@ -194,98 +214,282 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, {
     });
     resizeObserver.observe(container);
 
-    const disposeOnData = terminal.onData((value) => {
+    const disposeOnData = session.terminal.onData((value) => {
       onDataRef.current?.(value);
     });
-    terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown") return true;
-      const key = event.key.toLowerCase();
-      const isMac = navigator.platform.toLowerCase().includes("mac");
-      const copyModifier = isMac ? event.metaKey : event.ctrlKey;
-      const explicitCopy = !isMac && event.ctrlKey && event.shiftKey && key === "c";
-      const selectedCtrlCopy = !isMac && event.ctrlKey && !event.shiftKey && key === "c" && terminal.hasSelection();
 
-      if ((copyModifier && key === "c" && (isMac || terminal.hasSelection())) || explicitCopy || selectedCtrlCopy) {
-        event.preventDefault();
-        event.stopPropagation();
-        void controllerRef.current.copySelection();
-        return false;
-      }
-
-      const pasteShortcut =
-        (copyModifier && key === "v") ||
-        (!isMac && event.ctrlKey && event.shiftKey && key === "v");
-      if (pasteShortcut) {
-        event.preventDefault();
-        event.stopPropagation();
-        void controllerRef.current.pasteFromClipboard();
-        return false;
-      }
-      return true;
+    const disposeOnBinary = session.terminal.onBinary((value) => {
+      onDataRef.current?.(value);
     });
 
-    const unregister = terminalId === undefined
-      ? () => {}
-      : registerTerminalController(terminalId, controllerRef.current);
+    const disposeOnResize = session.terminal.onResize(({ cols, rows }) => {
+      onSizeChangeRef.current?.(cols, rows);
+    });
+
+    const unregister =
+      terminalId === undefined
+        ? () => {}
+        : registerTerminalController(terminalId, controllerRef.current);
 
     return () => {
       if (resizeFrame !== null) {
         cancelAnimationFrame(resizeFrame);
       }
-      disposeOnData?.dispose();
+      container.removeEventListener("terminal:toggle-search", handleToggleSearch);
+      disposeOnData.dispose();
+      disposeOnBinary.dispose();
+      disposeOnResize.dispose();
       resizeObserver.disconnect();
       unregister();
-      terminal.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
+      // Notice: DO NOT call session.dispose()! Only detach DOM node to persist session across tabs/panels!
+      session.detach();
+      sessionRef.current = null;
       lastSizeRef.current = null;
     };
   }, [terminalId]);
 
+  // Update terminal options dynamically
   useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!terminal) return;
-    terminal.options.fontFamily = fontFamily;
-    terminal.options.fontSize = fontSize ?? 15;
-    terminal.options.disableStdin = readOnly;
-    terminal.options.cursorBlink = !readOnly;
-    terminal.options.theme = terminalTheme(theme);
-    requestAnimationFrame(() => fitAddonRef.current?.fit());
+    const session = sessionRef.current;
+    if (!session) return;
+    if (fontFamily !== undefined) {
+      session.terminal.options.fontFamily = fontFamily;
+    }
+    if (fontSize !== undefined) {
+      session.terminal.options.fontSize = fontSize;
+    }
+    session.terminal.options.disableStdin = readOnly;
+    session.terminal.options.cursorBlink = !readOnly;
+    session.terminal.options.theme = terminalTheme(theme);
+    if (activeRef.current) {
+      requestAnimationFrame(() => {
+        session.fitAddon.fit();
+        const nextCols = session.terminal.cols;
+        const nextRows = session.terminal.rows;
+        if (lastSizeRef.current?.cols !== nextCols || lastSizeRef.current?.rows !== nextRows) {
+          lastSizeRef.current = { cols: nextCols, rows: nextRows };
+          onSizeChangeRef.current?.(nextCols, nextRows);
+        }
+      });
+    }
   }, [fontFamily, fontSize, readOnly, theme]);
 
+  // Sync content if provided (for static / batch logs)
   useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!terminal) {
-      return;
-    }
+    const session = sessionRef.current;
+    if (!session) return;
+
+    // For active interactive sessions, content is streamed directly via Channel
+    if (!readOnly && session.sessionId) return;
 
     const previous = lastContentRef.current;
-    if (content === previous) {
-      return;
-    }
+    if (content === previous) return;
 
     if (!content) {
       controllerRef.current.clear();
       lastContentRef.current = "";
-      fitAddonRef.current?.fit();
+      session.fitAddon.fit();
       return;
     }
 
     if (!previous || !content.startsWith(previous)) {
       controllerRef.current.clear();
-      terminal.write(content);
+      session.terminal.write(content);
     } else {
-      terminal.write(content.slice(previous.length));
+      session.terminal.write(content.slice(previous.length));
     }
 
     lastContentRef.current = content;
-  }, [content]);
+  }, [content, readOnly]);
+
+  // Search logic
+  const performSearch = useCallback(
+    (query: string, reverse = false) => {
+      const session = sessionRef.current;
+      if (!session) return;
+
+      setRegexError(null);
+      if (useRegex && query) {
+        try {
+          new RegExp(query);
+        } catch (e) {
+          setRegexError((e as Error).message);
+          return;
+        }
+      }
+
+      const options = {
+        regex: useRegex,
+        caseSensitive: matchCase,
+        wholeWord,
+        incremental: true,
+      };
+
+      if (reverse) {
+        session.searchPrevious(query, options);
+      } else {
+        session.search(query, options);
+      }
+    },
+    [matchCase, wholeWord, useRegex],
+  );
+
+  useEffect(() => {
+    if (showSearch) {
+      performSearch(searchQuery);
+    }
+  }, [showSearch, searchQuery, performSearch]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      setShowSearch((prev) => !prev);
+    } else if (e.key === "Escape" && showSearch) {
+      setShowSearch(false);
+      sessionRef.current?.search("");
+      sessionRef.current?.terminal.focus();
+    }
+  };
+
+  const handleScrollToBottom = () => {
+    sessionRef.current?.scrollToBottom();
+  };
 
   return (
     <div
-      className="xterm-host h-full min-h-0 flex-1 overflow-hidden"
-      data-terminal-id={terminalId}
-      ref={containerRef}
-    />
+      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
+    >
+      {/* Search Bar Overlay */}
+      {showSearch && (
+        <div className="absolute right-4 top-2 z-20 flex items-center gap-1.5 rounded-[6px] border border-[var(--vscode-border)] bg-[var(--vscode-editor-background,#1e1e1e)] p-1.5 shadow-md">
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              className={`h-6 w-48 rounded-[4px] border bg-[var(--vscode-input-background,#2d2d2d)] px-2 text-xs text-[var(--vscode-foreground)] placeholder-[var(--vscode-descriptionForeground)] focus:outline-none ${
+                regexError ? "border-red-500 focus:border-red-500" : "border-[var(--vscode-input-border,transparent)] focus:border-[var(--vscode-focusBorder)]"
+              }`}
+              placeholder="Find..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  performSearch(searchQuery, e.shiftKey);
+                }
+              }}
+              autoFocus
+            />
+            {regexError && (
+              <span
+                className="absolute -bottom-5 left-0 z-30 truncate text-[10px] text-red-400"
+                title={regexError}
+              >
+                Invalid regex
+              </span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className={`flex h-6 w-6 items-center justify-center rounded text-xs transition-colors ${
+              matchCase
+                ? "bg-[var(--primary-color)] text-white"
+                : "text-[var(--vscode-foreground)] hover:bg-[var(--vscode-list-hoverBackground)]"
+            }`}
+            onClick={() => setMatchCase((v) => !v)}
+            title="Match Case"
+          >
+            <CaseSensitive size={13} />
+          </button>
+
+          <button
+            type="button"
+            className={`flex h-6 w-6 items-center justify-center rounded text-xs transition-colors ${
+              wholeWord
+                ? "bg-[var(--primary-color)] text-white"
+                : "text-[var(--vscode-foreground)] hover:bg-[var(--vscode-list-hoverBackground)]"
+            }`}
+            onClick={() => setWholeWord((v) => !v)}
+            title="Match Whole Word"
+          >
+            <WholeWord size={13} />
+          </button>
+
+          <button
+            type="button"
+            className={`flex h-6 w-6 items-center justify-center rounded text-xs transition-colors ${
+              useRegex
+                ? "bg-[var(--primary-color)] text-white"
+                : "text-[var(--vscode-foreground)] hover:bg-[var(--vscode-list-hoverBackground)]"
+            }`}
+            onClick={() => setUseRegex((v) => !v)}
+            title="Use Regular Expression"
+          >
+            <Regex size={13} />
+          </button>
+
+          <div className="mx-0.5 h-3.5 w-px bg-[var(--vscode-border)]" />
+
+          <button
+            type="button"
+            className="flex h-6 w-6 items-center justify-center rounded text-[var(--vscode-foreground)] hover:bg-[var(--vscode-list-hoverBackground)]"
+            onClick={() => performSearch(searchQuery, true)}
+            title="Previous Match (Shift+Enter)"
+          >
+            <ArrowUp size={13} />
+          </button>
+
+          <button
+            type="button"
+            className="flex h-6 w-6 items-center justify-center rounded text-[var(--vscode-foreground)] hover:bg-[var(--vscode-list-hoverBackground)]"
+            onClick={() => performSearch(searchQuery, false)}
+            title="Next Match (Enter)"
+          >
+            <ArrowDown size={13} />
+          </button>
+
+          <button
+            type="button"
+            className="flex h-6 w-6 items-center justify-center rounded text-[var(--vscode-foreground)] hover:bg-[var(--vscode-list-hoverBackground)]"
+            onClick={() => {
+              setShowSearch(false);
+              sessionRef.current?.search("");
+              sessionRef.current?.terminal.focus();
+            }}
+            title="Close (Esc)"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
+      {/* Floating Scroll-to-Bottom / New Output Badge */}
+      {isScrolledUp && (
+        <div className="absolute bottom-4 right-6 z-20">
+          <button
+            type="button"
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium shadow-lg transition-all ${
+              hasNewOutput
+                ? "animate-pulse bg-[var(--primary-color)] text-white hover:brightness-110"
+                : "border border-[var(--vscode-border)] bg-[var(--vscode-editor-background,#1e1e1e)] text-[var(--vscode-foreground)] hover:bg-[var(--vscode-list-hoverBackground)]"
+            }`}
+            onClick={handleScrollToBottom}
+            title="Scroll to bottom"
+          >
+            <ChevronDown size={14} />
+            <span>{hasNewOutput ? "New output" : "Scroll to bottom"}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Terminal Mount Node */}
+      <div
+        className="xterm-host h-full min-h-0 flex-1 overflow-hidden"
+        data-terminal-id={terminalId}
+        ref={containerRef}
+      />
+    </div>
   );
 });

@@ -20,6 +20,7 @@ import {
   writeSavedTabs,
   writeExpandedProjectIds,
   writeTreeExpandedState,
+  migrateLocalStorageTwofaState,
   type EditorTab,
 } from "./sidebar-state";
 import type { Project, ProjectCommand } from "./api";
@@ -175,7 +176,7 @@ describe("sidebar-state helpers", () => {
 
   describe("tree expanded state", () => {
     it("reads and writes tree expanded state", () => {
-      const state = { "commands:1": false, "flows:1": true, "section:1:2": false };
+      const state = { "commands:1": false, "twofa:1": true, "section:1:2": false };
       writeTreeExpandedState(state, mockStorage);
       expect(readTreeExpandedState(mockStorage)).toEqual(state);
     });
@@ -225,7 +226,7 @@ describe("sidebar-state helpers", () => {
         ],
       };
 
-      const result = sanitizeTabs(tabs, mockProjects, commandsByProjectId, {}, {});
+      const result = sanitizeTabs(tabs, mockProjects, commandsByProjectId, {});
       expect(result).toEqual([
         { id: "project-overview:1", kind: "project-overview", projectId: 1, title: "Proj 1" },
         { id: "command:10", kind: "command", projectId: 1, commandId: 10, title: "Build" },
@@ -239,7 +240,7 @@ describe("sidebar-state helpers", () => {
 
       const commandsByProjectId: Record<number, ProjectCommand[] | undefined> = {}; // undefined for project 1
 
-      const result = sanitizeTabs(tabs, mockProjects, commandsByProjectId, {}, {});
+      const result = sanitizeTabs(tabs, mockProjects, commandsByProjectId, {});
       expect(result).toEqual(tabs);
     });
   });
@@ -347,10 +348,44 @@ describe("sidebar-state helpers", () => {
       ];
       const corruptedProjects: any[] = [null, undefined, { id: 1, name: "Proj 1" }];
 
-      const result = sanitizeTabs(corruptedTabs, corruptedProjects, { 1: undefined }, {}, {});
+      const result = sanitizeTabs(corruptedTabs, corruptedProjects, { 1: undefined }, {});
       expect(result).toHaveLength(2);
       expect(result[0].kind).toBe("settings");
       expect(result[1].id).toBe("corrupted");
+    });
+
+    it("sanitizes twofa-account tabs to neutral 2FA title in read, write and migration", () => {
+      const tabsWithSecrets: any[] = [
+        { id: "twofa-account:acc1", kind: "twofa-account", title: "GitHub: user@example.com", accountId: "acc1" },
+        { id: "welcome", kind: "welcome", title: "Welcome" },
+      ];
+
+      writeSavedTabs(tabsWithSecrets as any, mockStorage);
+      const read = readSavedTabs(mockStorage);
+      expect(read?.[0].title).toBe("2FA");
+
+      // Verify stored json in storage has title "2FA"
+      const rawStored = JSON.parse(mockStorage.getItem("vscodeEditorTabs")!);
+      expect(rawStored[0].title).toBe("2FA");
+
+      // Test migration from pre-existing leaked titles and legacy flow keys
+      mockStorage.setItem(
+        "vscodeEditorTabs",
+        JSON.stringify([
+          { id: "twofa-account:acc2", kind: "twofa-account", title: "AWS: admin", accountId: "acc2" },
+          { id: "flow:1", kind: "flow", title: "My Flow" },
+        ]),
+      );
+      mockStorage.setItem("projects-runner:flows", "some-legacy-flows");
+      mockStorage.setItem("flow-editor-state", "some-legacy-state");
+
+      migrateLocalStorageTwofaState(mockStorage);
+
+      const migratedRaw = JSON.parse(mockStorage.getItem("vscodeEditorTabs")!);
+      expect(migratedRaw).toHaveLength(1);
+      expect(migratedRaw[0].title).toBe("2FA");
+      expect(mockStorage.getItem("projects-runner:flows")).toBeNull();
+      expect(mockStorage.getItem("flow-editor-state")).toBeNull();
     });
   });
 });

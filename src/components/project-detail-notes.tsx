@@ -61,6 +61,7 @@ export function ProjectNoteDialog({
   onValueChange,
   onSubmit,
   isSaving,
+  errorMessage,
 }: {
   mode: NoteDialogMode;
   open: boolean;
@@ -70,6 +71,7 @@ export function ProjectNoteDialog({
   onValueChange: (field: keyof ProjectNoteDraftValue, value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   isSaving: boolean;
+  errorMessage?: string | null;
 }) {
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
 
@@ -106,6 +108,16 @@ export function ProjectNoteDialog({
         </DialogHeader>
 
         <DialogForm onSubmit={onSubmit}>
+          {errorMessage ? (
+            <div
+              id={`${mode}-project-note-error`}
+              role="alert"
+              className="rounded-[6px] border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive"
+            >
+              {errorMessage}
+            </div>
+          ) : null}
+
           <DialogField>
             <Label htmlFor={`${mode}-project-note-title`}>Note title</Label>
             <Input
@@ -113,6 +125,8 @@ export function ProjectNoteDialog({
               value={value.title}
               onChange={(event) => onValueChange("title", event.target.value)}
               placeholder="Local setup"
+              aria-invalid={Boolean(errorMessage && !value.title.trim())}
+              aria-describedby={errorMessage ? `${mode}-project-note-error` : undefined}
               autoFocus
             />
           </DialogField>
@@ -124,6 +138,8 @@ export function ProjectNoteDialog({
               value={value.content}
               onChange={(event) => onValueChange("content", event.target.value)}
               rows={10}
+              aria-invalid={Boolean(errorMessage && !value.content.trim())}
+              aria-describedby={errorMessage ? `${mode}-project-note-error` : undefined}
               className="min-h-[220px] bg-[var(--script-preview-bg)] font-mono text-[11.5px] leading-6 text-[var(--script-preview-color)]"
               placeholder={"## Local setup\n- `pnpm install`\n- `pnpm dev`\n\n### Test accounts\n- user: demo@example.com\n- pass: demo123"}
             />
@@ -191,8 +207,8 @@ export function ProjectDetailNotes({
   noteVisibility: Record<string, boolean>;
   newProjectNote: ProjectNoteDraftValue;
   onNewProjectNoteChange: (field: keyof ProjectNoteDraftValue, value: string) => void;
-  onAddProjectNote: () => void;
-  onEditProjectNote: (noteId: string, title: string, content: string) => void;
+  onAddProjectNote: () => Promise<void> | void;
+  onEditProjectNote: (noteId: string, title: string, content: string) => Promise<void> | void;
   onTogglePinnedProjectNote: (noteId: string) => void;
   onToggleProjectNoteVisibility: (noteId: string) => void;
   onDeleteProjectNote: (noteId: string) => void;
@@ -200,8 +216,10 @@ export function ProjectDetailNotes({
   isSavingNotes: boolean;
 }) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [addNoteError, setAddNoteError] = useState<string | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<ProjectNoteDraftValue>({ title: "", content: "" });
+  const [editNoteError, setEditNoteError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<ProjectNoteSortField>("updatedAt");
   const [sortDirection, setSortDirection] = useState<ProjectNoteSortDirection>("desc");
@@ -221,23 +239,33 @@ export function ProjectDetailNotes({
   function closeAddDialog(open: boolean) {
     setIsAddDialogOpen(open);
     if (!open) {
+      setAddNoteError(null);
       onNewProjectNoteChange("title", "");
       onNewProjectNoteChange("content", "");
     }
   }
 
-  function handleSubmitNewNote(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmitNewNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setAddNoteError(null);
     if (!newProjectNote.title.trim() || !newProjectNote.content.trim()) {
+      setAddNoteError("Both title and content are required.");
       return;
     }
 
-    onAddProjectNote();
-    setIsAddDialogOpen(false);
+    try {
+      await onAddProjectNote();
+      setIsAddDialogOpen(false);
+      setAddNoteError(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err || "Failed to save note");
+      setAddNoteError(message);
+    }
   }
 
   function openEditDialog(note: ProjectNote) {
     setEditingNoteId(note.id);
+    setEditNoteError(null);
     setEditingDraft({
       title: note.title,
       content: note.content,
@@ -248,17 +276,26 @@ export function ProjectDetailNotes({
     if (!open) {
       setEditingNoteId(null);
       setEditingDraft({ title: "", content: "" });
+      setEditNoteError(null);
     }
   }
 
-  function handleSubmitEditNote(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmitEditNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setEditNoteError(null);
     if (!editingNoteId || !editingDraft.title.trim() || !editingDraft.content.trim()) {
+      setEditNoteError("Both title and content are required.");
       return;
     }
 
-    onEditProjectNote(editingNoteId, editingDraft.title, editingDraft.content);
-    closeEditDialog(false);
+    try {
+      await onEditProjectNote(editingNoteId, editingDraft.title, editingDraft.content);
+      closeEditDialog(false);
+      setEditNoteError(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err || "Failed to update note");
+      setEditNoteError(message);
+    }
   }
 
   return (
@@ -415,6 +452,7 @@ export function ProjectDetailNotes({
         onValueChange={onNewProjectNoteChange}
         onSubmit={handleSubmitNewNote}
         isSaving={isSavingNotes}
+        errorMessage={addNoteError}
       />
 
       <ProjectNoteDialog
@@ -426,6 +464,7 @@ export function ProjectDetailNotes({
         onValueChange={(field, value) => setEditingDraft((current) => ({ ...current, [field]: value }))}
         onSubmit={handleSubmitEditNote}
         isSaving={isSavingNotes}
+        errorMessage={editNoteError}
       />
     </div>
   );

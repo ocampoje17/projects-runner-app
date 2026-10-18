@@ -1,5 +1,16 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "app": {
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: https://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost;",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/avatars/**"
+        ]
+      }
+    }
+  },
   "bundle": {
     "windows": {
       "webviewInstallMode": {

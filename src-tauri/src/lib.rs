@@ -1,5 +1,9 @@
 mod app_updates;
 mod dev_cache;
+pub mod twofa;
+pub mod terminal_types;
+pub mod terminal_supervisor;
+
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::Utc;
@@ -9,9 +13,7 @@ use diesel::sql_query;
 use diesel::sql_types::{BigInt, Integer, Nullable, Text};
 use diesel::sqlite::SqliteConnection;
 use mime_guess::MimeGuess;
-use portable_pty::{
-    native_pty_system, ChildKiller, CommandBuilder as PtyCommandBuilder, MasterPty, PtySize,
-};
+use portable_pty::CommandBuilder as PtyCommandBuilder;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -19,11 +21,11 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
@@ -45,39 +47,26 @@ const INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE: &str = "powershellcore";
 const EXTERNAL_TERMINAL_KIND_TERMINAL_APP: &str = "terminal_app";
 
 #[derive(Clone)]
-struct AppPaths {
-    db_path: PathBuf,
-    avatars_dir: PathBuf,
-    scripts_dir: PathBuf,
+pub struct AppPaths {
+    pub db_path: PathBuf,
+    pub avatars_dir: PathBuf,
+    pub scripts_dir: PathBuf,
 }
 
-struct AppState {
-    paths: AppPaths,
-    processes: Mutex<HashMap<i64, Arc<RunProcess>>>,
-    interactive_sessions: Mutex<HashMap<String, Arc<InteractiveSession>>>,
-    interactive_sessions_by_command: Mutex<HashMap<i64, String>>,
-    interactive_sessions_by_run: Mutex<HashMap<i64, String>>,
-    stopped_runs: Mutex<HashSet<i64>>,
-    pending_prd_open_requests: Mutex<Vec<String>>,
+pub struct AppState {
+    pub paths: AppPaths,
+    pub processes: Mutex<HashMap<i64, Arc<RunProcess>>>,
+    pub stopped_runs: Mutex<HashSet<i64>>,
+    pub pending_prd_open_requests: Mutex<Vec<String>>,
+    pub twofa_vault: Arc<twofa::VaultService>,
+    pub terminal_supervisor: Arc<terminal_supervisor::TerminalSupervisor>,
 }
 
-struct RunProcess {
-    pid: u32,
-    child: Mutex<Child>,
-}
 
-struct InteractiveSession {
-    run_id: i64,
-    pid: Option<u32>,
-    lifecycle: AtomicU8,
-    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
-    master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
+pub struct RunProcess {
+    pub pid: u32,
+    pub child: Mutex<Child>,
 }
-
-const INTERACTIVE_RUNNING: u8 = 1;
-const INTERACTIVE_STOPPING: u8 = 2;
-const INTERACTIVE_EXITED: u8 = 3;
 
 #[derive(Debug, Serialize, QueryableByName, Clone)]
 struct Project {
@@ -163,72 +152,8 @@ struct CommandRun {
     ended_at: Option<String>,
     #[diesel(sql_type = Nullable<Integer>)]
     exit_code: Option<i32>,
-    #[diesel(sql_type = Nullable<Text>)]
-    flow_node_id: Option<String>,
 }
 
-#[derive(Debug, Serialize, QueryableByName, Clone)]
-struct Flow {
-    #[diesel(sql_type = BigInt)]
-    id: i64,
-    #[diesel(sql_type = BigInt)]
-    project_id: i64,
-    #[diesel(sql_type = Text)]
-    name: String,
-    #[diesel(sql_type = Text)]
-    created_at: String,
-    #[diesel(sql_type = Text)]
-    updated_at: String,
-}
-
-#[derive(Debug, Serialize, QueryableByName, Clone)]
-struct FlowSummary {
-    #[diesel(sql_type = BigInt)]
-    id: i64,
-    #[diesel(sql_type = BigInt)]
-    project_id: i64,
-    #[diesel(sql_type = Text)]
-    name: String,
-    #[diesel(sql_type = Text)]
-    created_at: String,
-    #[diesel(sql_type = Text)]
-    updated_at: String,
-    #[diesel(sql_type = BigInt)]
-    node_count: i64,
-}
-
-#[derive(Debug, Serialize, QueryableByName, Clone)]
-struct FlowNode {
-    #[diesel(sql_type = Text)]
-    id: String,
-    #[diesel(sql_type = BigInt)]
-    flow_id: i64,
-    #[diesel(sql_type = BigInt)]
-    command_id: i64,
-    #[diesel(sql_type = Integer)]
-    position_x: i32,
-    #[diesel(sql_type = Integer)]
-    position_y: i32,
-}
-
-#[derive(Debug, Serialize, QueryableByName, Clone)]
-struct FlowEdge {
-    #[diesel(sql_type = Text)]
-    id: String,
-    #[diesel(sql_type = BigInt)]
-    flow_id: i64,
-    #[diesel(sql_type = Text)]
-    source_node_id: String,
-    #[diesel(sql_type = Text)]
-    target_node_id: String,
-}
-
-#[derive(Debug, Serialize)]
-struct FlowDetail {
-    flow: Flow,
-    nodes: Vec<FlowNode>,
-    edges: Vec<FlowEdge>,
-}
 
 #[derive(Debug, Serialize)]
 struct ProjectFileEntry {
@@ -271,50 +196,10 @@ struct DevCacheCleanResult {
     freed_bytes: u64,
 }
 
-#[derive(Debug, Deserialize)]
-struct FlowInput {
-    project_id: i64,
-    name: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct FlowUpdateInput {
-    name: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct FlowGraphInput {
-    name: String,
-    nodes: Vec<FlowNodeInput>,
-    edges: Vec<FlowEdgeInput>,
-}
-
-#[derive(Debug, Deserialize)]
-struct FlowNodeInput {
-    id: String,
-    command_id: i64,
-    position_x: i32,
-    position_y: i32,
-}
-
-#[derive(Debug, Deserialize)]
-struct FlowEdgeInput {
-    id: String,
-    source_node_id: String,
-    target_node_id: String,
-}
-
-#[derive(Debug, Serialize)]
-struct FlowNodeRunStart {
-    run: CommandRun,
-    interactive_session: Option<InteractiveSessionInfo>,
-}
-
 #[derive(Debug, Serialize, Clone)]
 struct RunStartedPayload {
     run_id: i64,
     command_id: i64,
-    flow_node_id: Option<String>,
     started_at: String,
 }
 
@@ -322,7 +207,6 @@ struct RunStartedPayload {
 struct RunOutputPayload {
     run_id: i64,
     command_id: i64,
-    flow_node_id: Option<String>,
     line: String,
 }
 
@@ -330,51 +214,12 @@ struct RunOutputPayload {
 struct RunFinishedPayload {
     run_id: i64,
     command_id: i64,
-    flow_node_id: Option<String>,
     status: String,
     exit_code: Option<i32>,
     ended_at: String,
 }
 
-#[derive(Debug, Serialize, Clone)]
-struct InteractiveSessionInfo {
-    session_id: String,
-    run_id: i64,
-    command_id: i64,
-    flow_node_id: Option<String>,
-    cols: u16,
-    rows: u16,
-    started_at: String,
-}
 
-#[derive(Debug, Serialize, Clone)]
-struct InteractiveDataPayload {
-    session_id: String,
-    run_id: i64,
-    command_id: i64,
-    flow_node_id: Option<String>,
-    data: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-struct InteractiveExitPayload {
-    session_id: String,
-    run_id: i64,
-    command_id: i64,
-    flow_node_id: Option<String>,
-    exit_code: Option<i32>,
-    ended_at: String,
-    status: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-struct InteractiveErrorPayload {
-    session_id: String,
-    run_id: i64,
-    command_id: i64,
-    flow_node_id: Option<String>,
-    error: String,
-}
 
 #[derive(Debug, Deserialize)]
 struct ProjectInput {
@@ -418,8 +263,6 @@ struct InteractiveTerminalOption {
     label: String,
     description: String,
 }
-
-static NEXT_AD_HOC_RUN_ID: AtomicI64 = AtomicI64::new(-1);
 
 #[derive(Debug, Serialize)]
 struct AppInfo {
@@ -699,11 +542,11 @@ fn now() -> String {
     Utc::now().to_rfc3339()
 }
 
-fn db_path_string(paths: &AppPaths) -> String {
+pub(crate) fn db_path_string(paths: &AppPaths) -> String {
     paths.db_path.to_string_lossy().to_string()
 }
 
-fn connect(paths: &AppPaths) -> Result<SqliteConnection, String> {
+pub(crate) fn connect(paths: &AppPaths) -> Result<SqliteConnection, String> {
     let mut conn =
         SqliteConnection::establish(&db_path_string(paths)).map_err(|error| error.to_string())?;
     conn.batch_execute("PRAGMA foreign_keys = ON;")
@@ -770,7 +613,6 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
         "CREATE TABLE IF NOT EXISTS command_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             command_id INTEGER NOT NULL,
-            flow_node_id TEXT,
             status TEXT NOT NULL,
             started_at TEXT NOT NULL,
             ended_at TEXT,
@@ -791,37 +633,6 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
             updated_at TEXT NOT NULL,
             FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
             UNIQUE(project_id, name)
-        );",
-    )
-    .map_err(|error| error.to_string())?;
-
-    conn.batch_execute(
-        "CREATE TABLE IF NOT EXISTS flows (
-            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-            project_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS flow_nodes (
-            id TEXT PRIMARY KEY NOT NULL,
-            flow_id INTEGER NOT NULL,
-            command_id INTEGER NOT NULL,
-            position_x INTEGER NOT NULL DEFAULT 0,
-            position_y INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
-            FOREIGN KEY(command_id) REFERENCES commands(id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS flow_edges (
-            id TEXT PRIMARY KEY NOT NULL,
-            flow_id INTEGER NOT NULL,
-            source_node_id TEXT NOT NULL,
-            target_node_id TEXT NOT NULL,
-            FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
-            FOREIGN KEY(source_node_id) REFERENCES flow_nodes(id) ON DELETE CASCADE,
-            FOREIGN KEY(target_node_id) REFERENCES flow_nodes(id) ON DELETE CASCADE,
-            UNIQUE(flow_id, source_node_id, target_node_id)
         );",
     )
     .map_err(|error| error.to_string())?;
@@ -864,8 +675,8 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
         "run_count",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
-    ensure_column(&mut conn, "command_runs", "flow_node_id", "TEXT")?;
-    migrate_flow_graph_schema(&mut conn)?;
+    migrate_remove_flows(&mut conn)?;
+    twofa::init_twofa_schema(&mut conn)?;
     migrate_command_sections(&mut conn)?;
 
     sql_query(format!(
@@ -933,77 +744,113 @@ fn migrate_command_sections(conn: &mut SqliteConnection) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
-fn migrate_flow_graph_schema(conn: &mut SqliteConnection) -> Result<(), String> {
+fn migrate_remove_flows(conn: &mut SqliteConnection) -> Result<(), String> {
     #[derive(QueryableByName)]
-    struct TableSql {
+    #[allow(dead_code)]
+    struct ColInfo {
         #[diesel(sql_type = Text)]
-        sql: String,
+        name: String,
+    }
+    #[derive(QueryableByName)]
+    #[allow(dead_code)]
+    struct TableInfo {
+        #[diesel(sql_type = Text)]
+        name: String,
     }
 
-    let node_schema =
-        sql_query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'flow_nodes'")
-            .get_result::<TableSql>(conn)
-            .optional()
-            .map_err(|error| error.to_string())?;
-    let edge_schema =
-        sql_query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'flow_edges'")
-            .get_result::<TableSql>(conn)
-            .optional()
-            .map_err(|error| error.to_string())?;
-    let Some(node_schema) = node_schema else {
-        return Ok(());
-    };
-    let Some(edge_schema) = edge_schema else {
-        return Ok(());
-    };
-    let nodes_allow_duplicate_commands = !node_schema.sql.contains("UNIQUE(flow_id, command_id)");
-    let edges_allow_multiple_connections =
-        !edge_schema.sql.contains("UNIQUE(flow_id, source_node_id)")
-            && !edge_schema.sql.contains("UNIQUE(flow_id, target_node_id)");
-    if nodes_allow_duplicate_commands && edges_allow_multiple_connections {
+    let runs_has_flow_node_id = sql_query("PRAGMA table_info(command_runs)")
+        .get_results::<ColInfo>(conn)
+        .map_err(|e| format!("Failed to inspect command_runs schema: {}", e))?
+        .iter()
+        .any(|c| c.name == "flow_node_id");
+
+    let flow_tables = sql_query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('flows', 'flow_nodes', 'flow_edges')")
+        .get_results::<TableInfo>(conn)
+        .map_err(|e| format!("Failed to inspect sqlite_master for flow tables: {}", e))?
+        .iter()
+        .count() > 0;
+
+    if !runs_has_flow_node_id && !flow_tables {
         return Ok(());
     }
 
-    // SQLite cannot remove a table-level unique constraint in place. Rebuild
-    // both graph tables so their foreign keys continue to point at flow_nodes.
     conn.batch_execute("PRAGMA foreign_keys = OFF; BEGIN IMMEDIATE TRANSACTION;")
-        .map_err(|error| error.to_string())?;
-    let result = conn.batch_execute(
-        "CREATE TABLE flow_nodes_next (
-            id TEXT PRIMARY KEY NOT NULL,
-            flow_id INTEGER NOT NULL,
-            command_id INTEGER NOT NULL,
-            position_x INTEGER NOT NULL DEFAULT 0,
-            position_y INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
-            FOREIGN KEY(command_id) REFERENCES commands(id) ON DELETE CASCADE
-        );
-        INSERT INTO flow_nodes_next (id, flow_id, command_id, position_x, position_y)
-            SELECT id, flow_id, command_id, position_x, position_y FROM flow_nodes;
-        CREATE TABLE flow_edges_next (
-            id TEXT PRIMARY KEY NOT NULL,
-            flow_id INTEGER NOT NULL,
-            source_node_id TEXT NOT NULL,
-            target_node_id TEXT NOT NULL,
-            FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
-            FOREIGN KEY(source_node_id) REFERENCES flow_nodes_next(id) ON DELETE CASCADE,
-            FOREIGN KEY(target_node_id) REFERENCES flow_nodes_next(id) ON DELETE CASCADE,
-            UNIQUE(flow_id, source_node_id, target_node_id)
-        );
-        INSERT INTO flow_edges_next (id, flow_id, source_node_id, target_node_id)
-            SELECT id, flow_id, source_node_id, target_node_id FROM flow_edges;
-        DROP TABLE flow_edges;
-        DROP TABLE flow_nodes;
-        ALTER TABLE flow_nodes_next RENAME TO flow_nodes;
-        ALTER TABLE flow_edges_next RENAME TO flow_edges;",
-    );
-    match result {
-        Ok(()) => conn
-            .batch_execute("COMMIT; PRAGMA foreign_keys = ON;")
-            .map_err(|error| error.to_string()),
-        Err(error) => {
+        .map_err(|e| format!("Failed to begin migration transaction: {}", e))?;
+
+    let migration_res = (|| -> Result<(), String> {
+        if runs_has_flow_node_id {
+            // Decrement run_count for commands by the number of flow runs being removed
+            sql_query(
+                "UPDATE commands
+                 SET run_count = MAX(0, run_count - (
+                     SELECT COUNT(*) FROM command_runs WHERE command_runs.command_id = commands.id AND command_runs.flow_node_id IS NOT NULL
+                 ))
+                 WHERE id IN (
+                     SELECT DISTINCT command_id FROM command_runs WHERE flow_node_id IS NOT NULL
+                 );"
+            )
+            .execute(conn)
+            .map_err(|e| format!("Failed to update command run counts: {}", e))?;
+
+            // Delete command_runs with flow_node_id
+            sql_query("DELETE FROM command_runs WHERE flow_node_id IS NOT NULL;")
+                .execute(conn)
+                .map_err(|e| format!("Failed to delete flow command runs: {}", e))?;
+
+            // Drop flow_node_id column from command_runs
+            conn.batch_execute("ALTER TABLE command_runs DROP COLUMN flow_node_id;")
+                .map_err(|e| format!("Failed to drop flow_node_id column: {}", e))?;
+        }
+
+        // Drop flow tables
+        conn.batch_execute(
+            "DROP TABLE IF EXISTS flow_edges;
+             DROP TABLE IF EXISTS flow_nodes;
+             DROP TABLE IF EXISTS flows;"
+        )
+        .map_err(|e| format!("Failed to drop flow tables: {}", e))?;
+
+        // Run FK check and integrity check BEFORE commit!
+        #[derive(QueryableByName)]
+        #[allow(dead_code)]
+        struct FkCheckRow {
+            #[diesel(sql_type = Text)]
+            table: String,
+        }
+        let fk_issues = sql_query("PRAGMA foreign_key_check;")
+            .load::<FkCheckRow>(conn)
+            .map_err(|e| format!("PRAGMA foreign_key_check failed: {}", e))?;
+        if !fk_issues.is_empty() {
+            return Err(format!("Foreign key constraint violations detected: {} issues", fk_issues.len()));
+        }
+
+        #[derive(QueryableByName)]
+        struct IntegrityRow {
+            #[diesel(sql_type = Text)]
+            integrity_check: String,
+        }
+        let integrity = sql_query("PRAGMA integrity_check;")
+            .load::<IntegrityRow>(conn)
+            .map_err(|e| format!("PRAGMA integrity_check failed: {}", e))?;
+        if !integrity.iter().any(|r| r.integrity_check == "ok") {
+            return Err("Database integrity check failed before commit".to_string());
+        }
+
+        Ok(())
+    })();
+
+    match migration_res {
+        Ok(()) => {
+            conn.batch_execute("COMMIT; PRAGMA foreign_keys = ON;")
+                .map_err(|e| {
+                    let _ = conn.batch_execute("PRAGMA foreign_keys = ON;");
+                    format!("Failed to commit flow removal migration: {}", e)
+                })?;
+            Ok(())
+        }
+        Err(err) => {
             let _ = conn.batch_execute("ROLLBACK; PRAGMA foreign_keys = ON;");
-            Err(error.to_string())
+            Err(err)
         }
     }
 }
@@ -1599,6 +1446,61 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
+#[derive(Default)]
+pub struct Utf8StreamDecoder {
+    pending: Vec<u8>,
+}
+
+impl Utf8StreamDecoder {
+    pub fn push(&mut self, bytes: &[u8]) -> String {
+        self.decode(bytes, false)
+    }
+
+    pub fn finish(&mut self) -> String {
+        self.decode(&[], true)
+    }
+
+    pub fn decode(&mut self, bytes: &[u8], end_of_stream: bool) -> String {
+        self.pending.extend_from_slice(bytes);
+        let mut output = String::new();
+        let mut cursor = 0;
+
+        while cursor < self.pending.len() {
+            match std::str::from_utf8(&self.pending[cursor..]) {
+                Ok(valid) => {
+                    output.push_str(valid);
+                    cursor = self.pending.len();
+                }
+                Err(error) => {
+                    let valid_end = cursor + error.valid_up_to();
+                    if valid_end > cursor {
+                        output.push_str(
+                            std::str::from_utf8(&self.pending[cursor..valid_end])
+                                .expect("UTF-8 valid prefix"),
+                        );
+                        cursor = valid_end;
+                    }
+
+                    if let Some(error_len) = error.error_len() {
+                        output.push('\u{FFFD}');
+                        cursor += error_len;
+                    } else if end_of_stream {
+                        output.push('\u{FFFD}');
+                        cursor = self.pending.len();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if cursor > 0 {
+            self.pending.drain(..cursor);
+        }
+        output
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1811,124 +1713,925 @@ mod tests {
     }
 
     #[test]
-    fn flow_graph_allows_branches_but_rejects_duplicate_pairs_and_cycles() {
-        let nodes = vec![
-            FlowNodeInput {
-                id: "a".to_string(),
-                command_id: 1,
-                position_x: 0,
-                position_y: 0,
-            },
-            FlowNodeInput {
-                id: "b".to_string(),
-                command_id: 2,
-                position_x: 0,
-                position_y: 100,
-            },
-            FlowNodeInput {
-                id: "c".to_string(),
-                command_id: 3,
-                position_x: 0,
-                position_y: 200,
-            },
-        ];
-        let edges = vec![
-            FlowEdgeInput {
-                id: "ab".to_string(),
-                source_node_id: "a".to_string(),
-                target_node_id: "b".to_string(),
-            },
-            FlowEdgeInput {
-                id: "ac".to_string(),
-                source_node_id: "a".to_string(),
-                target_node_id: "c".to_string(),
-            },
-        ];
-        assert!(validate_flow_graph(&nodes, &edges).is_ok());
-        let duplicate_pair = vec![
-            FlowEdgeInput {
-                id: "ab".to_string(),
-                source_node_id: "a".to_string(),
-                target_node_id: "b".to_string(),
-            },
-            FlowEdgeInput {
-                id: "ba".to_string(),
-                source_node_id: "b".to_string(),
-                target_node_id: "a".to_string(),
-            },
-        ];
-        assert!(validate_flow_graph(&nodes[..2], &duplicate_pair).is_err());
-        let cyclic = vec![
-            FlowEdgeInput {
-                id: "ab".to_string(),
-                source_node_id: "a".to_string(),
-                target_node_id: "b".to_string(),
-            },
-            FlowEdgeInput {
-                id: "ba".to_string(),
-                source_node_id: "b".to_string(),
-                target_node_id: "a".to_string(),
-            },
-        ];
-        assert!(validate_flow_graph(&nodes[..2], &cyclic).is_err());
+    fn totp_rfc6238_test_vectors() {
+        // RFC 6238 Appendix B test vectors with secret "12345678901234567890"
+        let secret_b32 = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+
+        // Time = 59
+        let code_59_8 = twofa::calculate_totp(secret_b32, "SHA1", 8, 30, 59).expect("calculate totp");
+        assert_eq!(code_59_8, "94287082");
+        let code_59_6 = twofa::calculate_totp(secret_b32, "SHA1", 6, 30, 59).expect("calculate totp");
+        assert_eq!(code_59_6, "287082");
+
+        // Time = 1111111109 (tests leading zero preservation)
+        let code_zero_8 = twofa::calculate_totp(secret_b32, "SHA1", 8, 30, 1111111109).expect("calculate totp");
+        assert_eq!(code_zero_8, "07081804");
+        let code_zero_6 = twofa::calculate_totp(secret_b32, "SHA1", 6, 30, 1111111109).expect("calculate totp");
+        assert_eq!(code_zero_6, "081804");
+
+        // Time = 1111111111
+        let code_111_8 = twofa::calculate_totp(secret_b32, "SHA1", 8, 30, 1111111111).expect("calculate totp");
+        assert_eq!(code_111_8, "14050471");
     }
 
     #[test]
-    fn flow_graph_allows_reusing_a_command_for_distinct_nodes() {
-        let nodes = vec![
-            FlowNodeInput {
-                id: "first".to_string(),
-                command_id: 7,
-                position_x: 0,
-                position_y: 0,
-            },
-            FlowNodeInput {
-                id: "second".to_string(),
-                command_id: 7,
-                position_x: 0,
-                position_y: 100,
-            },
-        ];
-        let edges = vec![FlowEdgeInput {
-            id: "first-second".to_string(),
-            source_node_id: "first".to_string(),
-            target_node_id: "second".to_string(),
-        }];
-        assert!(validate_flow_graph(&nodes, &edges).is_ok());
+    fn twofa_vault_crypto_and_project_policies() {
+        let password = "correct horse battery staple";
+        let salt = twofa::generate_random_bytes::<16>();
+        let kwk = twofa::derive_kwk(password, &salt).expect("derive kwk");
+
+        let plaintext = b"{\"secret\":\"MYSECRET\",\"issuer\":\"Google\"}";
+        let nonce = twofa::generate_random_bytes::<24>();
+        let aad = b"test_aad_v1";
+
+        let ciphertext = twofa::encrypt_data(&*kwk, &nonce, plaintext, aad).expect("encrypt");
+        let decrypted = twofa::decrypt_data(&*kwk, &nonce, &ciphertext, aad).expect("decrypt");
+        assert_eq!(decrypted, plaintext);
+
+        // Wrong AAD should fail
+        assert!(twofa::decrypt_data(&*kwk, &nonce, &ciphertext, b"wrong_aad").is_err());
+
+        // Wrong password should fail
+        let wrong_kwk = twofa::derive_kwk("wrong password", &salt).expect("derive wrong kwk");
+        assert!(twofa::decrypt_data(&*wrong_kwk, &nonce, &ciphertext, aad).is_err());
     }
 
     #[test]
-    fn init_db_migrates_flow_graph_constraints() {
-        let paths = temp_test_paths("flow-node-duplicates");
+    fn twofa_settings_enums_and_migration() {
+        use twofa::{ClearClipboardSetting, HideTokenSetting, LockTimeSetting, SortOrderSetting};
+
+        // All valid enum variants and serialization
+        assert_eq!(LockTimeSetting::Never.as_secs(), None);
+        assert_eq!(LockTimeSetting::ThirtySeconds.as_secs(), Some(30));
+        assert_eq!(LockTimeSetting::OneMinute.as_secs(), Some(60));
+        assert_eq!(LockTimeSetting::FiveMinutes.as_secs(), Some(300));
+        assert_eq!(LockTimeSetting::TenMinutes.as_secs(), Some(600));
+        assert_eq!(LockTimeSetting::ThirtyMinutes.as_secs(), Some(1800));
+        assert_eq!(LockTimeSetting::OneHour.as_secs(), Some(3600));
+
+        // Legacy string migrations
+        assert_eq!(LockTimeSetting::from_legacy_or_str("0"), LockTimeSetting::Never);
+        assert_eq!(LockTimeSetting::from_legacy_or_str("5"), LockTimeSetting::FiveMinutes);
+        assert_eq!(LockTimeSetting::from_legacy_or_str("15"), LockTimeSetting::FiveMinutes); // Unknown defaults to 5m
+        assert_eq!(LockTimeSetting::from_legacy_or_str("unknown"), LockTimeSetting::FiveMinutes);
+
+        assert_eq!(ClearClipboardSetting::from_legacy_or_str("0"), ClearClipboardSetting::Disabled);
+        assert_eq!(ClearClipboardSetting::from_legacy_or_str("30"), ClearClipboardSetting::ThirtySeconds);
+        assert_eq!(ClearClipboardSetting::from_legacy_or_str("invalid"), ClearClipboardSetting::ThirtySeconds);
+
+        assert_eq!(SortOrderSetting::from_legacy_or_str("Alphabetical"), SortOrderSetting::IssuerAsc);
+        assert_eq!(SortOrderSetting::from_legacy_or_str("newest"), SortOrderSetting::CreatedDesc);
+
+        assert_eq!(HideTokenSetting::from_legacy_or_str("ShowAfterClick"), HideTokenSetting::ShowAfterClick);
+    }
+
+    #[test]
+    fn twofa_auto_lock_time_simulation() {
+        use twofa::{LockTimeSetting, TwofaVaultSettings, TwofaVaultState};
+        use std::time::{Duration, Instant};
+
+        let mut state = TwofaVaultState::new();
+        let key = [42u8; 32];
+        let mut settings = TwofaVaultSettings::default();
+        settings.lock_time_setting = LockTimeSetting::FiveMinutes; // 300s
+        settings.lock_on_screen_lock = true;
+        state.unlock(key, settings, true);
+        assert!(state.is_unlocked());
+
+        let t0 = Instant::now();
+
+        // 1. Idle under 300s does not lock
+        state.last_tick_instant = t0;
+        state.last_activity = t0;
+        let t1 = t0 + Duration::from_secs(1);
+        assert!(!state.check_auto_lock_with_time(t1, Some(Duration::from_secs(299)), false));
+        assert!(state.is_unlocked());
+
+        // 2. Idle reaches 300s -> locks!
+        assert!(state.check_auto_lock_with_time(t1 + Duration::from_secs(1), Some(Duration::from_secs(300)), false));
+        assert!(!state.is_unlocked());
+
+        // Unlock again for focus tests
+        state.unlock(key, TwofaVaultSettings::default(), true);
+        assert!(state.is_unlocked());
+        let t2 = Instant::now();
+        state.last_tick_instant = t2;
+        state.last_activity = t2;
+
+        // 3. Focus lost for 299s -> does not lock
+        state.last_focus_lost = Some(t2);
+        state.last_tick_instant = t2 + Duration::from_secs(298);
+        let t3 = t2 + Duration::from_secs(299);
+        assert!(!state.check_auto_lock_with_time(t3, None, false));
+        assert!(state.is_unlocked());
+
+        // Focus lost reaches 300s -> locks!
+        state.last_tick_instant = t2 + Duration::from_secs(299);
+        let t4 = t2 + Duration::from_secs(300);
+        assert!(state.check_auto_lock_with_time(t4, None, false));
+        assert!(!state.is_unlocked());
+
+        // 4. Regaining focus clears focus lost timer, but preserves OS idle
+        state.unlock(key, TwofaVaultSettings::default(), true);
+        state.handle_focus_change(false); // Lost focus
+        assert!(state.last_focus_lost.is_some());
+        state.handle_focus_change(true); // Regained focus
+        assert!(state.last_focus_lost.is_none());
+
+        // 5. Screen lock locks immediately even if timeout is Never
+        state.settings.lock_time_setting = LockTimeSetting::Never;
+        state.settings.lock_on_screen_lock = true;
+        let t5 = Instant::now();
+        state.last_tick_instant = t5;
+        assert!(state.check_auto_lock_with_time(t5 + Duration::from_secs(1), None, true));
+        assert!(!state.is_unlocked());
+
+        // 6. Monotonic clock jump >= 5s (sleep/resume) locks immediately
+        state.unlock(key, TwofaVaultSettings::default(), true);
+        let t6 = Instant::now();
+        state.last_tick_instant = t6;
+        assert!(state.check_auto_lock_with_time(t6 + Duration::from_secs(6), None, false));
+        assert!(!state.is_unlocked());
+
+        // 7. Conservative Linux mode
+        state.unlock(key, TwofaVaultSettings::default(), true);
+        state.platform_capabilities.is_conservative_mode = true;
+        state.last_tick_instant = Instant::now();
+        // Focus loss without exemption -> locks immediately
+        state.last_focus_lost = Some(Instant::now());
+        assert!(state.check_auto_lock_with_time(Instant::now() + Duration::from_secs(1), None, false));
+        assert!(!state.is_unlocked());
+
+        // With exemption (e.g. 30s for dialog/capture) -> does NOT lock
+        state.unlock(key, TwofaVaultSettings::default(), true);
+        state.platform_capabilities.is_conservative_mode = true;
+        state.exempt_focus_lock(Duration::from_secs(30));
+        state.last_focus_lost = Some(Instant::now());
+        state.last_tick_instant = Instant::now();
+        assert!(!state.check_auto_lock_with_time(Instant::now() + Duration::from_secs(1), None, false));
+        assert!(state.is_unlocked());
+
+        // 8. When lock_enabled == false, auto-lock is completely bypassed
+        state.unlock(key, TwofaVaultSettings::default(), false);
+        assert!(state.is_unlocked());
+        state.platform_capabilities.is_conservative_mode = true;
+        state.handle_focus_change(false);
+        assert!(state.last_focus_lost.is_none());
+        assert!(!state.check_auto_lock_with_time(t6 + Duration::from_secs(1000), Some(Duration::from_secs(1000)), true));
+        assert!(state.is_unlocked());
+    }
+
+    #[test]
+    fn twofa_lock_modes_pin_and_credential_store() {
+        use twofa::{
+            init_twofa_schema, MockCredentialStore, VaultService,
+        };
+
+        let paths = temp_test_paths("twofa-lock-modes");
+        fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
+        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+        init_twofa_schema(&mut conn).expect("init schema");
+        let db_path = db_path_string(&paths);
+
+        let mock_store = Arc::new(MockCredentialStore::default());
+        let service = VaultService::new_with_store(mock_store.clone());
+
+        // 1. Password validation: < 8 chars fails
+        assert!(tauri::async_runtime::block_on(service.setup_vault(&db_path, "short", false, None, None, None)).is_err());
+        let master_pwd = "MậtKhẩu88"; // 9 Unicode characters
+        assert_eq!(master_pwd.chars().count(), 9);
+
+        // 2. Setup vault with "Không khóa" (lock_enabled = false)
+        let status = tauri::async_runtime::block_on(service.setup_vault(&db_path, master_pwd, false, None, None, None)).expect("setup unlocked");
+        assert!(status.has_vault);
+        assert!(status.is_unlocked);
+        assert!(!status.lock_enabled);
+        assert!(!status.pin_enabled);
+
+        // Lock state manually to simulate app restart
+        let mut v = service.state.lock().unwrap();
+        v.lock();
+        drop(v);
+
+        // Auto unlock works because credential is stored
+        let status = tauri::async_runtime::block_on(service.try_auto_unlock(&db_path, None)).expect("auto unlock");
+        assert!(status.is_unlocked);
+
+        let session_id = status.session_id.clone().expect("session id");
+        let revision = status.revision;
+
+        // 3. Switch to "Có khóa" (lock_enabled = true)
+        assert!(tauri::async_runtime::block_on(service.set_lock_enabled(&db_path, true, "wrongpass", &session_id, revision, None)).is_err());
+        let status = tauri::async_runtime::block_on(service.set_lock_enabled(&db_path, true, master_pwd, &session_id, revision, None)).expect("enable lock");
+        // Enabling lock immediately revokes session and locks
+        assert!(!status.is_unlocked);
+
+        // Auto-unlock now fails because lock_enabled is true
+        assert!(tauri::async_runtime::block_on(service.try_auto_unlock(&db_path, None)).is_err());
+
+        // Unlock with master password
+        let status = tauri::async_runtime::block_on(service.unlock_vault(&db_path, master_pwd, None, None)).expect("unlock with pwd");
+        assert!(status.is_unlocked);
+        let session_id = status.session_id.clone().expect("session id");
+        let revision = status.revision;
+
+        // 4. Set PIN: validation
+        assert!(tauri::async_runtime::block_on(service.set_pin(&db_path, "12345", master_pwd, &session_id, revision, None)).is_err()); // 5 digits
+        assert!(tauri::async_runtime::block_on(service.set_pin(&db_path, "1234567", master_pwd, &session_id, revision, None)).is_err()); // 7 digits
+        assert!(tauri::async_runtime::block_on(service.set_pin(&db_path, "abcdef", master_pwd, &session_id, revision, None)).is_err()); // letters
+        // Valid 6 digits with leading zero
+        let pin = "012345";
+        let status = tauri::async_runtime::block_on(service.set_pin(&db_path, pin, master_pwd, &session_id, revision, None)).expect("set pin");
+        assert!(status.pin_enabled);
+        assert_eq!(status.pin_failed_attempts, 0);
+
+        // Lock vault
+        let _ = service.lock_vault(&db_path, None).expect("lock vault");
+
+        // 5. Unlock with PIN: wrong attempts & rate limiting
+        for i in 1..=4 {
+            let res = tauri::async_runtime::block_on(service.unlock_with_pin(&db_path, "999999", None, None));
+            assert!(res.is_err());
+            let status = service.get_status(&db_path).expect("get status");
+            assert_eq!(status.pin_failed_attempts, i);
+            assert!(!status.is_pin_blocked);
+        }
+        // 5th failed attempt locks out the PIN
+        let res5 = tauri::async_runtime::block_on(service.unlock_with_pin(&db_path, "999999", None, None));
+        assert!(res5.is_err());
+        let status5 = service.get_status(&db_path).expect("get status");
+        assert_eq!(status5.pin_failed_attempts, 5);
+        assert!(status5.is_pin_blocked);
+
+        // 6th attempt (even with correct PIN) is blocked!
+        let res6 = tauri::async_runtime::block_on(service.unlock_with_pin(&db_path, pin, None, None));
+        assert!(res6.is_err());
+        assert!(res6.unwrap_err().code.contains("PIN_BLOCKED"));
+
+        // Unlock with master password resets failed PIN counter
+        let status_recovered = tauri::async_runtime::block_on(service.unlock_vault(&db_path, master_pwd, None, None)).expect("unlock with pwd after pin block");
+        assert!(status_recovered.is_unlocked);
+        assert_eq!(status_recovered.pin_failed_attempts, 0);
+        assert!(!status_recovered.is_pin_blocked);
+
+        // Lock and unlock with PIN now succeeds
+        let _ = service.lock_vault(&db_path, None).expect("lock vault");
+        let status = tauri::async_runtime::block_on(service.unlock_with_pin(&db_path, pin, None, None)).expect("unlock with correct pin");
+        assert!(status.is_unlocked);
+        let session_id = status.session_id.clone().expect("session id");
+        let revision = status.revision;
+
+        // 6. Remove PIN
+        let status = tauri::async_runtime::block_on(service.remove_pin(&db_path, master_pwd, &session_id, revision, None)).expect("remove pin");
+        assert!(!status.pin_enabled);
+
+        let session_id = status.session_id.clone().expect("session id");
+        let revision = status.revision;
+
+        // 7. Change master password
+        let new_pwd = "MậtKhẩuMới99";
+        let status = tauri::async_runtime::block_on(service.change_password(&db_path, master_pwd, new_pwd, &session_id, revision, None)).expect("change pwd");
+        assert!(status.is_unlocked);
+
+        let _ = service.lock_vault(&db_path, None).expect("lock vault");
+        assert!(tauri::async_runtime::block_on(service.unlock_vault(&db_path, master_pwd, None, None)).is_err());
+        let status = tauri::async_runtime::block_on(service.unlock_vault(&db_path, new_pwd, None, None)).expect("unlock with new pwd");
+        assert!(status.is_unlocked);
+
+        drop(conn);
+        fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn twofa_concurrency_busy_and_epoch_invalidation() {
+        use twofa::{MockCredentialStore, VaultService};
+        use std::sync::Arc;
+
+        let mock_store = Arc::new(MockCredentialStore::default());
+        let service = VaultService::new_with_store(mock_store);
+
+        // 1. Initial state: epoch is 1, not busy
+        assert_eq!(service.current_auth_epoch(), 1);
+
+        // 2. Acquire security operation guard
+        let guard1 = service.acquire_security_op().expect("first op succeeds");
+
+        // 3. Concurrent operation fails with BUSY
+        let busy_err = service.acquire_security_op().unwrap_err();
+        assert!(busy_err.contains("BUSY"));
+
+        // 4. Drop guard1 releases the lock
+        drop(guard1);
+        let guard2 = service.acquire_security_op().expect("subsequent op succeeds");
+        drop(guard2);
+
+        // 5. Epoch invalidation: slow operation snapshotting epoch
+        let start_epoch = service.current_auth_epoch();
+
+        // While slow crypto/keyring runs, vault locks or resets, bumping epoch
+        let bumped_epoch = service.bump_auth_epoch();
+        assert_eq!(bumped_epoch, start_epoch + 1);
+
+        // Simulated worker returns and verifies epoch
+        let is_stale = start_epoch != service.current_auth_epoch();
+        assert!(is_stale, "Stale worker should be detected and aborted");
+    }
+
+    #[test]
+    fn twofa_pin_limit_and_atomic_preincrement() {
+        use twofa::{
+            init_twofa_schema, CredentialStore, CredentialStoreError, MockCredentialStore,
+            VaultService,
+        };
+
+        let paths = temp_test_paths("twofa-pin-limits");
+        fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
+        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+        init_twofa_schema(&mut conn).expect("init schema");
+        let db_path = db_path_string(&paths);
+
+        let mock_store = Arc::new(MockCredentialStore::default());
+        let service = VaultService::new_with_store(mock_store.clone());
+        let master_pwd = "MậtKhẩuChính123";
+        let pin = "123456";
+
+        let status = tauri::async_runtime::block_on(service.setup_vault(&db_path, master_pwd, true, None, None, None)).expect("setup vault");
+        let session_id = status.session_id.clone().expect("session id");
+        let revision = status.revision;
+
+        let status = tauri::async_runtime::block_on(service.set_pin(&db_path, pin, master_pwd, &session_id, revision, None)).expect("set pin");
+        assert!(status.pin_enabled);
+
+        let _ = service.lock_vault(&db_path, None).expect("lock vault");
+
+        // 1. Credential store failure does NOT increment pin_failed_attempts
+        struct FailingCredentialStore;
+        impl CredentialStore for FailingCredentialStore {
+            fn get_password(&self, _service: &str, _user: &str) -> Result<String, CredentialStoreError> {
+                Err(CredentialStoreError::Unavailable("Keyring locked".to_string()))
+            }
+            fn set_password(&self, _service: &str, _user: &str, _pass: &str) -> Result<(), CredentialStoreError> {
+                Ok(())
+            }
+            fn delete_password(&self, _service: &str, _user: &str) -> Result<(), CredentialStoreError> {
+                Ok(())
+            }
+        }
+
+        let failing_service = VaultService::new_with_store(Arc::new(FailingCredentialStore));
+        let cred_err = tauri::async_runtime::block_on(failing_service.unlock_with_pin(&db_path, "000000", None, None));
+        assert!(cred_err.is_err());
+        assert_eq!(cred_err.unwrap_err().code, "CREDENTIAL_STORE_UNAVAILABLE");
+
+        // Status still shows 0 failed attempts
+        let status = service.get_status(&db_path).expect("get status");
+        assert_eq!(status.pin_failed_attempts, 0);
+
+        // 2. Incorrect PIN pre-increments failed attempts
+        for expected_attempts in 1..=4 {
+            let res = tauri::async_runtime::block_on(service.unlock_with_pin(&db_path, "000000", None, None));
+            assert!(res.is_err());
+            let status = service.get_status(&db_path).expect("get status");
+            assert_eq!(status.pin_failed_attempts, expected_attempts);
+            assert!(!status.is_pin_blocked);
+        }
+
+        // 3. 5th incorrect attempt blocks the PIN
+        let res5 = tauri::async_runtime::block_on(service.unlock_with_pin(&db_path, "000000", None, None));
+        assert!(res5.is_err());
+        let status5 = service.get_status(&db_path).expect("get status");
+        assert_eq!(status5.pin_failed_attempts, 5);
+        assert!(status5.is_pin_blocked);
+
+        // 4. Correct PIN is rejected when blocked
+        let res_blocked = tauri::async_runtime::block_on(service.unlock_with_pin(&db_path, pin, None, None));
+        assert!(res_blocked.is_err());
+        assert_eq!(res_blocked.unwrap_err().code, "PIN_BLOCKED");
+
+        // 5. Master password unlock resets the failed attempts counter
+        let status_unblocked = tauri::async_runtime::block_on(service.unlock_vault(&db_path, master_pwd, None, None)).expect("unlock with master pwd");
+        assert!(status_unblocked.is_unlocked);
+        assert_eq!(status_unblocked.pin_failed_attempts, 0);
+        assert!(!status_unblocked.is_pin_blocked);
+
+        drop(conn);
+        fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn twofa_interrupted_transition_and_recovery() {
+        use twofa::{
+            init_twofa_schema, MockCredentialStore, SecurityTransitionJournal,
+            VaultService,
+        };
+        use diesel::sql_types::Text;
+
+        let paths = temp_test_paths("twofa-recovery");
+        fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
+        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+        init_twofa_schema(&mut conn).expect("init schema");
+        let db_path = db_path_string(&paths);
+
+        let mock_store = Arc::new(MockCredentialStore::default());
+        let service = VaultService::new_with_store(mock_store.clone());
+        let master_pwd = "MậtKhẩuChính123";
+        let pin = "123456";
+
+        let status = tauri::async_runtime::block_on(service.setup_vault(&db_path, master_pwd, true, None, None, None)).expect("setup vault");
+        let session_id = status.session_id.clone().expect("session id");
+        let revision = status.revision;
+
+        let status = tauri::async_runtime::block_on(service.set_pin(&db_path, pin, master_pwd, &session_id, revision, None)).expect("set pin");
+        let session_id = status.session_id.clone().expect("session id");
+        let revision = status.revision;
+
+        #[derive(QueryableByName)]
+        struct VaultUuidRow {
+            #[diesel(sql_type = Text)]
+            vault_uuid: String,
+        }
+        let uuid_row: VaultUuidRow = sql_query("SELECT vault_uuid FROM twofa_unlock_config WHERE id = 1")
+            .get_result(&mut conn)
+            .expect("fetch vault uuid");
+        let v_uuid = uuid_row.vault_uuid;
+
+        // Simulate an interrupted transition by setting pending_journal in twofa_unlock_config
+        let journal = SecurityTransitionJournal {
+            version: 1,
+            vault_uuid: v_uuid.clone(),
+            op_id: "test-op-1".to_string(),
+            op_type: "change_password".to_string(),
+            source_generation: 1,
+            target_generation: 2,
+            old_credential_ids: vec![format!("{}:auto:gen-1", v_uuid)],
+            new_credential_ids: vec![format!("{}:auto:gen-2", v_uuid)],
+            stage: "KeyringUpdated".to_string(),
+        };
+        let journal_json = serde_json::to_string(&journal).expect("serialize journal");
+
+        sql_query("UPDATE twofa_unlock_config SET pending_operation = 'change_password', pending_journal = ? WHERE id = 1")
+            .bind::<Text, _>(&journal_json)
+            .execute(&mut conn)
+            .expect("set pending journal");
+
+        // 1. Status indicates recovery_required
+        let status = service.get_status(&db_path).expect("get status");
+        assert!(status.recovery_required);
+
+        // 2. Sensitive operations fail with RECOVERY_REQUIRED
+        assert!(tauri::async_runtime::block_on(service.set_pin(&db_path, "654321", master_pwd, &session_id, revision, None)).is_err());
+
+        // 3. When locked, unlock_with_pin fails with RECOVERY_REQUIRED
+        let _ = service.lock_vault(&db_path, None).expect("lock vault");
+        let pin_res = tauri::async_runtime::block_on(service.unlock_with_pin(&db_path, pin, None, None));
+        assert!(pin_res.is_err());
+        assert_eq!(pin_res.unwrap_err().code, "RECOVERY_REQUIRED");
+
+        // 4. Emergency access: Master password unlock SUCCEEDS and grants session even during recovery!
+        let status_unlocked = tauri::async_runtime::block_on(service.unlock_vault(&db_path, master_pwd, None, None)).expect("emergency master password unlock");
+        assert!(status_unlocked.is_unlocked, "Master password must grant emergency access");
+        assert!(status_unlocked.recovery_required, "Recovery must remain required until retry_recovery");
+        assert!(status_unlocked.lock_enabled, "Lock mode must remain enabled");
+
+        // 5. Test retry_recovery while unlocked
+        let session_id = status_unlocked.session_id.clone().expect("session id");
+        let revision = status_unlocked.revision;
+
+        let recovered_status = tauri::async_runtime::block_on(service.retry_recovery(&db_path, master_pwd, &session_id, revision, None))
+            .expect("retry recovery succeeds");
+        assert!(!recovered_status.recovery_required);
+        assert!(recovered_status.is_unlocked);
+
+        drop(conn);
+        fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn twofa_auth_cancellation_and_session_isolation() {
+        use twofa::{MockCredentialStore, VaultService};
+        use std::sync::Arc;
+
+        let mock_store = Arc::new(MockCredentialStore::default());
+        let service = VaultService::new_with_store(mock_store);
+
+        let op1 = "op-auth-1";
+        let op2 = "op-auth-2";
+
+        // 1. Initially not cancelled
+        assert!(!service.is_auth_cancelled(op1));
+
+        // 2. Cancel op1: records op1 and does NOT bump global auth epoch (isolation)
+        let epoch_before = service.current_auth_epoch();
+        service.cancel_auth_op(op1);
+        assert!(service.is_auth_cancelled(op1));
+        assert_eq!(service.current_auth_epoch(), epoch_before);
+
+        // op2 is not cancelled
+        assert!(!service.is_auth_cancelled(op2));
+
+        // 3. Test session isolation:
+        // Set last_auth_operation_id in state
+        {
+            let mut state = service.state.lock().expect("lock state");
+            state.last_auth_operation_id = Some(op2.to_string());
+            state.master_data_key = Some(zeroize::Zeroizing::new([1u8; 32]));
+            state.session_id = Some("session-2".to_string());
+        }
+
+        // Now if cancel_auth_op is called for op1 (which was an older op), it shouldn't revoke session-2!
+        service.cancel_auth_op(op1);
+        {
+            let state = service.state.lock().expect("lock state");
+            assert!(state.is_unlocked(), "Op1 cancellation must NOT revoke Op2 session");
+            assert_eq!(state.session_id.as_deref(), Some("session-2"));
+        }
+
+        // If cancel_auth_op is called for op2 (which matches the current session), it revokes the session
+        service.cancel_auth_op(op2);
+        {
+            let mut state = service.state.lock().expect("lock state");
+            if state.last_auth_operation_id.as_deref() == Some(op2) {
+                state.lock();
+            }
+            assert!(!state.is_unlocked(), "Op2 cancellation should revoke Op2 session");
+            assert!(state.session_id.is_none());
+            assert!(state.last_auth_operation_id.is_none());
+        }
+    }
+
+    #[test]
+    fn twofa_setup_journal_and_interrupted_setup_cleanup() {
+        use twofa::{
+            cleanup_setup_journal, get_vault_status, init_twofa_schema,
+            MockCredentialStore, TwofaVaultState, CredentialStore,
+        };
+        use diesel::sql_types::Text;
+
+        let paths = temp_test_paths("twofa-setup-cleanup");
+        fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
+        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+        init_twofa_schema(&mut conn).expect("init schema");
+
+        let mock_store = MockCredentialStore::default();
+        let state = TwofaVaultState::new();
+
+        // 1. Initial state: not initialized, no cleanup required
+        let status = get_vault_status(&mut conn, &state).expect("get status");
+        assert!(!status.is_initialized);
+        assert!(!status.setup_cleanup_required);
+
+        // 2. Simulate interrupted setup: credential stored in keyring and setup journal row inserted
+        let vault_uuid = "test-vault-uuid-setup";
+        let auto_cred = format!("{}:auto:gen-1", vault_uuid);
+        let pin_cred = format!("{}:pin:gen-1", vault_uuid);
+        mock_store.set_password("projects-runner-twofa", &auto_cred, "auto-secret").expect("set auto");
+        mock_store.set_password("projects-runner-twofa", &pin_cred, "pin-secret").expect("set pin");
+
+        sql_query("INSERT INTO twofa_setup_journal (id, vault_uuid, auto_credential_id, pin_credential_id, created_at) VALUES (1, ?, ?, ?, datetime('now'))")
+            .bind::<Text, _>(&vault_uuid)
+            .bind::<Text, _>(&auto_cred)
+            .bind::<Text, _>(&pin_cred)
+            .execute(&mut conn)
+            .expect("insert setup journal");
+
+        // 3. Status now reports setup_cleanup_required = true
+        let status = get_vault_status(&mut conn, &state).expect("get status with journal");
+        assert!(!status.is_initialized);
+        assert!(status.setup_cleanup_required);
+
+        // 4. Cleanup setup journal
+        cleanup_setup_journal(&mut conn, &mock_store).expect("cleanup setup journal");
+
+        // Keyring credentials are deleted
+        assert!(mock_store.get_password("projects-runner-twofa", &auto_cred).is_err());
+        assert!(mock_store.get_password("projects-runner-twofa", &pin_cred).is_err());
+
+        // Status no longer requires cleanup
+        let status = get_vault_status(&mut conn, &state).expect("get status after cleanup");
+        assert!(!status.setup_cleanup_required);
+
+        drop(conn);
+        fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn twofa_corrupted_journal_fail_closed() {
+        use twofa::{
+            init_twofa_schema, MockCredentialStore,
+            VaultService,
+        };
+        use diesel::sql_types::Text;
+
+        let paths = temp_test_paths("twofa-fail-closed");
+        fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
+        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+        init_twofa_schema(&mut conn).expect("init schema");
+        let db_path = db_path_string(&paths);
+
+        let mock_store = Arc::new(MockCredentialStore::default());
+        let service = VaultService::new_with_store(mock_store.clone());
+        let master_pwd = "MậtKhẩuChính123";
+
+        let status = tauri::async_runtime::block_on(service.setup_vault(&db_path, master_pwd, true, None, None, None)).expect("setup vault");
+        let session_id = status.session_id.clone().expect("session id");
+        let revision = status.revision;
+
+        // 1. Corrupt JSON in pending_journal
+        sql_query("UPDATE twofa_unlock_config SET pending_operation = 'change_password', pending_journal = '{invalid json' WHERE id = 1")
+            .execute(&mut conn)
+            .expect("set corrupt journal");
+
+        // Status reports recovery_required
+        let status = service.get_status(&db_path).expect("get status");
+        assert!(status.recovery_required);
+
+        // retry_recovery fails-closed without clearing journal
+        let retry_err = tauri::async_runtime::block_on(service.retry_recovery(&db_path, master_pwd, &session_id, revision, None));
+        assert!(retry_err.is_err());
+        assert_eq!(retry_err.unwrap_err().code, "RECOVERY_ERROR");
+        let status = service.get_status(&db_path).expect("get status");
+        assert!(status.recovery_required, "Recovery must remain required on corrupted journal");
+
+        // Master password unlock allows EMERGENCY access even with corrupted journal!
+        let _ = service.lock_vault(&db_path, None).expect("lock vault");
+        let unlock_res = tauri::async_runtime::block_on(service.unlock_vault(&db_path, master_pwd, None, None)).expect("emergency access with valid master password");
+        assert!(unlock_res.is_unlocked, "Emergency master password unlock must succeed");
+        assert!(unlock_res.recovery_required, "Recovery must still be required");
+
+        // 2. Unsupported version
+        let wrong_version_json = serde_json::json!({
+            "version": 99,
+            "vault_uuid": "some-uuid",
+            "op_id": "op-x",
+            "op_type": "set_pin",
+            "source_generation": 1,
+            "target_generation": 2,
+            "old_credential_ids": [],
+            "new_credential_ids": [],
+            "stage": "KeyringUpdated"
+        }).to_string();
+
+        sql_query("UPDATE twofa_unlock_config SET pending_operation = 'set_pin', pending_journal = ? WHERE id = 1")
+            .bind::<Text, _>(&wrong_version_json)
+            .execute(&mut conn)
+            .expect("set wrong version journal");
+
+        // retry_recovery fails-closed on invalid version
+        let retry_err2 = tauri::async_runtime::block_on(service.retry_recovery(&db_path, master_pwd, &unlock_res.session_id.unwrap(), unlock_res.revision, None));
+        assert!(retry_err2.is_err());
+        assert_eq!(retry_err2.unwrap_err().code, "RECOVERY_ERROR");
+
+        drop(conn);
+        fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn twofa_interim_lock_barrier_and_post_commit_states() {
+        use twofa::{
+            init_twofa_schema, MockCredentialStore, VaultService,
+        };
+
+        let paths = temp_test_paths("twofa-barriers");
+        fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
+        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+        init_twofa_schema(&mut conn).expect("init schema");
+        let db_path = db_path_string(&paths);
+
+        let mock_store = Arc::new(MockCredentialStore::default());
+        let service = VaultService::new_with_store(mock_store.clone());
+        let master_pwd = "MậtKhẩuChính123";
+
+        // Setup locked vault
+        let _ = tauri::async_runtime::block_on(service.setup_vault(&db_path, master_pwd, true, None, None, None)).expect("setup locked");
+        let status = tauri::async_runtime::block_on(service.unlock_vault(&db_path, master_pwd, None, None)).expect("unlock");
+        let session_id = status.session_id.clone().expect("session id");
+        let revision = status.revision;
+
+        // Simulate interim lock during async operation (epoch bump)
+        let _ = service.lock_vault(&db_path, None).expect("lock vault");
+
+        // Attempting to commit with old session/revision and bumped epoch is rejected with SESSION_EXPIRED
+        let err = tauri::async_runtime::block_on(service.set_lock_enabled(&db_path, false, master_pwd, &session_id, revision, None));
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err().code, "SESSION_EXPIRED");
+
+        // Post-commit states:
+        // 1. Unlock vault
+        let status = tauri::async_runtime::block_on(service.unlock_vault(&db_path, master_pwd, None, None)).expect("unlock");
+        assert!(status.is_unlocked);
+        let session_id = status.session_id.clone().expect("session id");
+        let revision = status.revision;
+
+        // 2. Disable lock: preserves active session
+        let status_unlocked = tauri::async_runtime::block_on(service.set_lock_enabled(&db_path, false, master_pwd, &session_id, revision, None)).expect("disable lock");
+        assert!(status_unlocked.is_unlocked, "Disabling lock must preserve session");
+        assert!(!status_unlocked.lock_enabled);
+        let session_id = status_unlocked.session_id.clone().expect("session id");
+        let revision = status_unlocked.revision;
+
+        // 3. Enable lock: revokes session immediately
+        let status_locked = tauri::async_runtime::block_on(service.set_lock_enabled(&db_path, true, master_pwd, &session_id, revision, None)).expect("enable lock");
+        assert!(!status_locked.is_unlocked, "Enabling lock must revoke session immediately");
+        assert!(status_locked.lock_enabled);
+
+        drop(conn);
+        fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn twofa_legacy_vault_migration_defaults_to_locked() {
+        use twofa::{get_vault_status, init_twofa_schema, TwofaVaultState};
+
+        let paths = temp_test_paths("twofa-legacy-migration");
+        fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
+        let mut conn = SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
+
+        conn.batch_execute(
+            "CREATE TABLE twofa_vault_metadata (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                version INTEGER NOT NULL DEFAULT 1,
+                kdf_salt BLOB NOT NULL,
+                kdf_memory_kib INTEGER NOT NULL DEFAULT 65536,
+                kdf_iterations INTEGER NOT NULL DEFAULT 3,
+                kdf_parallelism INTEGER NOT NULL DEFAULT 1,
+                encrypted_data_key BLOB NOT NULL,
+                data_key_nonce BLOB NOT NULL,
+                lock_time_setting TEXT NOT NULL DEFAULT 'FiveMinutes',
+                lock_on_screen_lock INTEGER NOT NULL DEFAULT 1,
+                hide_token_setting TEXT NOT NULL DEFAULT 'Never',
+                clear_clipboard_setting TEXT NOT NULL DEFAULT 'ThirtySeconds',
+                sort_order_setting TEXT NOT NULL DEFAULT 'ISSUER_ASC',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO twofa_vault_metadata (
+                id, version, kdf_salt, encrypted_data_key, data_key_nonce, created_at, updated_at
+            ) VALUES (
+                1, 1, X'01020304', X'05060708', X'090A0B0C', '2026-01-01', '2026-01-01'
+            );"
+        ).expect("seed legacy vault");
+
+        init_twofa_schema(&mut conn).expect("run init schema and migrations");
+
+        let state = TwofaVaultState::new();
+        let status = get_vault_status(&mut conn, &state).expect("get status");
+        assert!(status.has_vault);
+        assert!(!status.is_unlocked);
+        assert!(status.lock_enabled, "Legacy vault must default to locked for security");
+        assert!(!status.pin_enabled);
+
+        drop(conn);
+        fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn twofa_validation_and_uri_parsing() {
+        use twofa::{parse_otpauth_uri, validate_and_canonicalize_payload, TwofaAccountSecretPayload};
+
+        // 1. Valid payload canonicalization
+        let mut valid_payload = TwofaAccountSecretPayload {
+            issuer: "  Github  ".to_string(),
+            account: "  octocat  ".to_string(),
+            secret: "gezd gnbv-gy3t qojq".to_string(),
+            algorithm: "sha256".to_string(),
+            digits: 8,
+            period: 60,
+            notes: "".to_string(),
+            icon: None,
+        };
+        let res = validate_and_canonicalize_payload(&mut valid_payload);
+        if let Err(e) = &res {
+            eprintln!("VALIDATION ERROR: {}", e);
+        }
+        assert!(res.is_ok());
+        assert_eq!(valid_payload.issuer, "Github");
+        assert_eq!(valid_payload.account, "octocat");
+        assert_eq!(valid_payload.secret, "GEZDGNBVGY3TQOJQ");
+        assert_eq!(valid_payload.algorithm, "SHA256");
+
+        // 2. Invalid secret
+        let mut invalid_secret = valid_payload.clone();
+        invalid_secret.secret = "189!invalid".to_string();
+        assert!(validate_and_canonicalize_payload(&mut invalid_secret).is_err());
+
+        // 3. Digits: only 6, 7, 8 allowed
+        let mut invalid_digits = valid_payload.clone();
+        invalid_digits.digits = 5;
+        assert!(validate_and_canonicalize_payload(&mut invalid_digits).is_err());
+        invalid_digits.digits = 7;
+        assert!(validate_and_canonicalize_payload(&mut invalid_digits).is_ok());
+
+        // 4. Period: must be positive and <= 3600
+        let mut invalid_period = valid_payload.clone();
+        invalid_period.period = 0;
+        assert!(validate_and_canonicalize_payload(&mut invalid_period).is_err());
+        invalid_period.period = 4000;
+        assert!(validate_and_canonicalize_payload(&mut invalid_period).is_err());
+
+        // 5. Must have issuer or account
+        let mut no_name = valid_payload.clone();
+        no_name.issuer = "   ".to_string();
+        no_name.account = "".to_string();
+        assert!(validate_and_canonicalize_payload(&mut no_name).is_err());
+
+        // 6. HOTP rejected
+        assert!(parse_otpauth_uri("otpauth://hotp/Test:User?secret=GEZDGNBVGY3TQOJQ&counter=1").is_err());
+
+        // 7. URI URL-decoding
+        let parsed = parse_otpauth_uri("otpauth://totp/My%20Company:user%40work.com?secret=GEZDGNBVGY3TQOJQ&issuer=My%20Company&digits=7&period=45").expect("parse uri");
+        assert_eq!(parsed.issuer, "My Company");
+        assert_eq!(parsed.account, "user@work.com");
+        assert_eq!(parsed.digits, 7);
+        assert_eq!(parsed.period, 45);
+
+        // 8. Invalid parameters in URI reject rather than silently default
+        assert!(parse_otpauth_uri("otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQ&digits=10").is_err());
+        assert!(parse_otpauth_uri("otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQ&period=abc").is_err());
+        assert!(parse_otpauth_uri("otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQ&algorithm=MD5").is_err());
+    }
+
+    #[test]
+    fn init_db_migrates_and_removes_flows_cleanly() {
+        let paths = temp_test_paths("flow-migration-clean");
         fs::create_dir_all(paths.db_path.parent().expect("db parent")).expect("create temp root");
         let mut conn =
             SqliteConnection::establish(&db_path_string(&paths)).expect("create sqlite db");
         conn.batch_execute(
             "CREATE TABLE projects (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL, path TEXT NOT NULL, avatar_path TEXT, description TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-             CREATE TABLE commands (id INTEGER PRIMARY KEY NOT NULL, project_id INTEGER NOT NULL, name TEXT NOT NULL, script TEXT NOT NULL, avatar_path TEXT, ports TEXT NOT NULL DEFAULT '[]', section TEXT NOT NULL DEFAULT 'General', order_index INTEGER NOT NULL DEFAULT 0, runtime_mode TEXT NOT NULL DEFAULT 'internal_headless', run_in_external_terminal INTEGER NOT NULL DEFAULT 0, external_terminal_kind TEXT NOT NULL DEFAULT 'default', interactive_terminal_kind TEXT NOT NULL DEFAULT 'powershell', run_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+             CREATE TABLE commands (id INTEGER PRIMARY KEY NOT NULL, project_id INTEGER NOT NULL, name TEXT NOT NULL, script TEXT NOT NULL, avatar_path TEXT, ports TEXT NOT NULL DEFAULT '[]', section TEXT NOT NULL DEFAULT 'General', order_index INTEGER NOT NULL DEFAULT 0, runtime_mode TEXT NOT NULL DEFAULT 'internal_headless', run_in_external_terminal INTEGER NOT NULL DEFAULT 0, external_terminal_kind TEXT NOT NULL DEFAULT 'default', interactive_terminal_kind TEXT NOT NULL DEFAULT 'powershell', run_count INTEGER NOT NULL DEFAULT 5, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+             CREATE TABLE command_runs (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, command_id INTEGER NOT NULL, flow_node_id TEXT, status TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT, exit_code INTEGER);
              CREATE TABLE flows (id INTEGER PRIMARY KEY NOT NULL, project_id INTEGER NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-             CREATE TABLE flow_nodes (id TEXT PRIMARY KEY NOT NULL, flow_id INTEGER NOT NULL, command_id INTEGER NOT NULL, position_x INTEGER NOT NULL DEFAULT 0, position_y INTEGER NOT NULL DEFAULT 0, UNIQUE(flow_id, command_id));
-             CREATE TABLE flow_edges (id TEXT PRIMARY KEY NOT NULL, flow_id INTEGER NOT NULL, source_node_id TEXT NOT NULL, target_node_id TEXT NOT NULL, UNIQUE(flow_id, source_node_id), UNIQUE(flow_id, target_node_id));
+             CREATE TABLE flow_nodes (id TEXT PRIMARY KEY NOT NULL, flow_id INTEGER NOT NULL, command_id INTEGER NOT NULL, position_x INTEGER NOT NULL DEFAULT 0, position_y INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE flow_edges (id TEXT PRIMARY KEY NOT NULL, flow_id INTEGER NOT NULL, source_node_id TEXT NOT NULL, target_node_id TEXT NOT NULL);
              INSERT INTO projects VALUES (1, 'Project', '.', NULL, NULL, NULL, 'now', 'now');
-             INSERT INTO commands VALUES (1, 1, 'Command', 'echo ok', NULL, '[]', 'General', 0, 'internal_headless', 0, 'default', 'powershell', 0, 'now', 'now');
+             INSERT INTO commands VALUES (1, 1, 'Command', 'echo ok', NULL, '[]', 'General', 0, 'internal_headless', 0, 'default', 'powershell', 5, 'now', 'now');
+             INSERT INTO command_runs VALUES (1, 1, NULL, 'exited', '2026-01-01', '2026-01-01', 0);
+             INSERT INTO command_runs VALUES (2, 1, NULL, 'exited', '2026-01-02', '2026-01-02', 0);
+             INSERT INTO command_runs VALUES (3, 1, 'node-a', 'exited', '2026-01-03', '2026-01-03', 0);
+             INSERT INTO command_runs VALUES (4, 1, 'node-b', 'exited', '2026-01-04', '2026-01-04', 0);
              INSERT INTO flows VALUES (1, 1, 'Flow', 'now', 'now');
-             INSERT INTO flow_nodes VALUES ('first', 1, 1, 0, 0);",
+             INSERT INTO flow_nodes VALUES ('first', 1, 1, 0, 0);
+             INSERT INTO flow_edges VALUES ('e1', 1, 'first', 'first');",
         ).expect("create legacy flow schema");
+        drop(conn);
 
-        init_db(&paths).expect("migrate flow nodes");
+        // Run migration
+        init_db(&paths).expect("migrate db and remove flows");
+
         let mut verify = connect(&paths).expect("reopen database");
-        sql_query("INSERT INTO flow_nodes (id, flow_id, command_id, position_x, position_y) VALUES ('second', 1, 1, 0, 100)")
-            .execute(&mut verify)
-            .expect("allow a repeated command in a flow");
-        sql_query("INSERT INTO flow_nodes (id, flow_id, command_id, position_x, position_y) VALUES ('third', 1, 1, 0, 200)")
-            .execute(&mut verify)
-            .expect("create a third graph node");
-        sql_query("INSERT INTO flow_edges (id, flow_id, source_node_id, target_node_id) VALUES ('first-second', 1, 'first', 'second')")
-            .execute(&mut verify)
-            .expect("create the first branch");
-        sql_query("INSERT INTO flow_edges (id, flow_id, source_node_id, target_node_id) VALUES ('first-third', 1, 'first', 'third')")
-            .execute(&mut verify)
-            .expect("allow multiple connections from one node");
+
+        // Verify flow tables are dropped
+        #[derive(QueryableByName)]
+        #[allow(dead_code)]
+        struct TableName {
+            #[diesel(sql_type = Text)]
+            name: String,
+        }
+        let flow_tables = sql_query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('flows', 'flow_nodes', 'flow_edges')")
+            .load::<TableName>(&mut verify)
+            .expect("read flow tables");
+        assert!(flow_tables.is_empty(), "Flow tables must be deleted");
+
+        // Verify flow_node_id column is dropped from command_runs
+        #[derive(QueryableByName)]
+        struct TableColumn {
+            #[diesel(sql_type = Text)]
+            name: String,
+        }
+        let columns = sql_query("SELECT name FROM pragma_table_info('command_runs')")
+            .load::<TableColumn>(&mut verify)
+            .expect("read command_runs columns");
+        assert!(!columns.iter().any(|c| c.name == "flow_node_id"), "flow_node_id column must be dropped");
+
+        // Verify normal runs preserved, flow runs deleted
+        #[derive(QueryableByName)]
+        struct RunId {
+            #[diesel(sql_type = BigInt)]
+            id: i64,
+        }
+        let remaining_runs = sql_query("SELECT id FROM command_runs ORDER BY id ASC")
+            .load::<RunId>(&mut verify)
+            .expect("read remaining runs");
+        assert_eq!(remaining_runs.len(), 2);
+        assert_eq!(remaining_runs[0].id, 1);
+        assert_eq!(remaining_runs[1].id, 2);
+
+        // Verify command.run_count decremented from 5 to 3
+        #[derive(QueryableByName)]
+        struct RunCount {
+            #[diesel(sql_type = Integer)]
+            run_count: i32,
+        }
+        let cmd = sql_query("SELECT run_count FROM commands WHERE id = 1")
+            .get_result::<RunCount>(&mut verify)
+            .expect("read command run count");
+        assert_eq!(cmd.run_count, 3, "run_count should be 5 - 2 flow runs = 3");
+
+        // Idempotency: run init_db again on already migrated database
+        drop(verify);
+        init_db(&paths).expect("init_db must be idempotent");
+
+        fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
     }
 
     #[test]
@@ -2011,17 +2714,20 @@ mod tests {
         assert!(columns.iter().any(|name| name == "runtime_mode"));
 
         #[derive(QueryableByName)]
+        #[allow(dead_code)]
         struct TableName {
             #[diesel(sql_type = Text)]
             name: String,
         }
         let flow_tables = sql_query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('flows', 'flow_nodes', 'flow_edges') ORDER BY name")
             .load::<TableName>(&mut verify)
-            .expect("read flow tables")
-            .into_iter()
-            .map(|row| row.name)
-            .collect::<Vec<_>>();
-        assert_eq!(flow_tables, vec!["flow_edges", "flow_nodes", "flows"]);
+            .expect("read flow tables");
+        assert!(flow_tables.is_empty(), "Flow tables should be gone");
+
+        let twofa_tables = sql_query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'twofa_accounts'")
+            .load::<TableName>(&mut verify)
+            .expect("read twofa tables");
+        assert_eq!(twofa_tables.len(), 1, "twofa_accounts table should be initialized");
 
         drop(verify);
         fs::remove_dir_all(paths.db_path.parent().expect("db parent")).expect("cleanup temp root");
@@ -3902,6 +4608,20 @@ async fn clean_dev_cache(
 ) -> Result<DevCacheCleanResult, String> {
     let (project_root, folder_root) = dev_folder_root(project_id, &relative_path, &state)?;
     let type_ids = stored_folder_project_types(project_id, &relative_path, &state)?;
+
+    let active_cids = state.terminal_supervisor.get_active_command_ids();
+    let mut active_cwds = Vec::new();
+    if !active_cids.is_empty() {
+        if let Ok(commands) = list_commands(project_id, state.clone()) {
+            let project_has_active = commands.iter().any(|cmd| active_cids.contains(&cmd.id));
+            if project_has_active {
+                if let Ok(canon) = project_root.canonicalize() {
+                    active_cwds.push(canon);
+                }
+            }
+        }
+    }
+
     tauri::async_runtime::spawn_blocking(move || {
         let folder_canonical = folder_root
             .canonicalize()
@@ -3925,17 +4645,33 @@ async fn clean_dev_cache(
             };
             let path = folder_root.join(&candidate.relative_path);
             let validation = (|| {
+                let rel_lower = candidate.relative_path.to_lowercase();
+                if rel_lower == ".git" || rel_lower.starts_with(".git/") || rel_lower.contains("/.git/") || rel_lower.ends_with("/.git") {
+                    return Err("Cannot delete .git directory".to_string());
+                }
+                if rel_lower.starts_with(".env") || rel_lower.contains("/.env") {
+                    return Err("Cannot delete .env file or directory".to_string());
+                }
+
                 let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
                 if metadata.file_type().is_symlink() || !metadata.is_dir() {
                     return Err("Candidate is not a removable directory".to_string());
                 }
                 let canonical = path.canonicalize().map_err(|error| error.to_string())?;
                 if canonical == folder_canonical
+                    || canonical == project_canonical
                     || !canonical.starts_with(&folder_canonical)
                     || !canonical.starts_with(&project_canonical)
                 {
                     return Err("Candidate must remain inside the selected project folder".to_string());
                 }
+
+                for active_cwd in &active_cwds {
+                    if *active_cwd == canonical || active_cwd.starts_with(&canonical) {
+                        return Err("Cannot clean cache while an active command is running in this folder".to_string());
+                    }
+                }
+
                 fs::remove_dir_all(&canonical).map_err(|error| error.to_string())
             })();
             match validation {
@@ -4250,12 +4986,22 @@ fn update_project(id: i64, input: ProjectInput, state: State<AppState>) -> Resul
 }
 
 #[tauri::command]
-fn delete_project(id: i64, state: State<AppState>) -> Result<(), String> {
+fn delete_project(
+    id: i64,
+    delete_exclusive_2fa: Option<bool>,
+    state: State<AppState>,
+) -> Result<(), String> {
     let mut conn = connect(&state.paths)?;
-    sql_query(format!("DELETE FROM projects WHERE id = {}", id))
-        .execute(&mut conn)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    let twofa_state = state
+        .twofa_vault
+        .lock()
+        .map_err(|_| "Vault lock poisoned".to_string())?;
+    twofa::delete_project_with_policy(
+        &mut conn,
+        &twofa_state,
+        id,
+        delete_exclusive_2fa.unwrap_or(false),
+    )
 }
 
 #[tauri::command]
@@ -4459,279 +5205,6 @@ fn delete_command_section_in_conn(conn: &mut SqliteConnection, id: i64) -> Resul
         .map_err(|error| error.to_string())
 }
 
-fn load_flow_detail(conn: &mut SqliteConnection, id: i64) -> Result<FlowDetail, String> {
-    let flow = sql_query(format!("SELECT * FROM flows WHERE id = {}", id))
-        .get_result::<Flow>(conn)
-        .map_err(|error| error.to_string())?;
-    let nodes = sql_query(format!(
-        "SELECT * FROM flow_nodes WHERE flow_id = {} ORDER BY id ASC",
-        id
-    ))
-    .load::<FlowNode>(conn)
-    .map_err(|error| error.to_string())?;
-    let edges = sql_query(format!(
-        "SELECT * FROM flow_edges WHERE flow_id = {} ORDER BY id ASC",
-        id
-    ))
-    .load::<FlowEdge>(conn)
-    .map_err(|error| error.to_string())?;
-    Ok(FlowDetail { flow, nodes, edges })
-}
-
-fn validate_flow_graph(nodes: &[FlowNodeInput], edges: &[FlowEdgeInput]) -> Result<(), String> {
-    let mut ids = HashSet::new();
-    for node in nodes {
-        if node.id.trim().is_empty() || !ids.insert(node.id.as_str()) {
-            return Err("Each flow node needs a unique id".to_string());
-        }
-    }
-    if nodes.is_empty() {
-        return if edges.is_empty() {
-            Ok(())
-        } else {
-            Err("An empty flow cannot have connections".to_string())
-        };
-    }
-    let mut incoming = HashMap::<&str, usize>::new();
-    let mut outgoing = HashMap::<&str, Vec<&str>>::new();
-    let mut edge_ids = HashSet::new();
-    let mut connected_pairs = HashSet::new();
-    for edge in edges {
-        if edge.id.trim().is_empty() || !edge_ids.insert(edge.id.as_str()) {
-            return Err("Each connection needs a unique id".to_string());
-        }
-        if edge.source_node_id == edge.target_node_id
-            || !ids.contains(edge.source_node_id.as_str())
-            || !ids.contains(edge.target_node_id.as_str())
-        {
-            return Err("Connections must join two different nodes in this flow".to_string());
-        }
-        let pair = if edge.source_node_id < edge.target_node_id {
-            (edge.source_node_id.as_str(), edge.target_node_id.as_str())
-        } else {
-            (edge.target_node_id.as_str(), edge.source_node_id.as_str())
-        };
-        if !connected_pairs.insert(pair) {
-            return Err("Only one connection can exist between a pair of flow nodes".to_string());
-        }
-        *incoming.entry(edge.target_node_id.as_str()).or_insert(0) += 1;
-        outgoing
-            .entry(edge.source_node_id.as_str())
-            .or_default()
-            .push(edge.target_node_id.as_str());
-    }
-    let mut ready = ids
-        .iter()
-        .copied()
-        .filter(|id| !incoming.contains_key(*id))
-        .collect::<Vec<_>>();
-    let mut visited = 0;
-    while let Some(current) = ready.pop() {
-        visited += 1;
-        for next in outgoing.get(current).into_iter().flatten() {
-            let degree = incoming
-                .get_mut(next)
-                .expect("target node must have an incoming edge");
-            *degree -= 1;
-            if *degree == 0 {
-                ready.push(next);
-            }
-        }
-    }
-    if visited != nodes.len() {
-        return Err("The flow contains a cycle".to_string());
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn list_flows(project_id: i64, state: State<AppState>) -> Result<Vec<FlowSummary>, String> {
-    let mut conn = connect(&state.paths)?;
-    sql_query(format!(
-        "SELECT f.id, f.project_id, f.name, f.created_at, f.updated_at, COUNT(n.id) AS node_count
-         FROM flows f LEFT JOIN flow_nodes n ON n.flow_id = f.id
-         WHERE f.project_id = {} GROUP BY f.id ORDER BY f.updated_at DESC, f.id DESC",
-        project_id
-    ))
-    .load::<FlowSummary>(&mut conn)
-    .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn get_flow(id: i64, state: State<AppState>) -> Result<FlowDetail, String> {
-    load_flow_detail(&mut connect(&state.paths)?, id)
-}
-
-#[tauri::command]
-fn create_flow(input: FlowInput, state: State<AppState>) -> Result<Flow, String> {
-    let name = input.name.trim();
-    if name.is_empty() {
-        return Err("Flow name is required".to_string());
-    }
-    let mut conn = connect(&state.paths)?;
-    let exists = sql_query(format!(
-        "SELECT * FROM projects WHERE id = {}",
-        input.project_id
-    ))
-    .get_result::<Project>(&mut conn)
-    .optional()
-    .map_err(|error| error.to_string())?;
-    if exists.is_none() {
-        return Err("Project not found".to_string());
-    }
-    let timestamp = now();
-    sql_query(format!("INSERT INTO flows (project_id, name, created_at, updated_at) VALUES ({}, '{}', '{}', '{}')", input.project_id, quote_sql(name), timestamp, timestamp))
-        .execute(&mut conn).map_err(|error| error.to_string())?;
-    sql_query("SELECT * FROM flows WHERE id = last_insert_rowid()")
-        .get_result::<Flow>(&mut conn)
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn update_flow(id: i64, input: FlowUpdateInput, state: State<AppState>) -> Result<Flow, String> {
-    let name = input.name.trim();
-    if name.is_empty() {
-        return Err("Flow name is required".to_string());
-    }
-    let mut conn = connect(&state.paths)?;
-    sql_query(format!(
-        "UPDATE flows SET name = '{}', updated_at = '{}' WHERE id = {}",
-        quote_sql(name),
-        now(),
-        id
-    ))
-    .execute(&mut conn)
-    .map_err(|error| error.to_string())?;
-    sql_query(format!("SELECT * FROM flows WHERE id = {}", id))
-        .get_result::<Flow>(&mut conn)
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn save_flow_graph(
-    id: i64,
-    input: FlowGraphInput,
-    state: State<AppState>,
-) -> Result<FlowDetail, String> {
-    let name = input.name.trim();
-    if name.is_empty() {
-        return Err("Flow name is required".to_string());
-    }
-    validate_flow_graph(&input.nodes, &input.edges)?;
-    let mut conn = connect(&state.paths)?;
-    let flow = sql_query(format!("SELECT * FROM flows WHERE id = {}", id))
-        .get_result::<Flow>(&mut conn)
-        .map_err(|error| error.to_string())?;
-    for node in &input.nodes {
-        let command = sql_query(format!(
-            "SELECT * FROM commands WHERE id = {}",
-            node.command_id
-        ))
-        .get_result::<ProjectCommand>(&mut conn)
-        .optional()
-        .map_err(|error| error.to_string())?;
-        if command.map(|command| command.project_id) != Some(flow.project_id) {
-            return Err("All flow commands must belong to the project".to_string());
-        }
-    }
-    conn.batch_execute("BEGIN IMMEDIATE TRANSACTION;")
-        .map_err(|error| error.to_string())?;
-    let result = (|| -> Result<(), String> {
-        sql_query(format!("DELETE FROM flow_edges WHERE flow_id = {}", id))
-            .execute(&mut conn)
-            .map_err(|error| error.to_string())?;
-        sql_query(format!("DELETE FROM flow_nodes WHERE flow_id = {}", id))
-            .execute(&mut conn)
-            .map_err(|error| error.to_string())?;
-        for node in &input.nodes {
-            sql_query(format!("INSERT INTO flow_nodes (id, flow_id, command_id, position_x, position_y) VALUES ('{}', {}, {}, {}, {})", quote_sql(&node.id), id, node.command_id, node.position_x, node.position_y)).execute(&mut conn).map_err(|error| error.to_string())?;
-        }
-        for edge in &input.edges {
-            sql_query(format!("INSERT INTO flow_edges (id, flow_id, source_node_id, target_node_id) VALUES ('{}', {}, '{}', '{}')", quote_sql(&edge.id), id, quote_sql(&edge.source_node_id), quote_sql(&edge.target_node_id))).execute(&mut conn).map_err(|error| error.to_string())?;
-        }
-        sql_query(format!(
-            "UPDATE flows SET name = '{}', updated_at = '{}' WHERE id = {}",
-            quote_sql(name),
-            now(),
-            id
-        ))
-        .execute(&mut conn)
-        .map_err(|error| error.to_string())?;
-        Ok(())
-    })();
-    if let Err(error) = result {
-        let _ = conn.batch_execute("ROLLBACK;");
-        return Err(error);
-    }
-    conn.batch_execute("COMMIT;")
-        .map_err(|error| error.to_string())?;
-    load_flow_detail(&mut conn, id)
-}
-
-#[tauri::command]
-fn delete_flow(id: i64, state: State<AppState>) -> Result<(), String> {
-    let mut conn = connect(&state.paths)?;
-    sql_query(format!("DELETE FROM flows WHERE id = {}", id))
-        .execute(&mut conn)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn start_flow_node(
-    flow_id: i64,
-    flow_node_id: String,
-    cols: u16,
-    rows: u16,
-    app: AppHandle,
-    state: State<AppState>,
-) -> Result<FlowNodeRunStart, String> {
-    let mut conn = connect(&state.paths)?;
-    let node = sql_query(format!(
-        "SELECT * FROM flow_nodes WHERE id = '{}' AND flow_id = {}",
-        quote_sql(&flow_node_id),
-        flow_id
-    ))
-    .get_result::<FlowNode>(&mut conn)
-    .optional()
-    .map_err(|error| error.to_string())?
-    .ok_or_else(|| "Flow node not found".to_string())?;
-    let flow = sql_query(format!("SELECT * FROM flows WHERE id = {}", flow_id))
-        .get_result::<Flow>(&mut conn)
-        .map_err(|error| error.to_string())?;
-    let (command, _) = load_command(&mut conn, node.command_id)?;
-    if command.project_id != flow.project_id {
-        return Err("The flow node command does not belong to this project".to_string());
-    }
-    drop(conn);
-
-    if command.runtime_mode == RUNTIME_MODE_INTERNAL_INTERACTIVE {
-        let session = start_interactive_command_instance(
-            command.id,
-            Some(&node.id),
-            cols,
-            rows,
-            &app,
-            &state,
-        )?;
-        let run = sql_query(format!(
-            "SELECT * FROM command_runs WHERE id = {}",
-            session.run_id
-        ))
-        .get_result::<CommandRun>(&mut connect(&state.paths)?)
-        .map_err(|error| error.to_string())?;
-        Ok(FlowNodeRunStart {
-            run,
-            interactive_session: Some(session),
-        })
-    } else {
-        let run = start_non_interactive_command(command.id, Some(&node.id), &app, &state)?;
-        Ok(FlowNodeRunStart {
-            run,
-            interactive_session: None,
-        })
-    }
-}
 
 #[tauri::command]
 fn create_command(input: CommandInput, state: State<AppState>) -> Result<ProjectCommand, String> {
@@ -4955,30 +5428,22 @@ fn run_command(
     app: AppHandle,
     state: State<AppState>,
 ) -> Result<CommandRun, String> {
-    start_non_interactive_command(command_id, None, &app, &state)
+    start_non_interactive_command(command_id, &app, &state)
 }
 
 fn start_non_interactive_command(
     command_id: i64,
-    flow_node_id: Option<&str>,
     app: &AppHandle,
     state: &AppState,
 ) -> Result<CommandRun, String> {
     let mut conn = connect(&state.paths)?;
     mark_stale_running_runs(&mut conn, &state)?;
-    let active_query = match flow_node_id {
-        Some(node_id) => format!(
-            "SELECT * FROM command_runs WHERE flow_node_id = '{}' AND status = 'running'",
-            quote_sql(node_id)
-        ),
-        None => format!(
-            "SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'",
-            command_id
-        ),
-    };
-    let active_runs = sql_query(active_query)
-        .load::<CommandRun>(&mut conn)
-        .map_err(|error| error.to_string())?;
+    let active_runs = sql_query(format!(
+        "SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'",
+        command_id
+    ))
+    .load::<CommandRun>(&mut conn)
+    .map_err(|error| error.to_string())?;
     if !active_runs.is_empty() {
         return Err("This command is already running".to_string());
     }
@@ -5006,8 +5471,8 @@ fn start_non_interactive_command(
     .execute(&mut conn)
     .map_err(|error| error.to_string())?;
     sql_query(format!(
-        "INSERT INTO command_runs (command_id, flow_node_id, status, started_at) VALUES ({}, {}, 'running', '{}')",
-        command_id, optional_sql(&flow_node_id.map(str::to_string)), started_at
+        "INSERT INTO command_runs (command_id, status, started_at) VALUES ({}, 'running', '{}')",
+        command_id, started_at
     ))
     .execute(&mut conn)
     .map_err(|error| error.to_string())?;
@@ -5051,7 +5516,6 @@ fn start_non_interactive_command(
         RunStartedPayload {
             run_id: run.id,
             command_id,
-            flow_node_id: run.flow_node_id.clone(),
             started_at: run.started_at.clone(),
         },
     );
@@ -5061,7 +5525,6 @@ fn start_non_interactive_command(
             app.clone(),
             run.id,
             command_id,
-            run.flow_node_id.clone(),
             stdout,
             "command://stdout",
         );
@@ -5071,7 +5534,6 @@ fn start_non_interactive_command(
             app.clone(),
             run.id,
             command_id,
-            run.flow_node_id.clone(),
             stderr,
             "command://stderr",
         );
@@ -5079,7 +5541,6 @@ fn start_non_interactive_command(
 
     let paths = state.paths.clone();
     let app_for_wait = app.clone();
-    let flow_node_id = run.flow_node_id.clone();
     std::thread::spawn(move || {
         let status = process
             .child
@@ -5129,7 +5590,6 @@ fn start_non_interactive_command(
             RunFinishedPayload {
                 run_id: run.id,
                 command_id,
-                flow_node_id: flow_node_id.clone(),
                 status: final_status.to_string(),
                 exit_code,
                 ended_at,
@@ -5216,7 +5676,6 @@ async fn restart_command(
                 RunFinishedPayload {
                     run_id: run.id,
                     command_id: run.command_id,
-                    flow_node_id: run.flow_node_id.clone(),
                     status: "stopped".to_string(),
                     exit_code: None,
                     ended_at,
@@ -5225,7 +5684,7 @@ async fn restart_command(
         }
     }
 
-    start_non_interactive_command(command_id, None, &app, &state)
+    start_non_interactive_command(command_id, &app, &state)
 }
 
 #[cfg(target_os = "windows")]
@@ -5271,7 +5730,6 @@ async fn stop_command(
                 RunFinishedPayload {
                     run_id,
                     command_id: run.command_id,
-                    flow_node_id: run.flow_node_id.clone(),
                     status: "stopped".to_string(),
                     exit_code: None,
                     ended_at: ended_at.clone(),
@@ -5310,232 +5768,91 @@ fn start_interactive_command(
     command_id: i64,
     cols: u16,
     rows: u16,
+    on_event: Channel<terminal_types::TerminalChannelEvent>,
     app: AppHandle,
     state: State<AppState>,
-) -> Result<InteractiveSessionInfo, String> {
-    start_interactive_command_instance(command_id, None, cols, rows, &app, &state)
-}
+) -> Result<terminal_types::InteractiveSessionInfo, String> {
+    state.terminal_supervisor.reserve_command(command_id)?;
 
-fn start_interactive_command_instance(
-    command_id: i64,
-    flow_node_id: Option<&str>,
-    cols: u16,
-    rows: u16,
-    app: &AppHandle,
-    state: &AppState,
-) -> Result<InteractiveSessionInfo, String> {
-    let mut conn = connect(&state.paths)?;
-    mark_stale_running_runs(&mut conn, &state)?;
+    let mut conn = connect(&state.paths).map_err(|e| {
+        state.terminal_supervisor.unreserve_command(command_id);
+        e
+    })?;
+    mark_stale_running_runs(&mut conn, &state).map_err(|e| {
+        state.terminal_supervisor.unreserve_command(command_id);
+        e
+    })?;
 
-    let active_query = match flow_node_id {
-        Some(node_id) => format!(
-            "SELECT * FROM command_runs WHERE flow_node_id = '{}' AND status = 'running'",
-            quote_sql(node_id)
-        ),
-        None => format!(
-            "SELECT * FROM command_runs WHERE command_id = {} AND status = 'running'",
-            command_id
-        ),
-    };
-    let active_runs = sql_query(active_query)
-        .load::<CommandRun>(&mut conn)
-        .map_err(|error| error.to_string())?;
-    if !active_runs.is_empty() {
-        return Err("This command is already running".to_string());
-    }
-
-    let (command, project) = load_command(&mut conn, command_id)?;
+    let (command, project) = load_command(&mut conn, command_id).map_err(|e| {
+        state.terminal_supervisor.unreserve_command(command_id);
+        e
+    })?;
     if command.runtime_mode != RUNTIME_MODE_INTERNAL_INTERACTIVE {
+        state.terminal_supervisor.unreserve_command(command_id);
         return Err("This command is not configured for the interactive terminal.".to_string());
     }
 
     let project_path = PathBuf::from(&project.path);
     if !project_path.exists() {
+        state.terminal_supervisor.unreserve_command(command_id);
         return Err("Project path does not exist".to_string());
     }
 
-    fs::create_dir_all(&state.paths.scripts_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&state.paths.scripts_dir).map_err(|error| {
+        state.terminal_supervisor.unreserve_command(command_id);
+        error.to_string()
+    })?;
     let interactive_terminal_kind =
         normalize_interactive_terminal_kind(Some(&command.interactive_terminal_kind));
     let script_path = write_interactive_script(
         &state.paths.scripts_dir,
         &command.script,
         &interactive_terminal_kind,
-    )?;
+    ).map_err(|e| {
+        state.terminal_supervisor.unreserve_command(command_id);
+        e
+    })?;
+
     let started_at = now();
-    sql_query(format!(
+    let _ = sql_query(format!(
         "UPDATE commands SET run_count = COALESCE(run_count, 0) + 1, updated_at = '{}' WHERE id = {}",
         started_at, command_id
     ))
-    .execute(&mut conn)
-    .map_err(|error| error.to_string())?;
-    sql_query(format!(
-        "INSERT INTO command_runs (command_id, flow_node_id, status, started_at) VALUES ({}, {}, 'running', '{}')",
-        command_id, optional_sql(&flow_node_id.map(str::to_string)), started_at
+    .execute(&mut conn);
+    let _ = sql_query(format!(
+        "INSERT INTO command_runs (command_id, status, started_at) VALUES ({}, 'running', '{}')",
+        command_id, started_at
     ))
-    .execute(&mut conn)
-    .map_err(|error| error.to_string())?;
+    .execute(&mut conn);
     let run = sql_query("SELECT * FROM command_runs WHERE id = last_insert_rowid()")
         .get_result::<CommandRun>(&mut conn)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            state.terminal_supervisor.unreserve_command(command_id);
+            let _ = fs::remove_file(&script_path);
+            error.to_string()
+        })?;
 
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(pty_size(cols, rows))
-        .map_err(|error| error.to_string())?;
     let mut pty_command =
-        build_interactive_pty_command(&script_path, &project_path, &interactive_terminal_kind)?;
+        build_interactive_pty_command(&script_path, &project_path, &interactive_terminal_kind)
+            .map_err(|e| {
+                state.terminal_supervisor.unreserve_command(command_id);
+                let _ = fs::remove_file(&script_path);
+                e
+            })?;
     pty_command.cwd(project_path);
 
-    let mut child = match pair.slave.spawn_command(pty_command) {
-        Ok(child) => child,
-        Err(error) => {
-            let ended_at = now();
-            let _ = sql_query(format!(
-                "UPDATE command_runs SET status = 'failed', ended_at = '{}', exit_code = NULL WHERE id = {}",
-                ended_at, run.id
-            ))
-            .execute(&mut conn);
-            let _ = fs::remove_file(&script_path);
-            return Err(error.to_string());
-        }
-    };
-
-    let reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|error| error.to_string())?;
-    let writer = pair
-        .master
-        .take_writer()
-        .map_err(|error| error.to_string())?;
-    let killer = child.clone_killer();
-    let child_pid = child.process_id();
-    let session_id = Uuid::new_v4().to_string();
-    let session = Arc::new(InteractiveSession {
-        run_id: run.id,
-        pid: child_pid,
-        lifecycle: AtomicU8::new(INTERACTIVE_RUNNING),
-        killer: Mutex::new(killer),
-        master: Mutex::new(pair.master),
-        writer: Mutex::new(writer),
-    });
-
-    state
-        .interactive_sessions
-        .lock()
-        .map_err(|_| "Interactive session registry lock poisoned".to_string())?
-        .insert(session_id.clone(), session.clone());
-    state
-        .interactive_sessions_by_command
-        .lock()
-        .map_err(|_| "Interactive command registry lock poisoned".to_string())?
-        .insert(command_id, session_id.clone());
-    state
-        .interactive_sessions_by_run
-        .lock()
-        .map_err(|_| "Interactive run registry lock poisoned".to_string())?
-        .insert(run.id, session_id.clone());
-
-    let started_payload = InteractiveSessionInfo {
-        session_id: session_id.clone(),
-        run_id: run.id,
+    state.terminal_supervisor.spawn_and_supervise(
         command_id,
-        flow_node_id: run.flow_node_id.clone(),
-        cols: cols.max(2),
-        rows: rows.max(1),
-        started_at: run.started_at.clone(),
-    };
-    let _ = app.emit("pty://started", started_payload.clone());
-    let _ = app.emit(
-        "command://started",
-        RunStartedPayload {
-            run_id: run.id,
-            command_id,
-            flow_node_id: run.flow_node_id.clone(),
-            started_at: run.started_at.clone(),
-        },
-    );
-
-    spawn_interactive_reader(
-        app.clone(),
-        reader,
-        session_id.clone(),
+        None,
         run.id,
-        command_id,
-        run.flow_node_id.clone(),
-    );
-
-    let paths = state.paths.clone();
-    let session_for_wait = session.clone();
-    let app_for_wait = app.clone();
-    std::thread::spawn(move || {
-        let wait_result = child.wait();
-        session_for_wait
-            .lifecycle
-            .store(INTERACTIVE_EXITED, Ordering::SeqCst);
-        let exit_code = wait_result.ok().and_then(interactive_exit_code);
-        let was_stopped = app_for_wait
-            .try_state::<AppState>()
-            .and_then(|state| {
-                state
-                    .stopped_runs
-                    .lock()
-                    .ok()
-                    .map(|mut stopped_runs| stopped_runs.remove(&run.id))
-            })
-            .unwrap_or(false);
-        let final_status = if was_stopped {
-            "stopped"
-        } else if exit_code == Some(0) {
-            "exited"
-        } else {
-            "failed"
-        };
-        let ended_at = now();
-
-        if let Ok(mut conn) = connect(&paths) {
-            let _ = sql_query(format!(
-                "UPDATE command_runs SET status = '{}', ended_at = '{}', exit_code = {} WHERE id = {}",
-                final_status,
-                ended_at,
-                exit_code.map(|code| code.to_string()).unwrap_or_else(|| "NULL".to_string()),
-                run.id
-            ))
-            .execute(&mut conn);
-        }
-
-        if let Some(state) = app_for_wait.try_state::<AppState>() {
-            remove_interactive_session(&state, &session_id, run.id, command_id);
-        }
-
-        let _ = fs::remove_file(&script_path);
-        let _ = app_for_wait.emit(
-            "pty://exit",
-            InteractiveExitPayload {
-                session_id: session_id.clone(),
-                run_id: run.id,
-                command_id,
-                flow_node_id: run.flow_node_id.clone(),
-                exit_code,
-                ended_at: ended_at.clone(),
-                status: final_status.to_string(),
-            },
-        );
-        let _ = app_for_wait.emit(
-            "command://finished",
-            RunFinishedPayload {
-                run_id: run.id,
-                command_id,
-                flow_node_id: run.flow_node_id.clone(),
-                status: final_status.to_string(),
-                exit_code,
-                ended_at,
-            },
-        );
-    });
-
-    Ok(started_payload)
+        cols,
+        rows,
+        script_path,
+        pty_command,
+        on_event,
+        state.paths.clone(),
+        app,
+    )
 }
 
 #[tauri::command]
@@ -5545,171 +5862,78 @@ fn start_project_interactive_terminal(
     terminal_kind: String,
     cols: u16,
     rows: u16,
+    on_event: Channel<terminal_types::TerminalChannelEvent>,
     app: AppHandle,
     state: State<AppState>,
-) -> Result<InteractiveSessionInfo, String> {
-    let project_path = PathBuf::from(project_path);
-    if !project_path.exists() {
+) -> Result<terminal_types::InteractiveSessionInfo, String> {
+    state.terminal_supervisor.reserve_command(terminal_id)?;
+
+    let project_dir = PathBuf::from(&project_path);
+    if !project_dir.exists() {
+        state.terminal_supervisor.unreserve_command(terminal_id);
         return Err("Project path does not exist".to_string());
     }
 
-    fs::create_dir_all(&state.paths.scripts_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&state.paths.scripts_dir).map_err(|error| {
+        state.terminal_supervisor.unreserve_command(terminal_id);
+        error.to_string()
+    })?;
     let interactive_terminal_kind = normalize_interactive_terminal_kind(Some(&terminal_kind));
     let shell_script = match interactive_terminal_kind.as_str() {
         INTERACTIVE_TERMINAL_KIND_CMD => "@echo off\r\nchcp 65001>nul\r\ncmd /Q /K\r\n".to_string(),
         INTERACTIVE_TERMINAL_KIND_BASH | INTERACTIVE_TERMINAL_KIND_WSL2 => {
             "exec bash\n".to_string()
         }
-        INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE => "pwsh.exe -NoLogo\n".to_string(),
-        _ => "powershell.exe -NoLogo\n".to_string(),
+        INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE => {
+            "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()\r\n".to_string()
+        }
+        _ => "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()\r\n"
+            .to_string(),
     };
     let script_path = write_interactive_script(
         &state.paths.scripts_dir,
         &shell_script,
         &interactive_terminal_kind,
-    )?;
+    ).map_err(|e| {
+        state.terminal_supervisor.unreserve_command(terminal_id);
+        e
+    })?;
 
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(pty_size(cols, rows))
-        .map_err(|error| error.to_string())?;
     let mut pty_command =
-        build_interactive_pty_command(&script_path, &project_path, &interactive_terminal_kind)?;
-    pty_command.cwd(project_path.clone());
+        build_interactive_pty_command(&script_path, &project_dir, &interactive_terminal_kind)
+            .map_err(|e| {
+                state.terminal_supervisor.unreserve_command(terminal_id);
+                let _ = fs::remove_file(&script_path);
+                e
+            })?;
+    pty_command.cwd(project_dir);
 
-    let mut child = match pair.slave.spawn_command(pty_command) {
-        Ok(child) => child,
-        Err(error) => {
-            let _ = fs::remove_file(&script_path);
-            return Err(error.to_string());
-        }
-    };
-
-    let reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|error| error.to_string())?;
-    let writer = pair
-        .master
-        .take_writer()
-        .map_err(|error| error.to_string())?;
-    let killer = child.clone_killer();
-    let child_pid = child.process_id();
-    let session_id = Uuid::new_v4().to_string();
-    let run_id = NEXT_AD_HOC_RUN_ID.fetch_sub(1, Ordering::SeqCst);
-    let started_at = now();
-    let session = Arc::new(InteractiveSession {
-        run_id,
-        pid: child_pid,
-        lifecycle: AtomicU8::new(INTERACTIVE_RUNNING),
-        killer: Mutex::new(killer),
-        master: Mutex::new(pair.master),
-        writer: Mutex::new(writer),
-    });
-
-    state
-        .interactive_sessions
-        .lock()
-        .map_err(|_| "Interactive session registry lock poisoned".to_string())?
-        .insert(session_id.clone(), session.clone());
-    state
-        .interactive_sessions_by_command
-        .lock()
-        .map_err(|_| "Interactive command registry lock poisoned".to_string())?
-        .insert(terminal_id, session_id.clone());
-    state
-        .interactive_sessions_by_run
-        .lock()
-        .map_err(|_| "Interactive run registry lock poisoned".to_string())?
-        .insert(run_id, session_id.clone());
-
-    let started_payload = InteractiveSessionInfo {
-        session_id: session_id.clone(),
-        run_id,
-        command_id: terminal_id,
-        flow_node_id: None,
-        cols: cols.max(2),
-        rows: rows.max(1),
-        started_at: started_at.clone(),
-    };
-    let _ = app.emit("pty://started", started_payload.clone());
-    let _ = app.emit(
-        "command://started",
-        RunStartedPayload {
-            run_id,
-            command_id: terminal_id,
-            flow_node_id: None,
-            started_at: started_at.clone(),
-        },
-    );
-
-    spawn_interactive_reader(
-        app.clone(),
-        reader,
-        session_id.clone(),
-        run_id,
+    state.terminal_supervisor.spawn_and_supervise(
         terminal_id,
-        None,
+        Some(terminal_id),
+        0,
+        cols,
+        rows,
+        script_path,
+        pty_command,
+        on_event,
+        state.paths.clone(),
+        app,
+    )
+}
+
+#[tauri::command]
+fn ack_terminal_output(
+    payload: terminal_types::TerminalAckPayload,
+    state: State<AppState>,
+) -> Result<(), String> {
+    state.terminal_supervisor.ack_output(
+        &payload.session_id,
+        payload.generation,
+        payload.sequence,
+        payload.bytes_processed as usize,
     );
-
-    let app_for_wait = app.clone();
-    let session_for_wait = session.clone();
-    std::thread::spawn(move || {
-        let wait_result = child.wait();
-        session_for_wait
-            .lifecycle
-            .store(INTERACTIVE_EXITED, Ordering::SeqCst);
-        let exit_code = wait_result.ok().and_then(interactive_exit_code);
-        let was_stopped = app_for_wait
-            .try_state::<AppState>()
-            .and_then(|state| {
-                state
-                    .stopped_runs
-                    .lock()
-                    .ok()
-                    .map(|mut stopped_runs| stopped_runs.remove(&run_id))
-            })
-            .unwrap_or(false);
-        let final_status = if was_stopped {
-            "stopped"
-        } else if exit_code == Some(0) {
-            "exited"
-        } else {
-            "failed"
-        };
-        let ended_at = now();
-
-        if let Some(state) = app_for_wait.try_state::<AppState>() {
-            remove_interactive_session(&state, &session_id, run_id, terminal_id);
-        }
-
-        let _ = fs::remove_file(&script_path);
-        let _ = app_for_wait.emit(
-            "pty://exit",
-            InteractiveExitPayload {
-                session_id: session_id.clone(),
-                run_id,
-                command_id: terminal_id,
-                flow_node_id: None,
-                exit_code,
-                ended_at: ended_at.clone(),
-                status: final_status.to_string(),
-            },
-        );
-        let _ = app_for_wait.emit(
-            "command://finished",
-            RunFinishedPayload {
-                run_id,
-                command_id: terminal_id,
-                flow_node_id: None,
-                status: final_status.to_string(),
-                exit_code,
-                ended_at,
-            },
-        );
-    });
-
-    Ok(started_payload)
+    Ok(())
 }
 
 #[tauri::command]
@@ -5719,21 +5943,7 @@ fn write_interactive_terminal(
     state: State<AppState>,
 ) -> Result<(), String> {
     debug_pty_io(&session_id, "input", data.as_bytes());
-    let session = state
-        .interactive_sessions
-        .lock()
-        .map_err(|_| "Interactive session registry lock poisoned".to_string())?
-        .get(&session_id)
-        .cloned()
-        .ok_or_else(|| "Interactive session not found".to_string())?;
-
-    let write_result = session
-        .writer
-        .lock()
-        .map_err(|_| "Interactive writer lock poisoned".to_string())?
-        .write_all(data.as_bytes())
-        .map_err(|error| error.to_string());
-    write_result
+    state.terminal_supervisor.write_input(&session_id, data.as_bytes())
 }
 
 #[tauri::command]
@@ -5743,70 +5953,16 @@ fn resize_interactive_terminal(
     rows: u16,
     state: State<AppState>,
 ) -> Result<(), String> {
-    let session = state
-        .interactive_sessions
-        .lock()
-        .map_err(|_| "Interactive session registry lock poisoned".to_string())?
-        .get(&session_id)
-        .cloned()
-        .ok_or_else(|| "Interactive session not found".to_string())?;
-
-    let resize_result = session
-        .master
-        .lock()
-        .map_err(|_| "Interactive pty lock poisoned".to_string())?
-        .resize(pty_size(cols, rows))
-        .map_err(|error| error.to_string());
-    resize_result
+    state.terminal_supervisor.resize_session(&session_id, cols, rows)
 }
 
 #[tauri::command]
 fn stop_interactive_command(
     session_id: String,
+    app: AppHandle,
     state: State<AppState>,
 ) -> Result<StopCommandResult, String> {
-    let session = state
-        .interactive_sessions
-        .lock()
-        .map_err(|_| "Interactive session registry lock poisoned".to_string())?
-        .get(&session_id)
-        .cloned();
-    let Some(session) = session else {
-        return Ok(StopCommandResult { was_active: false });
-    };
-
-    if session
-        .lifecycle
-        .compare_exchange(
-            INTERACTIVE_RUNNING,
-            INTERACTIVE_STOPPING,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        )
-        .is_err()
-    {
-        return Ok(StopCommandResult { was_active: false });
-    }
-
-    state
-        .stopped_runs
-        .lock()
-        .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
-        .insert(session.run_id);
-
-    let kill_result = kill_interactive_process(&session);
-    if let Err(error) = kill_result {
-        session
-            .lifecycle
-            .store(INTERACTIVE_RUNNING, Ordering::SeqCst);
-        state
-            .stopped_runs
-            .lock()
-            .map_err(|_| "Stopped-run registry lock poisoned".to_string())?
-            .remove(&session.run_id);
-        return Err(error);
-    }
-
+    state.terminal_supervisor.stop_session(&session_id, app)?;
     Ok(StopCommandResult { was_active: true })
 }
 
@@ -5815,76 +5971,29 @@ async fn restart_interactive_command(
     command_id: i64,
     cols: u16,
     rows: u16,
+    on_event: Channel<terminal_types::TerminalChannelEvent>,
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<InteractiveSessionInfo, String> {
-    let existing_session_id = state
-        .interactive_sessions_by_command
-        .lock()
-        .map_err(|_| "Interactive command registry lock poisoned".to_string())?
-        .get(&command_id)
-        .cloned();
-
-    if let Some(session_id) = existing_session_id {
-        stop_interactive_command(session_id.clone(), state.clone())?;
-        for _ in 0..100 {
-            let still_running = state
-                .interactive_sessions_by_command
-                .lock()
-                .map_err(|_| "Interactive command registry lock poisoned".to_string())?
-                .contains_key(&command_id);
-            if !still_running {
+) -> Result<terminal_types::InteractiveSessionInfo, String> {
+    if let Some(session) = state.terminal_supervisor.get_session_by_command(command_id) {
+        let _ = state.terminal_supervisor.stop_session(&session.session_id, app.clone());
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+        while session.status.load(std::sync::atomic::Ordering::SeqCst) < terminal_supervisor::SESSION_EXITED {
+            if tokio::time::Instant::now() >= deadline {
+                let _ = state.terminal_supervisor.force_stop_session(&session.session_id);
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         }
-        let still_running = state
-            .interactive_sessions_by_command
-            .lock()
-            .map_err(|_| "Interactive command registry lock poisoned".to_string())?
-            .contains_key(&command_id);
-        if still_running {
-            return Err("Timed out while stopping the previous interactive session".to_string());
+        while state.terminal_supervisor.get_session_by_command(command_id).is_some() {
+            if tokio::time::Instant::now() >= deadline + std::time::Duration::from_millis(500) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
     }
-
-    start_interactive_command(command_id, cols, rows, app, state)
+    start_interactive_command(command_id, cols, rows, on_event, app, state)
 }
-
-#[cfg(target_os = "windows")]
-fn kill_interactive_process(session: &InteractiveSession) -> Result<(), String> {
-    if let Some(pid) = session.pid {
-        let mut command = Command::new("taskkill");
-        command.args(["/PID", &pid.to_string(), "/T", "/F"]);
-        configure_command(&mut command);
-        let status = command
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map_err(|error| error.to_string())?;
-        if status.success() {
-            return Ok(());
-        }
-    }
-
-    session
-        .killer
-        .lock()
-        .map_err(|_| "Interactive killer lock poisoned".to_string())?
-        .kill()
-        .map_err(|error| error.to_string())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn kill_interactive_process(session: &InteractiveSession) -> Result<(), String> {
-    session
-        .killer
-        .lock()
-        .map_err(|_| "Interactive killer lock poisoned".to_string())?
-        .kill()
-        .map_err(|error| error.to_string())
-}
-
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 struct PortProcess {
     port: u16,
@@ -6246,140 +6355,6 @@ fn build_pty_command(script_path: &Path) -> PtyCommandBuilder {
     }
 }
 
-fn pty_size(cols: u16, rows: u16) -> PtySize {
-    PtySize {
-        rows: rows.max(1),
-        cols: cols.max(2),
-        pixel_width: 0,
-        pixel_height: 0,
-    }
-}
-
-fn interactive_exit_code(status: portable_pty::ExitStatus) -> Option<i32> {
-    Some(status.exit_code() as i32)
-}
-
-#[derive(Default)]
-struct Utf8StreamDecoder {
-    pending: Vec<u8>,
-}
-
-impl Utf8StreamDecoder {
-    fn push(&mut self, bytes: &[u8]) -> String {
-        self.decode(bytes, false)
-    }
-
-    fn finish(&mut self) -> String {
-        self.decode(&[], true)
-    }
-
-    fn decode(&mut self, bytes: &[u8], end_of_stream: bool) -> String {
-        self.pending.extend_from_slice(bytes);
-        let mut output = String::new();
-        let mut cursor = 0;
-
-        while cursor < self.pending.len() {
-            match std::str::from_utf8(&self.pending[cursor..]) {
-                Ok(valid) => {
-                    output.push_str(valid);
-                    cursor = self.pending.len();
-                }
-                Err(error) => {
-                    let valid_end = cursor + error.valid_up_to();
-                    if valid_end > cursor {
-                        output.push_str(
-                            std::str::from_utf8(&self.pending[cursor..valid_end])
-                                .expect("UTF-8 valid prefix"),
-                        );
-                        cursor = valid_end;
-                    }
-
-                    if let Some(error_len) = error.error_len() {
-                        output.push('\u{FFFD}');
-                        cursor += error_len;
-                    } else if end_of_stream {
-                        output.push('\u{FFFD}');
-                        cursor = self.pending.len();
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-
-        if cursor > 0 {
-            self.pending.drain(..cursor);
-        }
-        output
-    }
-}
-
-fn spawn_interactive_reader(
-    app: AppHandle,
-    mut reader: Box<dyn Read + Send>,
-    session_id: String,
-    run_id: i64,
-    command_id: i64,
-    flow_node_id: Option<String>,
-) {
-    std::thread::spawn(move || {
-        let mut buffer = [0u8; 4096];
-        let mut decoder = Utf8StreamDecoder::default();
-        loop {
-            match reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(length) => {
-                    debug_pty_io(&session_id, "output", &buffer[..length]);
-                    let chunk = decoder.push(&buffer[..length]);
-                    if !chunk.is_empty() {
-                        let _ = app.emit(
-                            "pty://data",
-                            InteractiveDataPayload {
-                                session_id: session_id.clone(),
-                                run_id,
-                                command_id,
-                                flow_node_id: flow_node_id.clone(),
-                                data: chunk,
-                            },
-                        );
-                    }
-                }
-                Err(error) => {
-                    if is_benign_interactive_read_error(&error) {
-                        break;
-                    }
-
-                    let _ = app.emit(
-                        "pty://error",
-                        InteractiveErrorPayload {
-                            session_id: session_id.clone(),
-                            run_id,
-                            command_id,
-                            flow_node_id: flow_node_id.clone(),
-                            error: error.to_string(),
-                        },
-                    );
-                    break;
-                }
-            }
-        }
-
-        let final_chunk = decoder.finish();
-        if !final_chunk.is_empty() {
-            let _ = app.emit(
-                "pty://data",
-                InteractiveDataPayload {
-                    session_id,
-                    run_id,
-                    command_id,
-                    flow_node_id,
-                    data: final_chunk,
-                },
-            );
-        }
-    });
-}
-
 fn debug_pty_io(session_id: &str, direction: &str, bytes: &[u8]) {
     if !cfg!(debug_assertions)
         || std::env::var_os("PROJECTS_RUNNER_DEBUG_PTY") != Some(OsString::from("1"))
@@ -6394,45 +6369,6 @@ fn debug_pty_io(session_id: &str, direction: &str, bytes: &[u8]) {
         preview.escape_debug(),
         if bytes.len() > 512 { "…" } else { "" },
     );
-}
-
-fn is_benign_interactive_read_error(error: &std::io::Error) -> bool {
-    if error.kind() == std::io::ErrorKind::BrokenPipe {
-        return true;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        if error.raw_os_error() == Some(0) {
-            return true;
-        }
-    }
-
-    false
-}
-
-fn remove_interactive_session(state: &AppState, session_id: &str, run_id: i64, command_id: i64) {
-    if let Ok(mut sessions) = state.interactive_sessions.lock() {
-        sessions.remove(session_id);
-    }
-    if let Ok(mut sessions_by_command) = state.interactive_sessions_by_command.lock() {
-        let should_remove = sessions_by_command
-            .get(&command_id)
-            .map(|existing| existing == session_id)
-            .unwrap_or(false);
-        if should_remove {
-            sessions_by_command.remove(&command_id);
-        }
-    }
-    if let Ok(mut sessions_by_run) = state.interactive_sessions_by_run.lock() {
-        let should_remove = sessions_by_run
-            .get(&run_id)
-            .map(|existing| existing == session_id)
-            .unwrap_or(false);
-        if should_remove {
-            sessions_by_run.remove(&run_id);
-        }
-    }
 }
 
 fn build_process(
@@ -6565,7 +6501,6 @@ fn spawn_output_reader<R>(
     app: AppHandle,
     run_id: i64,
     command_id: i64,
-    flow_node_id: Option<String>,
     reader: R,
     event: &'static str,
 ) where
@@ -6579,7 +6514,6 @@ fn spawn_output_reader<R>(
                 RunOutputPayload {
                     run_id,
                     command_id,
-                    flow_node_id: flow_node_id.clone(),
                     line,
                 },
             );
@@ -6610,14 +6544,15 @@ pub fn run() {
             init_db(&paths).map_err(|error| Box::<dyn std::error::Error>::from(error))?;
             mark_all_running_runs_failed(&paths)
                 .map_err(|error| Box::<dyn std::error::Error>::from(error))?;
+            let twofa_vault = Arc::new(twofa::VaultService::new());
+            let terminal_supervisor = Arc::new(terminal_supervisor::TerminalSupervisor::new());
             app.manage(AppState {
                 paths,
                 processes: Mutex::new(HashMap::new()),
-                interactive_sessions: Mutex::new(HashMap::new()),
-                interactive_sessions_by_command: Mutex::new(HashMap::new()),
-                interactive_sessions_by_run: Mutex::new(HashMap::new()),
                 stopped_runs: Mutex::new(HashSet::new()),
                 pending_prd_open_requests: Mutex::new(Vec::new()),
+                twofa_vault: twofa_vault.clone(),
+                terminal_supervisor: terminal_supervisor.clone(),
             });
             app.manage(app_updates::UpdateState::default());
             let current_dir = std::env::current_dir().ok();
@@ -6626,7 +6561,42 @@ pub fn run() {
             {
                 store_pending_prd_open_request(app.handle(), file_path);
             }
+
+            // Background auto-lock service running every 1 second
+            let auto_lock_app = app.handle().clone();
+            let vault_service = twofa_vault.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+                loop {
+                    interval.tick().await;
+                    vault_service.process_signals_and_auto_lock(&auto_lock_app);
+                }
+            });
+
+            if let Some(window) = app.get_webview_window("main") {
+                eprintln!("[TAURI SETUP] Main window found: visible={:?}, minimized={:?}", window.is_visible(), window.is_minimized());
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            } else {
+                eprintln!("[TAURI SETUP] Main window not found! Existing windows: {:?}", app.webview_windows().keys().collect::<Vec<_>>());
+            }
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            let app_handle = window.app_handle();
+            if let Some(state) = app_handle.try_state::<AppState>() {
+                match event {
+                    tauri::WindowEvent::Focused(focused) => {
+                        state.twofa_vault.send_signal(twofa::VaultSignal::FocusChanged(*focused));
+                    }
+                    tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
+                        state.twofa_vault.send_signal(twofa::VaultSignal::UserActivity);
+                    }
+                    _ => {}
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             list_projects,
@@ -6658,13 +6628,6 @@ pub fn run() {
             create_command_section,
             rename_command_section,
             delete_command_section,
-            list_flows,
-            get_flow,
-            create_flow,
-            update_flow,
-            save_flow_graph,
-            delete_flow,
-            start_flow_node,
             create_command,
             update_command,
             delete_command,
@@ -6695,8 +6658,54 @@ pub fn run() {
             app_updates::check_for_update,
             app_updates::download_update,
             app_updates::reveal_downloaded_update,
-            app_updates::install_downloaded_update
+            app_updates::install_downloaded_update,
+            twofa::twofa_get_status,
+            twofa::twofa_try_auto_unlock,
+            twofa::twofa_setup_vault,
+            twofa::twofa_cleanup_setup,
+            twofa::twofa_unlock_vault,
+            twofa::twofa_unlock_with_pin,
+            twofa::twofa_cancel_auth,
+            twofa::twofa_lock_vault,
+            twofa::twofa_set_lock_enabled,
+            twofa::twofa_set_pin,
+            twofa::twofa_remove_pin,
+            twofa::twofa_change_password,
+            twofa::twofa_update_settings,
+            twofa::twofa_retry_recovery,
+            twofa::twofa_list_accounts,
+            twofa::twofa_get_codes,
+            twofa::twofa_copy_code,
+            twofa::twofa_create_account,
+            twofa::twofa_update_account,
+            twofa::twofa_delete_account,
+            twofa::twofa_get_account_secret,
+            twofa::twofa_get_account_qr,
+            twofa::twofa_save_qr_png,
+            twofa::twofa_scan_screen_qr,
+            twofa::twofa_scan_image_qr,
+            twofa::twofa_pick_and_scan_image_qr,
+            twofa::twofa_preview_import,
+            twofa::twofa_preview_import_from_image,
+            twofa::twofa_preview_import_from_image_dialog,
+            twofa::twofa_preview_import_from_screen,
+            twofa::twofa_cancel_import_preview,
+            twofa::twofa_import_accounts,
+            twofa::twofa_export_plaintext,
+            twofa::twofa_export_encrypted_backup,
+            twofa::twofa_import_encrypted_backup,
+            twofa::twofa_preview_project_deletion,
+            twofa::twofa_touch_activity,
+            ack_terminal_output
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    state.terminal_supervisor.terminate_all();
+                    state.twofa_vault.clear_clipboard_if_matches(app_handle);
+                }
+            }
+        });
 }

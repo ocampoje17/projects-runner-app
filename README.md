@@ -55,6 +55,10 @@ See command output directly inside the app, reopen command tabs, clear logs, and
 
 Keep lightweight notes inside each project and share project setups through `.prd` export/import files.
 
+### 2FA Authenticator Vault
+
+Built-in encrypted Two-Factor Authentication (TOTP) manager with multi-project linkage, auto-lock on idle/focus loss, screen QR scanning, native clipboard auto-clearing, and encrypted `.pr2fa` backups.
+
 ## Getting Started
 
 ### For most users
@@ -175,4 +179,4 @@ Each release publishes `SHA256SUMS.txt`; the app also verifies the SHA-256 diges
 
 ## Documentation
 
-Additional project notes are available in [docs/cross-platform-notes.md](docs/cross-platform-notes.md) and [docs/releasing.md](docs/releasing.md).
+Additional project notes are available in [docs/twofa-vault.md](docs/twofa-vault.md), [docs/cross-platform-notes.md](docs/cross-platform-notes.md), and [docs/releasing.md](docs/releasing.md).

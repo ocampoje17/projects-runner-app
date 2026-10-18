@@ -274,7 +274,7 @@ export function DevProjectToolsDialogs({ project, request, onRequestChange, onCl
                   <div>
                     <div className="text-[11.5px] font-semibold text-foreground">Main Project Dev Type</div>
                     <div className="text-[10.5px] text-muted-foreground">
-                      Chọn loại công nghệ chính làm icon đại diện cho thư mục
+                      Select the primary technology to use as the project directory icon
                     </div>
                   </div>
                   {mainType ? (

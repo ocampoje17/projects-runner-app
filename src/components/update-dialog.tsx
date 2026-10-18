@@ -40,28 +40,28 @@ export function UpdateDialog({
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Có bản cập nhật mới</DialogTitle>
+          <DialogTitle>New update available</DialogTitle>
           <DialogDescription>
-            {update ? `Phiên bản ${update.version} đã sẵn sàng để tải.` : "Đang chuẩn bị thông tin cập nhật."}
+            {update ? `Version ${update.version} is ready to download.` : "Preparing update details..."}
           </DialogDescription>
         </DialogHeader>
 
         {status === "downloading" ? (
           <div className="space-y-2 py-2">
-            <div className="flex items-center justify-between text-[12px] text-muted-foreground"><span>Đang tải cập nhật</span><span>{percent}%</span></div>
+            <div className="flex items-center justify-between text-[12px] text-muted-foreground"><span>Downloading update...</span><span>{percent}%</span></div>
             <div className="h-1.5 overflow-hidden rounded-full bg-[var(--vscode-border)]"><div className="h-full bg-primary transition-[width]" style={{ width: `${percent}%` }} /></div>
             <p className="text-[11px] text-muted-foreground">{formatBytes(progress?.downloadedBytes ?? 0)} / {formatBytes(progress?.totalBytes ?? update?.assetSize ?? 0)}</p>
           </div>
         ) : null}
-        {status === "downloaded" ? <p className="py-2 text-[12px] text-muted-foreground">Tệp cập nhật đã tải xong và đã kiểm tra SHA-256.</p> : null}
+        {status === "downloaded" ? <p className="py-2 text-[12px] text-muted-foreground">Update package downloaded and SHA-256 verified.</p> : null}
         {error ? <p className="rounded-[5px] border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-[11.5px] text-destructive">{error}</p> : null}
 
         <div className="mt-5 flex justify-end gap-2">
-          {status === "available" ? <Button variant="secondary" onClick={onDismiss}>Bỏ qua</Button> : null}
-          {status === "available" ? <Button onClick={onDownload}><Download size={14} />Cập nhật</Button> : null}
-          {status === "downloading" ? <Button disabled><LoaderCircle className="animate-spin" size={14} />Đang tải</Button> : null}
-          {status === "downloaded" ? <Button onClick={onInstallOrReveal}>{manualInstall ? <RefreshCw size={14} /> : <FolderOpen size={14} />}{manualInstall ? "Cài đặt phiên bản mới ngay" : "Mở thư mục cập nhật"}</Button> : null}
-          {status === "installing" ? <Button disabled><LoaderCircle className="animate-spin" size={14} />Đang mở trình cài đặt</Button> : null}
+          {status === "available" ? <Button variant="secondary" onClick={onDismiss}>Dismiss</Button> : null}
+          {status === "available" ? <Button onClick={onDownload}><Download size={14} />Update</Button> : null}
+          {status === "downloading" ? <Button disabled><LoaderCircle className="animate-spin" size={14} />Downloading...</Button> : null}
+          {status === "downloaded" ? <Button onClick={onInstallOrReveal}>{manualInstall ? <RefreshCw size={14} /> : <FolderOpen size={14} />}{manualInstall ? "Install update now" : "Open update folder"}</Button> : null}
+          {status === "installing" ? <Button disabled><LoaderCircle className="animate-spin" size={14} />Opening installer...</Button> : null}
         </div>
       </DialogContent>
     </Dialog>

@@ -46,4 +46,5 @@ Thumbs.db
 
 # Codex / local automation artifacts
 .codex/
+.codex-antigravity/
 tmp/

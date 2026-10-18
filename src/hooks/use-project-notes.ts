@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project, ProjectInput } from "../lib/api";
 import {
   parseProjectNotes,
@@ -41,7 +41,7 @@ export function useProjectNotes({
   onPersist,
 }: {
   projects: Project[];
-  onPersist: (projectId: number, input: ProjectInput, successTitle: string) => void;
+  onPersist: (projectId: number, input: ProjectInput, successTitle: string) => Promise<void>;
 }) {
   const [projectNotesById, setProjectNotesById] = useState<ProjectNotesById>(() => buildNotesMap(projects));
   const [newProjectNotesById, setNewProjectNotesById] = useState<DraftsByProjectId>({});
@@ -53,6 +53,15 @@ export function useProjectNotes({
       return {};
     }
   });
+
+  const persistQueuesRef = useRef<Record<number, Promise<void>>>({});
+
+  function enqueuePersist(projectId: number, task: () => Promise<void>): Promise<void> {
+    const prev = persistQueuesRef.current[projectId] ?? Promise.resolve();
+    const next = prev.catch(() => {}).then(task);
+    persistQueuesRef.current[projectId] = next;
+    return next;
+  }
 
   useEffect(() => {
     localStorage.setItem("project_note_visibility", JSON.stringify(noteVisibility));
@@ -94,13 +103,13 @@ export function useProjectNotes({
     }));
   }
 
-  function persistProjectNotes(projectId: number, nextNotes: ProjectNote[], successTitle: string) {
+  async function persistProjectNotes(projectId: number, nextNotes: ProjectNote[], successTitle: string): Promise<void> {
     const project = projectsById[projectId];
     if (!project) {
-      return;
+      throw new Error(`Project ${projectId} not found`);
     }
 
-    onPersist(
+    await onPersist(
       project.id,
       {
         name: project.name,
@@ -113,101 +122,122 @@ export function useProjectNotes({
     );
   }
 
-  function handleAddProjectNote(projectId: number) {
+  function handleAddProjectNote(projectId: number): Promise<void> {
     const draft = newProjectNotesById[projectId];
-    const title = draft?.title.trim();
-    const content = draft?.content.trim();
+    const title = draft?.title?.trim();
+    const content = draft?.content?.trim();
     if (!title || !content) {
-      return;
+      return Promise.reject(new Error("Note title and content cannot be empty."));
     }
 
-    const timestamp = new Date().toISOString();
-    const currentNotes = projectNotesById[projectId] ?? [];
-    const nextNotes = [
-      {
-        id: `note-${crypto.randomUUID()}`,
-        title,
-        content,
-        pinned: false,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      },
-      ...currentNotes,
-    ];
+    return enqueuePersist(projectId, async () => {
+      const timestamp = new Date().toISOString();
+      const currentNotes = projectNotesById[projectId] ?? [];
+      const nextNotes = [
+        {
+          id: `note-${crypto.randomUUID()}`,
+          title,
+          content,
+          pinned: false,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        ...currentNotes,
+      ];
 
-    setProjectNotesById((current) => ({
-      ...current,
-      [projectId]: nextNotes,
-    }));
-    setNewProjectNotesById((current) => ({
-      ...current,
-      [projectId]: { title: "", content: "" },
-    }));
-    persistProjectNotes(projectId, nextNotes, "Note added");
+      await persistProjectNotes(projectId, nextNotes, "Note added");
+
+      setProjectNotesById((current) => ({
+        ...current,
+        [projectId]: nextNotes,
+      }));
+      setNewProjectNotesById((current) => ({
+        ...current,
+        [projectId]: { title: "", content: "" },
+      }));
+    });
   }
 
-  function handleSaveEditedProjectNote(projectId: number, noteId: string, title: string, content: string) {
+  function handleSaveEditedProjectNote(
+    projectId: number,
+    noteId: string,
+    title: string,
+    content: string,
+  ): Promise<void> {
     const normalizedTitle = title.trim();
     const normalizedContent = content.trim();
-    const currentNotes = projectNotesById[projectId] ?? [];
-    const nextNotes = currentNotes
-      .map((note) =>
+    if (!normalizedTitle || !normalizedContent) {
+      return Promise.reject(new Error("Note title and content cannot be empty."));
+    }
+
+    return enqueuePersist(projectId, async () => {
+      const currentNotes = projectNotesById[projectId] ?? [];
+      const nextNotes = currentNotes
+        .map((note) =>
+          note.id === noteId
+            ? {
+                ...note,
+                title: normalizedTitle,
+                content: normalizedContent,
+                updatedAt: new Date().toISOString(),
+              }
+            : note,
+        )
+        .filter((note) => note.title || note.content);
+
+      await persistProjectNotes(projectId, nextNotes, "Note updated");
+
+      setProjectNotesById((current) => ({
+        ...current,
+        [projectId]: nextNotes,
+      }));
+    });
+  }
+
+  function handleDeleteProjectNote(projectId: number, noteId: string): Promise<void> {
+    return enqueuePersist(projectId, async () => {
+      const currentNotes = projectNotesById[projectId] ?? [];
+      const nextNotes = currentNotes.filter((note) => note.id !== noteId);
+      const visibilityKey = projectNoteVisibilityKey(projectId, noteId);
+
+      await persistProjectNotes(projectId, nextNotes, "Note deleted");
+
+      setProjectNotesById((current) => ({
+        ...current,
+        [projectId]: nextNotes,
+      }));
+      setNoteVisibility((current) => {
+        const next = { ...current };
+        delete next[visibilityKey];
+        return next;
+      });
+    });
+  }
+
+  function handleTogglePinnedProjectNote(projectId: number, noteId: string): Promise<void> {
+    return enqueuePersist(projectId, async () => {
+      const currentNotes = projectNotesById[projectId] ?? [];
+      const nextNotes = currentNotes.map((note) =>
         note.id === noteId
           ? {
               ...note,
-              title: normalizedTitle || note.title,
-              content: normalizedContent,
+              pinned: !note.pinned,
               updatedAt: new Date().toISOString(),
             }
           : note,
-      )
-      .filter((note) => note.title || note.content);
+      );
 
-    setProjectNotesById((current) => ({
-      ...current,
-      [projectId]: nextNotes,
-    }));
-    persistProjectNotes(projectId, nextNotes, "Note updated");
-  }
+      await persistProjectNotes(
+        projectId,
+        nextNotes,
+        nextNotes.find((note) => note.id === noteId)?.pinned ? "Note pinned" : "Note unpinned",
+      );
 
-  function handleDeleteProjectNote(projectId: number, noteId: string) {
-    const currentNotes = projectNotesById[projectId] ?? [];
-    const nextNotes = currentNotes.filter((note) => note.id !== noteId);
-    const visibilityKey = projectNoteVisibilityKey(projectId, noteId);
-
-    setProjectNotesById((current) => ({
-      ...current,
-      [projectId]: nextNotes,
-    }));
-    setNoteVisibility((current) => {
-      const next = { ...current };
-      delete next[visibilityKey];
-      return next;
+      setProjectNotesById((current) => ({
+        ...current,
+        [projectId]: nextNotes,
+      }));
     });
-    persistProjectNotes(projectId, nextNotes, "Note deleted");
-  }
-
-  function handleTogglePinnedProjectNote(projectId: number, noteId: string) {
-    const currentNotes = projectNotesById[projectId] ?? [];
-    const nextNotes = currentNotes.map((note) =>
-      note.id === noteId
-        ? {
-            ...note,
-            pinned: !note.pinned,
-            updatedAt: new Date().toISOString(),
-          }
-        : note,
-    );
-
-    setProjectNotesById((current) => ({
-      ...current,
-      [projectId]: nextNotes,
-    }));
-    persistProjectNotes(
-      projectId,
-      nextNotes,
-      nextNotes.find((note) => note.id === noteId)?.pinned ? "Note pinned" : "Note unpinned",
-    );
   }
 
   function handleToggleProjectNoteVisibility(projectId: number, noteId: string) {

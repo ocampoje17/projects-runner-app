@@ -1,20 +1,33 @@
-import type { Project, ProjectCommand, ProjectFlow } from "./api";
+import type { Project, ProjectCommand } from "./api";
 import type { ProjectNote } from "../components/project-detail-types";
 import type { SettingsSectionId } from "../components/SettingsPage";
 
-export type SidebarView = "explorer" | "flows" | "notes" | "terminal" | "settings";
+export type SidebarView = "explorer" | "twofa" | "notes" | "terminal" | "settings";
 
 export type EditorTab =
   | { id: string; kind: "welcome"; title: string }
   | { id: string; kind: "project-overview"; title: string; projectId: number }
   | { id: string; kind: "commands-overview"; title: string; projectId: number }
   | { id: string; kind: "notes-overview"; title: string; projectId: number }
-  | { id: string; kind: "flows-overview"; title: string; projectId: number }
+  | { id: string; kind: "twofa-overview"; title: string; projectId?: number }
+  | { id: string; kind: "twofa-account"; title: string; accountId: string }
   | { id: string; kind: "command"; title: string; projectId: number; commandId: number }
   | { id: string; kind: "note"; title: string; projectId: number; noteId: string }
-  | { id: string; kind: "flow"; title: string; projectId: number; flowId: number }
   | { id: string; kind: "file-view"; title: string; projectId: number; relativePath: string }
   | { id: string; kind: "settings"; title: string };
+
+export const VALID_EDITOR_TAB_KINDS = new Set<string>([
+  "welcome",
+  "project-overview",
+  "commands-overview",
+  "notes-overview",
+  "twofa-overview",
+  "twofa-account",
+  "command",
+  "note",
+  "file-view",
+  "settings",
+]);
 
 export const SIDEBAR_STORAGE_KEYS = {
   SELECTED_PROJECT_ID: "selectedProjectId",
@@ -70,14 +83,22 @@ export function readSavedTabs(storage?: Storage, restoreAll = true): EditorTab[]
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      const validTabs = parsed.filter(
-        (tab): tab is EditorTab =>
-          Boolean(tab) &&
-          typeof tab === "object" &&
-          typeof tab.id === "string" &&
-          typeof tab.kind === "string" &&
-          typeof tab.title === "string",
-      );
+      const validTabs = parsed
+        .filter(
+          (tab): tab is EditorTab =>
+            Boolean(tab) &&
+            typeof tab === "object" &&
+            typeof tab.id === "string" &&
+            typeof tab.kind === "string" &&
+            VALID_EDITOR_TAB_KINDS.has(tab.kind) &&
+            typeof tab.title === "string",
+        )
+        .map((tab) => {
+          if (tab.kind === "twofa-account") {
+            return { ...tab, title: "2FA" };
+          }
+          return tab;
+        });
       if (validTabs.length === 0) return null;
       if (restoreAll) {
         return validTabs;
@@ -94,7 +115,52 @@ export function writeSavedTabs(tabs: EditorTab[], storage?: Storage): void {
   try {
     const store = getStorage(storage);
     if (!store) return;
-    store.setItem(SIDEBAR_STORAGE_KEYS.EDITOR_TABS, JSON.stringify(tabs));
+    const sanitized = tabs.map((tab) => {
+      if (tab.kind === "twofa-account") {
+        return { ...tab, title: "2FA" };
+      }
+      return tab;
+    });
+    store.setItem(SIDEBAR_STORAGE_KEYS.EDITOR_TABS, JSON.stringify(sanitized));
+  } catch {}
+}
+
+export function migrateLocalStorageTwofaState(storage?: Storage): void {
+  try {
+    const store = getStorage(storage);
+    if (!store) return;
+    const rawTabs = store.getItem(SIDEBAR_STORAGE_KEYS.EDITOR_TABS);
+    if (rawTabs) {
+      try {
+        const parsed = JSON.parse(rawTabs);
+        if (Array.isArray(parsed)) {
+          let modified = false;
+          const sanitized = parsed
+            .filter((t) => t && typeof t.kind === "string" && VALID_EDITOR_TAB_KINDS.has(t.kind))
+            .map((t) => {
+              if (t && t.kind === "twofa-account" && t.title !== "2FA") {
+                modified = true;
+                return { ...t, title: "2FA" };
+              }
+              return t;
+            });
+          if (modified || sanitized.length !== parsed.length) {
+            store.setItem(SIDEBAR_STORAGE_KEYS.EDITOR_TABS, JSON.stringify(sanitized));
+          }
+        }
+      } catch {}
+    }
+    const legacyKeys = [
+      "flow-editor-state",
+      "projects-runner:flows",
+      "projects-runner:last-flow-id",
+      "vscodeFlowCanvasState",
+      "flow-active-id",
+      "flow-state",
+    ];
+    for (const key of legacyKeys) {
+      store.removeItem(key);
+    }
   } catch {}
 }
 
@@ -150,7 +216,7 @@ export function readSavedSettingsSection(storage?: Storage): SettingsSectionId {
     const store = getStorage(storage);
     if (!store) return "appearance";
     const saved = store.getItem(SIDEBAR_STORAGE_KEYS.SETTINGS_SECTION);
-    return saved === "terminal" || saved === "system" ? saved : "appearance";
+    return saved === "terminal" || saved === "system" || saved === "twofa" ? saved : "appearance";
   } catch {
     return "appearance";
   }
@@ -235,18 +301,29 @@ export function sanitizeTabs(
   tabs: EditorTab[],
   projects: Project[],
   commandsByProjectId: Record<number, ProjectCommand[] | undefined>,
-  flowsByProjectId: Record<number, ProjectFlow[] | undefined>,
   notesByProjectId: Record<number, ProjectNote[] | undefined>,
 ): EditorTab[] {
   if (!Array.isArray(tabs)) return [];
   if (!Array.isArray(projects) || projects.length === 0) {
-    return tabs.filter((tab) => Boolean(tab) && (tab.kind === "settings" || tab.kind === "welcome"));
+    return tabs.filter(
+      (tab) =>
+        Boolean(tab) &&
+        (tab.kind === "settings" ||
+          tab.kind === "welcome" ||
+          tab.kind === "twofa-overview" ||
+          tab.kind === "twofa-account"),
+    );
   }
 
   return tabs.filter((tab) => {
     if (!tab) return false;
-    if (tab.kind === "welcome" || tab.kind === "settings") {
+    if (tab.kind === "welcome" || tab.kind === "settings" || tab.kind === "twofa-account") {
       return true;
+    }
+
+    if (tab.kind === "twofa-overview") {
+      if (tab.projectId === undefined) return true;
+      return projects.some((p) => Boolean(p) && p.id === tab.projectId);
     }
 
     const project = projects.find((p) => Boolean(p) && p.id === tab.projectId);
@@ -266,14 +343,6 @@ export function sanitizeTabs(
       const notes = notesByProjectId[tab.projectId];
       if (notes !== undefined) {
         return Array.isArray(notes) && notes.some((note) => Boolean(note) && note.id === tab.noteId);
-      }
-      return true;
-    }
-
-    if (tab.kind === "flow") {
-      const flows = flowsByProjectId[tab.projectId];
-      if (flows !== undefined) {
-        return Array.isArray(flows) && flows.some((flow) => Boolean(flow) && flow.id === tab.flowId);
       }
       return true;
     }

@@ -1,5 +1,6 @@
 import { createContext, forwardRef, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
 import {
   BookOpenText,
   Blocks,
@@ -18,7 +19,6 @@ import {
   Folder,
   FileUp,
   FolderKanban,
-  GitBranch,
   FolderOpen,
   FolderPlus,
   HardDrive,
@@ -43,6 +43,8 @@ import {
   WandSparkles,
   TerminalSquare,
   Play,
+  ShieldCheck,
+  KeyRound,
   X,
 } from "lucide-react";
 import { Group, Panel, Separator, type GroupImperativeHandle, type Layout } from "react-resizable-panels";
@@ -56,10 +58,9 @@ import { Tooltip } from "./motion/tooltip";
 import { ProjectDetailNotes, ProjectNoteDialog } from "./project-detail-notes";
 import type { CommandSection, ProjectNote } from "./project-detail-types";
 import { CommandCard, LogPanel, type RunState } from "./project-runtime";
-import { FlowLauncher } from "./flow-launcher";
-import { FlowFormDialog } from "./flow-form-dialog";
+import { TwofaOverview } from "./twofa/twofa-overview";
+import { useTwofa } from "./twofa/TwofaProvider";
 import { CommandSectionDialog } from "./command-section-dialog";
-import { FlowsOverviewPane } from "./flows-overview";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -71,10 +72,9 @@ import { cn } from "@/lib/utils";
 import { removePathPrefix, renamePathPrefix } from "@/lib/file-tree-paths";
 import { TabsOverlayScrollbar } from "./tabs-overlay-scrollbar";
 import { useHorizontalScroll } from "../hooks/use-horizontal-scroll";
-import { api, type Project, type ProjectCommand, type ProjectFlow } from "../lib/api";
+import { api, type Project, type ProjectCommand, type TwofaAccountSummary } from "../lib/api";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import type { UpdateStatus } from "../hooks/use-app-updater";
-import type { FlowRunState } from "../hooks/use-flow-runtime";
 import { ConfirmDialog } from "./process-dialogs";
 import { DevProjectToolsDialogs, type DevProjectToolsRequest } from "./dev-project-tools-dialogs";
 import { QuickAccessAddDialog, type QuickAccessEntry } from "./quick-access-dialog";
@@ -112,7 +112,7 @@ export type VSCodeShellHandle = {
   openProject: (projectId: number) => void;
   openCommand: (projectId: number, commandId: number) => void;
   openNote: (projectId: number, noteId: string) => void;
-  openFlow: (projectId: number, flowId: number) => void;
+  openTwofa: (accountId?: string, projectId?: number) => void;
   toggleSecondarySidebar: () => void;
 };
 
@@ -205,12 +205,14 @@ function notesOverviewTab(project: Project): EditorTab {
   return { id: `notes-overview:${project.id}`, kind: "notes-overview", projectId: project.id, title: `${project.name} Notes` };
 }
 
-function flowsOverviewTab(project: Project): EditorTab {
-  return { id: `flows-overview:${project.id}`, kind: "flows-overview", projectId: project.id, title: `${project.name} Flows` };
+function twofaOverviewTab(project?: Project): EditorTab {
+  return project
+    ? { id: `twofa-overview:${project.id}`, kind: "twofa-overview", projectId: project.id, title: `${project.name} 2FA` }
+    : { id: "twofa-overview:root", kind: "twofa-overview", title: "2FA Vault" };
 }
 
-function flowTab(project: Project, flow: ProjectFlow): EditorTab {
-  return { id: `flow:${flow.id}`, kind: "flow", projectId: project.id, flowId: flow.id, title: flow.name };
+function twofaAccountTab(account: TwofaAccountSummary): EditorTab {
+  return { id: `twofa-account:${account.id}`, kind: "twofa-account", title: account.issuer || account.account || "Account", accountId: account.id };
 }
 
 function fileViewTab(project: Project, relativePath: string): EditorTab {
@@ -243,6 +245,74 @@ function findCommandById(commands?: ProjectCommand[] | null, commandId?: number 
 function findNoteById(notes?: ProjectNote[] | null, noteId?: string | null) {
   if (!Array.isArray(notes) || typeof noteId !== "string") return null;
   return notes.find((note) => Boolean(note) && note.id === noteId) ?? null;
+}
+
+function TabIcon({
+  tab,
+  projects,
+  commandsByProjectId,
+}: {
+  tab: EditorTab;
+  projects: Project[];
+  commandsByProjectId: Record<number, ProjectCommand[]>;
+}) {
+  if (tab.kind === "command") {
+    const command = findCommandById(commandsByProjectId[tab.projectId] ?? [], tab.commandId);
+    if (command?.avatar_path) {
+      return (
+        <EntityAvatar
+          name={command.name}
+          path={command.avatar_path}
+          className="h-3.5 w-3.5 shrink-0 rounded-[2px]"
+          fallbackClassName="text-[8px]"
+          iconSize={10}
+        />
+      );
+    }
+    return <TerminalSquare size={14} className="shrink-0 text-[var(--vscode-icon)]" />;
+  }
+
+  if (tab.kind === "project-overview") {
+    const project = findProjectById(projects, tab.projectId);
+    if (project?.avatar_path) {
+      return (
+        <EntityAvatar
+          name={project.name}
+          path={project.avatar_path}
+          className="h-3.5 w-3.5 shrink-0 rounded-[2px]"
+          fallbackClassName="text-[8px]"
+          iconSize={10}
+        />
+      );
+    }
+    return <FolderOpen size={14} className="shrink-0 text-[var(--vscode-icon)]" />;
+  }
+
+  if (tab.kind === "commands-overview") {
+    return <TerminalSquare size={14} className="shrink-0 text-[var(--vscode-icon)]" />;
+  }
+
+  if (tab.kind === "note" || tab.kind === "notes-overview") {
+    return <FileText size={14} className="shrink-0 text-[var(--vscode-icon)]" />;
+  }
+
+  if (tab.kind === "twofa-overview" || tab.kind === "twofa-account") {
+    return <ShieldCheck size={14} className="shrink-0 text-[var(--vscode-icon)]" />;
+  }
+
+  if (tab.kind === "file-view") {
+    return <FileText size={14} className="shrink-0 text-[var(--vscode-icon)]" />;
+  }
+
+  if (tab.kind === "settings") {
+    return <Settings2 size={14} className="shrink-0 text-[var(--vscode-icon)]" />;
+  }
+
+  if (tab.kind === "welcome") {
+    return <WandSparkles size={14} className="shrink-0 text-[var(--vscode-icon)]" />;
+  }
+
+  return null;
 }
 
 type CommandSortField = "runCount" | "updatedAt" | "createdAt" | "name";
@@ -2428,11 +2498,6 @@ type VSCodeShellProps = {
   selectedProjectId: number | null;
   commands: ProjectCommand[];
   commandsByProjectId: Record<number, ProjectCommand[]>;
-  flowsByProjectId: Record<number, ProjectFlow[]>;
-  flowRuns: Record<number, FlowRunState>;
-  onRunFlow: (flow: ProjectFlow) => void;
-  onStopFlow: (flowId: number) => void;
-  onDeleteFlow: (flow: ProjectFlow) => void;
   commandSectionsByProjectId: Record<number, CommandSection[]>;
   settingsProps: SettingsPageProps;
   updateStatus: UpdateStatus;
@@ -2469,6 +2534,7 @@ type VSCodeShellProps = {
   onOpenTerminal: (project: Project) => void;
   onShareProject: (project: Project) => void;
   onEditProject: (project: Project) => void;
+  onDeleteProject?: (project: Project) => void;
   onAddCommand: (
     projectId: number,
     defaultSection?: string,
@@ -2502,11 +2568,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   selectedProjectId,
   commands,
   commandsByProjectId,
-  flowsByProjectId,
-  flowRuns,
-  onRunFlow,
-  onStopFlow,
-  onDeleteFlow,
   commandSectionsByProjectId,
   settingsProps,
   updateStatus,
@@ -2543,6 +2604,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   onOpenTerminal,
   onShareProject,
   onEditProject,
+  onDeleteProject,
   onAddCommand,
   onAddSection,
   onRenameSection,
@@ -2561,14 +2623,15 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   onKillPorts,
   onOpenLogs,
 }, ref) {
-  const queryClient = useQueryClient();
+  const { isUnlocked: isTwofaUnlocked, accounts: twofaAccounts } = useTwofa();
+
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>(() => readSavedSettingsSection());
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>(() => {
     if (typeof window === "undefined") {
       return "explorer";
     }
     const saved = localStorage.getItem(SIDEBAR_VIEW_KEY);
-    return saved === "flows" || saved === "notes" || saved === "terminal" || saved === "settings" ? saved : "explorer";
+    return saved === "twofa" || saved === "notes" || saved === "terminal" || saved === "settings" ? saved : "explorer";
   });
   const [tabs, setTabs] = useState<EditorTab[]>(() => {
     const shouldRestoreAll = typeof window === "undefined"
@@ -2589,8 +2652,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     return readSavedActiveTabId(undefined, validIds) ?? initialTabs?.[0]?.id ?? "welcome";
   });
   const [pinnedTabIds, setPinnedTabIds] = useState<Set<string>>(() => readSavedPinnedTabIds());
-  const [flowDirtyById, setFlowDirtyById] = useState<Record<number, boolean>>({});
-  const [pendingTabCloseIds, setPendingTabCloseIds] = useState<string[] | null>(null);
   const [tabContextMenu, setTabContextMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
   const [isTabsHeaderHovered, setIsTabsHeaderHovered] = useState(false);
   const tabsContainerRef = useHorizontalScroll<HTMLDivElement>();
@@ -2600,15 +2661,11 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const sidebarGroupRef = useRef<GroupImperativeHandle | null>(null);
   const sidebarGroupElementRef = useRef<HTMLDivElement | null>(null);
   const pendingFileExplorerLayoutRef = useRef<{ previousWidth: number; sidebar: number } | null>(null);
-  const [flowDialogProject, setFlowDialogProject] = useState<Project | null>(null);
-  const [isCreatingFlow, setIsCreatingFlow] = useState(false);
-  const [flowCreationError, setFlowCreationError] = useState<string | null>(null);
   const [sectionDialogProject, setSectionDialogProject] = useState<Project | null>(null);
   const [sectionCreationError, setSectionCreationError] = useState<string | null>(null);
-  const [editingFlow, setEditingFlow] = useState<ProjectFlow | null>(null);
   const [editingSidebarNote, setEditingSidebarNote] = useState<{ project: Project; note: ProjectNote } | null>(null);
+  const [editingSidebarNoteError, setEditingSidebarNoteError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<
-    | { kind: "flow"; project: Project; flow: ProjectFlow }
     | { kind: "note"; project: Project; note: ProjectNote }
     | { kind: "terminal"; command: ProjectCommand }
     | { kind: "section"; project: Project; section: CommandSection }
@@ -2618,7 +2675,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const [terminalNames, setTerminalNames] = useState<Record<number, string>>({});
   const renameSubmittingRef = useRef(false);
   const renameCancelledRef = useRef(false);
-  const [flowToDelete, setFlowToDelete] = useState<ProjectFlow | null>(null);
   const [sectionToDelete, setSectionToDelete] = useState<{ project: Project; section: CommandSection } | null>(null);
   const [treeExpandedState, setTreeExpandedState] = useState<Record<string, boolean>>(() => readTreeExpandedState());
   const allowMultipleExplorerItems = Boolean(settingsProps?.allowMultipleExplorerItems);
@@ -2638,6 +2694,56 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   useEffect(() => {
     writeExpandedProjectIds(expandedProjectIds);
   }, [expandedProjectIds]);
+
+  // Synchronize 2FA tab titles and prune deleted tabs when unlocked
+  // Neutralize 2FA tab titles when locked
+  useEffect(() => {
+    if (!isTwofaUnlocked) {
+      setTabs((prevTabs) => {
+        let changed = false;
+        const nextTabs = prevTabs.map((tab) => {
+          if (tab.kind === "twofa-account" && tab.title !== "2FA") {
+            changed = true;
+            return { ...tab, title: "2FA" };
+          }
+          return tab;
+        });
+        return changed ? nextTabs : prevTabs;
+      });
+      return;
+    }
+
+    if (twofaAccounts) {
+      const accountMap = new Map(twofaAccounts.map((a) => [a.id, a]));
+      setTabs((prevTabs) => {
+        let changed = false;
+        const validTabs: EditorTab[] = [];
+        for (const tab of prevTabs) {
+          if (tab.kind === "twofa-account") {
+            const acc = tab.accountId ? accountMap.get(tab.accountId) : undefined;
+            if (!acc) {
+              changed = true;
+              continue;
+            }
+            const expectedTitle = acc.issuer || acc.account || "2FA";
+            if (tab.title !== expectedTitle) {
+              changed = true;
+              validTabs.push({ ...tab, title: expectedTitle });
+              continue;
+            }
+          }
+          validTabs.push(tab);
+        }
+        if (changed) {
+          if (!validTabs.some((t) => t.id === activeTabId)) {
+            setActiveTabId(validTabs[validTabs.length - 1]?.id ?? "welcome");
+          }
+          return validTabs;
+        }
+        return prevTabs;
+      });
+    }
+  }, [isTwofaUnlocked, twofaAccounts, activeTabId]);
 
   useEffect(() => {
     if (!isProjectsLoaded) return;
@@ -2696,7 +2802,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const activeContextProject = findProjectById(projects, activeTabProjectId ?? selectedProjectId ?? undefined) ?? selectedProject ?? (projects.length > 0 ? projects[0] : null);
   const selectedProjectCommands = activeContextProject ? commandsByProjectId[activeContextProject.id] ?? [] : [];
   const selectedProjectNotes = activeContextProject ? sortedProjectNotesByProjectId[activeContextProject.id] ?? [] : [];
-  const selectedProjectFlows = activeContextProject ? flowsByProjectId[activeContextProject.id] ?? [] : [];
 
   const previousActiveProjectIdRef = useRef<number | null>(activeContextProject?.id ?? null);
   useEffect(() => {
@@ -2806,22 +2911,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp);
   }
-  const updateFlowMutation = useMutation({
-    mutationFn: ({ id, name }: { id: number; name: string }) => api.updateFlow(id, name),
-    onSuccess: (flow) => {
-      renameSubmittingRef.current = false;
-      renameCancelledRef.current = false;
-      setEditingFlow(null);
-      setRenameTarget(null);
-      setRenameValue("");
-      void queryClient.invalidateQueries({ queryKey: ["flows", flow.project_id] });
-      void queryClient.invalidateQueries({ queryKey: ["flow", flow.id] });
-    },
-    onError: () => {
-      renameSubmittingRef.current = false;
-    },
-  });
-
   function beginRename(target: NonNullable<typeof renameTarget>, value: string) {
     renameSubmittingRef.current = false;
     renameCancelledRef.current = false;
@@ -2830,7 +2919,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   }
 
   function cancelRename() {
-    if (updateFlowMutation.isPending || isMutatingSection) return;
+    if (isMutatingSection) return;
     renameSubmittingRef.current = false;
     renameCancelledRef.current = true;
     setRenameTarget(null);
@@ -2845,10 +2934,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       return;
     }
     renameSubmittingRef.current = true;
-    if (renameTarget.kind === "flow") {
-      updateFlowMutation.mutate({ id: renameTarget.flow.id, name });
-      return;
-    }
     if (renameTarget.kind === "section") {
       void onRenameSection(renameTarget.project.id, renameTarget.section.id, name)
         .then(() => {
@@ -2870,23 +2955,21 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     setRenameValue("");
   }
 
-  function renameEditorFor(kind: "flow" | "note" | "terminal" | "section", id: number | string) {
-    const targetId = renameTarget?.kind === "flow"
-      ? renameTarget.flow.id
-      : renameTarget?.kind === "note"
-        ? renameTarget.note.id
-        : renameTarget?.kind === "terminal"
-          ? renameTarget.command.id
-          : renameTarget?.kind === "section"
-            ? renameTarget.section.id
-          : null;
+  function renameEditorFor(kind: "note" | "terminal" | "section", id: number | string) {
+    const targetId = renameTarget?.kind === "note"
+      ? renameTarget.note.id
+      : renameTarget?.kind === "terminal"
+        ? renameTarget.command.id
+        : renameTarget?.kind === "section"
+          ? renameTarget.section.id
+        : null;
     if (renameTarget?.kind !== kind || targetId !== id) return undefined;
     return {
       value: renameValue,
       onChange: setRenameValue,
       onSubmit: submitRename,
       onCancel: cancelRename,
-      isPending: (kind === "flow" && updateFlowMutation.isPending) || (kind === "section" && isMutatingSection),
+      isPending: kind === "section" && isMutatingSection,
     };
   }
 
@@ -2938,16 +3021,17 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
 
   useEffect(() => {
     if (!isProjectsLoaded) return;
-    setTabs((current) => sanitizeTabs(current, projects, commandsByProjectId, flowsByProjectId, sortedProjectNotesByProjectId));
-  }, [commandsByProjectId, flowsByProjectId, isProjectsLoaded, projects, sortedProjectNotesByProjectId]);
+    setTabs((current) => sanitizeTabs(current, projects, commandsByProjectId, sortedProjectNotesByProjectId));
+  }, [commandsByProjectId, isProjectsLoaded, projects, sortedProjectNotesByProjectId]);
 
   useEffect(() => {
     setTabs((current) => current.map((tab) => {
-      if (tab.kind !== "flow") return tab;
-      const flow = (flowsByProjectId[tab.projectId] ?? []).find((item) => item.id === tab.flowId);
-      return flow && flow.name !== tab.title ? { ...tab, title: flow.name } : tab;
+      if (tab.kind !== "twofa-account") return tab;
+      const acc = twofaAccounts.find((item) => item.id === tab.accountId);
+      const title = acc ? (acc.issuer || acc.account) : tab.title;
+      return title && title !== tab.title ? { ...tab, title } : tab;
     }));
-  }, [flowsByProjectId]);
+  }, [twofaAccounts]);
 
   useEffect(() => {
     setActiveTabId((current) => {
@@ -2985,10 +3069,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     setActiveTabId(tab.id);
   }
 
-  const handleFlowDirtyChange = useCallback((flowId: number, isDirty: boolean) => {
-    setFlowDirtyById((current) => current[flowId] === isDirty ? current : { ...current, [flowId]: isDirty });
-  }, []);
-
   function closeTabsNow(tabIds: string[]) {
     const ids = new Set(tabIds);
     if (ids.size === 0) return;
@@ -3006,18 +3086,12 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       return next.length > 0 ? next : [welcomeTab()];
     });
     setPinnedTabIds((current) => new Set([...current].filter((id) => !ids.has(id))));
-    setFlowDirtyById((current) => Object.fromEntries(Object.entries(current).filter(([flowId]) => !ids.has(`flow:${flowId}`))));
     setActiveTabId(nextActiveId);
   }
 
   function requestCloseTabs(tabIds: string[]) {
     const ids = [...new Set(tabIds)].filter((id) => id !== "welcome");
     if (ids.length === 0) return;
-    const hasUnsavedFlow = tabs.some((tab) => tab.kind === "flow" && ids.includes(tab.id) && flowDirtyById[tab.flowId]);
-    if (hasUnsavedFlow) {
-      setPendingTabCloseIds(ids);
-      return;
-    }
     closeTabsNow(ids);
   }
 
@@ -3073,40 +3147,15 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     setActiveSidebarView("explorer");
   }
 
-  function handleOpenFlowTab(project: Project, flow: ProjectFlow) {
-    openTab(flowTab(project, flow));
-    setActiveSidebarView("flows");
-  }
-
-  function handleOpenFlowsOverviewForProject(project: Project) {
-    openTab(flowsOverviewTab(project));
-    setActiveSidebarView("flows");
-  }
-
-  function handleOpenFlowsOverview() {
-    if (activeContextProject) {
-      handleOpenFlowsOverviewForProject(activeContextProject);
+  function handleOpenTwofaOverview(project?: Project) {
+    if (project) {
+      handleSelectProject(project.id);
     }
+    openTab(twofaOverviewTab(project));
   }
 
-  function handleCreateFlow(project: Project) {
-    setFlowCreationError(null);
-    setFlowDialogProject(project);
-  }
-
-  async function submitFlow(project: Project, name: string) {
-    setIsCreatingFlow(true);
-    setFlowCreationError(null);
-    try {
-      const flow = await api.createFlow(project.id, name);
-      await queryClient.invalidateQueries({ queryKey: ["flows", project.id] });
-      setFlowDialogProject(null);
-      handleOpenFlowTab(project, flow);
-    } catch (error) {
-      setFlowCreationError(error instanceof Error ? error.message : "Unable to create flow.");
-    } finally {
-      setIsCreatingFlow(false);
-    }
+  function handleOpenTwofaAccountTab(account: TwofaAccountSummary) {
+    openTab(twofaAccountTab(account));
   }
 
   function handleOpenNotesOverview() {
@@ -3168,16 +3217,22 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         }
         handleOpenNoteTab(project, note);
       },
-      openFlow(projectId: number, flowId: number) {
-        const project = findProjectById(projects, projectId);
-        const flow = (flowsByProjectId[projectId] ?? []).find((item) => item.id === flowId);
-        if (project && flow) handleOpenFlowTab(project, flow);
+      openTwofa(accountId?: string, projectId?: number) {
+        if (accountId) {
+          const account = twofaAccounts.find((a) => a.id === accountId);
+          if (account) {
+            handleOpenTwofaAccountTab(account);
+            return;
+          }
+        }
+        const project = projectId ? findProjectById(projects, projectId) : undefined;
+        handleOpenTwofaOverview(project ?? undefined);
       },
       toggleSecondarySidebar() {
         setIsSecondarySidebarVisible((current) => !current);
       },
     }),
-    [commandsByProjectId, flowsByProjectId, projects, sortedProjectNotesByProjectId],
+    [commandsByProjectId, projects, sortedProjectNotesByProjectId, twofaAccounts],
   );
 
   function handleSwitchPrimarySidebar(view: Exclude<SidebarView, "settings">) {
@@ -3216,6 +3271,17 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         icon: <Pencil size={13} />,
         onSelect: () => onEditProject(project),
       },
+      ...(onDeleteProject
+        ? [
+            { separator: true },
+            {
+              label: "Delete project",
+              icon: <Trash2 size={13} className="text-[var(--vscode-danger)]" />,
+              onSelect: () => onDeleteProject(project),
+              tone: "danger" as const,
+            },
+          ]
+        : []),
     ];
   }
 
@@ -3371,30 +3437,17 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     ];
   }
 
-  function getFlowMenuItems(project: Project, flow: ProjectFlow) {
+  function getTwofaAccountMenuItems(account: TwofaAccountSummary, project?: Project) {
     return [
       {
-        label: "Open flow",
-        icon: <GitBranch size={13} />,
-        onSelect: () => handleOpenFlowTab(project, flow),
-      },
-      { separator: true },
-      {
-        label: "Rename flow",
-        icon: <Pencil size={13} />,
-        onSelect: () => beginRename({ kind: "flow", project, flow }, flow.name),
+        label: "Open account",
+        icon: <KeyRound size={13} />,
+        onSelect: () => handleOpenTwofaAccountTab(account),
       },
       {
-        label: "Edit flow",
-        icon: <FilePenLine size={13} />,
-        onSelect: () => setEditingFlow(flow),
-      },
-      { separator: true },
-      {
-        label: "Delete flow",
-        icon: <Trash2 size={13} className="text-[var(--vscode-danger)]" />,
-        onSelect: () => setFlowToDelete(flow),
-        tone: "danger" as const,
+        label: "Open 2FA view",
+        icon: <LayoutGrid size={13} />,
+        onSelect: () => handleOpenTwofaOverview(project),
       },
     ];
   }
@@ -3429,8 +3482,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       return;
     }
 
-    if (activeTab.kind === "flow" || activeTab.kind === "flows-overview") {
-      setActiveSidebarView("flows");
+    if (activeTab.kind === "twofa-overview" || activeTab.kind === "twofa-account") {
+      setActiveSidebarView("twofa");
       return;
     }
 
@@ -3450,6 +3503,19 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
             activeSection={activeSettingsSection}
           />
         </div>
+      );
+    }
+
+    if (activeTab.kind === "twofa-overview" || activeTab.kind === "twofa-account") {
+      const filterProjectId = activeTab.kind === "twofa-overview" ? activeTab.projectId : undefined;
+      const selectedAccountId = activeTab.kind === "twofa-account" ? activeTab.accountId : undefined;
+      return (
+        <TwofaOverview
+          projects={projects}
+          filterProjectId={filterProjectId}
+          selectedAccountId={selectedAccountId}
+          onSelectProject={handleSelectProject}
+        />
       );
     }
 
@@ -3555,36 +3621,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       );
     }
 
-    if (activeTab.kind === "flows-overview") {
-      return <FlowsOverviewPane
-        project={tabProject}
-        flows={flowsByProjectId[tabProject.id] ?? []}
-        flowRuns={flowRuns}
-        onCreate={() => handleCreateFlow(tabProject)}
-        onOpen={(flow) => handleOpenFlowTab(tabProject, flow)}
-        onRun={onRunFlow}
-        onStop={(flow) => onStopFlow(flow.id)}
-        onDelete={onDeleteFlow}
-      />;
-    }
-
-    if (activeTab.kind === "flow") {
-      const flow = (flowsByProjectId[tabProject.id] ?? []).find((item) => item.id === activeTab.flowId);
-      if (!flow) return <WelcomeEditor onAddProject={onAddProject} onImportProject={onImportProject} />;
-      return <FlowLauncher
-        project={tabProject}
-        flow={flow}
-        commands={commandsByProjectId[tabProject.id] ?? []}
-        runs={runs}
-        flowRun={flowRuns[flow.id]}
-        onRunFlow={onRunFlow}
-        onStopFlow={onStopFlow}
-        onOpenLogs={handleOpenLogs}
-        onDeleted={() => onDeleteFlow(flow)}
-        onDirtyChange={handleFlowDirtyChange}
-      />;
-    }
-
     if (activeTab.kind === "command") {
       const command = findCommandById(commandsByProjectId[tabProject.id] ?? [], activeTab.commandId);
       if (!command) {
@@ -3638,6 +3674,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
               [
                 { id: "appearance", label: "Appearance", icon: <LayoutGrid size={14} /> },
                 { id: "terminal", label: "Terminal", icon: <TerminalSquare size={14} /> },
+                { id: "twofa", label: "2FA Security", icon: <ShieldCheck size={14} /> },
                 { id: "system", label: "System", icon: <Settings2 size={14} /> },
               ] as const
             ).map((item) => (
@@ -3728,37 +3765,51 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       );
     }
 
-    if (activeSidebarView === "flows") {
+    if (activeSidebarView === "twofa") {
       return (
         <div className="px-2 py-3">
           <div className="mb-2 flex items-center justify-between px-2">
-            <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/46">Project flows</span>
-            {activeContextProject ? (
-              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={handleOpenFlowsOverview}>
-                Open all
-              </Button>
-            ) : null}
+            <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/46">2FA Vault</span>
+            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => handleOpenTwofaOverview()}>
+              Open Vault
+            </Button>
           </div>
-          {activeContextProject ? (
-            <div className="space-y-1">
-              <TreeItem title={`${activeContextProject.name} Flows`} icon={<GitBranch size={14} />} onClick={handleOpenFlowsOverview} />
-              {selectedProjectFlows.map((flow) => (
-                <TreeItem
-                  key={flow.id}
-                  level={1}
-                  title={flow.name}
-                  active={activeTab.kind === "flow" && activeTab.flowId === flow.id}
-                  onClick={() => handleOpenFlowTab(activeContextProject, flow)}
-                  menuItems={getFlowMenuItems(activeContextProject, flow)}
-                  editTitle={renameEditorFor("flow", flow.id)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-[8px] border border-dashed border-[var(--vscode-border)] px-3 py-5 text-[12px] text-[var(--vscode-foreground)]/62">
-              Select a project to browse its flows.
-            </div>
-          )}
+          <div className="space-y-1">
+            <TreeItem
+              title="All Accounts"
+              icon={<ShieldCheck size={14} />}
+              active={activeTab.kind === "twofa-overview" && activeTab.projectId === undefined}
+              onClick={() => handleOpenTwofaOverview()}
+            />
+            {twofaAccounts.map((account) => (
+              <TreeItem
+                key={account.id}
+                level={1}
+                title={account.issuer ? `${account.issuer} (${account.account || ""})` : (account.account || "")}
+                icon={<KeyRound size={13} />}
+                active={activeTab.kind === "twofa-account" && activeTab.accountId === account.id}
+                onClick={() => handleOpenTwofaAccountTab(account)}
+                menuItems={getTwofaAccountMenuItems(account)}
+              />
+            ))}
+            {twofaAccounts.length === 0 && (
+              <div className="rounded-[8px] border border-dashed border-[var(--vscode-border)] px-3 py-5 text-center text-[12px] text-[var(--vscode-foreground)]/62">
+                No accounts in vault.
+              </div>
+            )}
+            {!isTwofaUnlocked && (
+              <div className="rounded-[8px] border border-dashed border-[var(--vscode-border)] px-3 py-4 text-center text-[12px] text-[var(--vscode-foreground)]/62">
+                Vault is locked.
+                <button
+                  type="button"
+                  onClick={() => handleOpenTwofaOverview()}
+                  className="mt-2 block w-full text-center text-xs text-primary underline"
+                >
+                  Unlock Vault
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       );
     }
@@ -3806,8 +3857,9 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
             const isProjectActive = activeContextProject?.id === project.id;
             const isProjectExpanded = expandedProjectIds.has(project.id);
             const isCommandsExpanded = isTreeItemExpanded(`commands:${project.id}`, true);
-            const isFlowsExpanded = isTreeItemExpanded(`flows:${project.id}`, true);
+            const isTwofaExpanded = isTreeItemExpanded(`twofa:${project.id}`, true);
             const isNotesExpanded = isTreeItemExpanded(`notes:${project.id}`, true);
+            const projectTwofaAccounts = twofaAccounts.filter((a) => a.project_ids.includes(project.id));
             return (
               <div key={project.id} className="space-y-1">
                 <TreeItem
@@ -3908,23 +3960,31 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                       </>
                     ) : null}
                     <TreeItem
-                      title="Flows"
+                      title="2FA"
                       level={1}
-                      icon={isFlowsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                      active={(activeTab.kind === "flow" || activeTab.kind === "flows-overview") && activeTab.projectId === project.id}
-                      onClick={() => toggleTreeItemExpanded(`flows:${project.id}`, true)}
-                      trailing={(flowsByProjectId[project.id] ?? []).length}
+                      icon={isTwofaExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      active={activeTab.kind === "twofa-overview" && activeTab.projectId === project.id}
+                      onClick={() => toggleTreeItemExpanded(`twofa:${project.id}`, true)}
+                      trailing={projectTwofaAccounts.length}
                       menuItems={[
-                        { label: "Open flows view", icon: <LayoutGrid size={13} />, onSelect: () => handleOpenFlowsOverviewForProject(project) },
+                        { label: "Open 2FA view", icon: <LayoutGrid size={13} />, onSelect: () => handleOpenTwofaOverview(project) },
                         { separator: true },
-                        { label: isFlowsExpanded ? "Collapse flows" : "Expand flows", icon: isFlowsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />, onSelect: () => toggleTreeItemExpanded(`flows:${project.id}`, true) },
+                        { label: isTwofaExpanded ? "Collapse 2FA" : "Expand 2FA", icon: isTwofaExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />, onSelect: () => toggleTreeItemExpanded(`twofa:${project.id}`, true) },
                       ]}
                     />
-                    {isFlowsExpanded ? (
+                    {isTwofaExpanded ? (
                       <>
-                        <TreeItem title="Open flows view" level={2} active={activeTab.kind === "flows-overview" && activeTab.projectId === project.id} onClick={() => handleOpenFlowsOverviewForProject(project)} />
-                        {(flowsByProjectId[project.id] ?? []).map((flow) => (
-                          <TreeItem key={flow.id} level={2} title={flow.name} icon={<GitBranch size={12} />} active={activeTab.kind === "flow" && activeTab.flowId === flow.id} onClick={() => handleOpenFlowTab(project, flow)} menuItems={getFlowMenuItems(project, flow)} editTitle={renameEditorFor("flow", flow.id)} />
+                        <TreeItem title="Open 2FA view" level={2} active={activeTab.kind === "twofa-overview" && activeTab.projectId === project.id} onClick={() => handleOpenTwofaOverview(project)} />
+                        {projectTwofaAccounts.map((account) => (
+                          <TreeItem
+                            key={account.id}
+                            level={2}
+                            title={account.issuer ? `${account.issuer} (${account.account || ""})` : (account.account || "")}
+                            icon={<KeyRound size={12} />}
+                            active={activeTab.kind === "twofa-account" && activeTab.accountId === account.id}
+                            onClick={() => handleOpenTwofaAccountTab(account)}
+                            menuItems={getTwofaAccountMenuItems(account, project)}
+                          />
                         ))}
                       </>
                     ) : null}
@@ -3994,8 +4054,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
           <SidebarIconButton label="Explorer" active={activeSidebarView === "explorer"} onClick={() => handleSwitchPrimarySidebar("explorer")}>
             <FolderKanban size={20} />
           </SidebarIconButton>
-          <SidebarIconButton label="Flows" active={activeSidebarView === "flows"} onClick={() => handleSwitchPrimarySidebar("flows")}>
-            <GitBranch size={20} />
+          <SidebarIconButton label="2FA" active={activeSidebarView === "twofa"} onClick={() => handleSwitchPrimarySidebar("twofa")}>
+            <ShieldCheck size={20} />
           </SidebarIconButton>
           <SidebarIconButton label="Notes" active={activeSidebarView === "notes"} onClick={() => handleSwitchPrimarySidebar("notes")}>
             <BookOpenText size={20} />
@@ -4037,8 +4097,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
               <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--vscode-foreground)]/58">
                 {activeSidebarView === "explorer"
                   ? "Explorer"
-                  : activeSidebarView === "flows"
-                    ? "Flows"
+                  : activeSidebarView === "twofa"
+                    ? "2FA Vault"
                   : activeSidebarView === "notes"
                     ? "Notes"
                     : activeSidebarView === "terminal"
@@ -4091,8 +4151,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                       }}
                     >
                       <button type="button" className="flex min-w-0 flex-1 items-center gap-2 truncate text-left" onClick={() => setActiveTabId(tab.id)}>
+                        <TabIcon tab={tab} projects={projects} commandsByProjectId={commandsByProjectId} />
                         <MiddleEllipsisText text={tab.title} endLength={6} />
-                        {tab.kind === "flow" && flowDirtyById[tab.flowId] ? <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--vscode-foreground)]" aria-label="Unsaved changes" /> : null}
                         {pinnedTabIds.has(tab.id) ? <Pin size={11} className="shrink-0 text-[var(--vscode-icon)]" aria-label="Pinned" /> : null}
                       </button>
                       {tab.kind !== "welcome" ? (
@@ -4226,59 +4286,43 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
             });
         }}
       />
-      <FlowFormDialog
-        open={flowDialogProject !== null}
-        projectName={flowDialogProject?.name ?? null}
-        isPending={isCreatingFlow}
-        error={flowCreationError}
-        onOpenChange={(open) => {
-          if (!open && !isCreatingFlow) {
-            setFlowDialogProject(null);
-            setFlowCreationError(null);
-          }
-        }}
-        onSubmit={(name) => {
-          if (flowDialogProject) void submitFlow(flowDialogProject, name);
-        }}
-      />
-      <FlowFormDialog
-        mode="edit"
-        open={editingFlow !== null}
-        projectName={editingFlow ? findProjectById(projects, editingFlow.project_id)?.name ?? null : null}
-        flowName={editingFlow?.name}
-        isPending={updateFlowMutation.isPending}
-        error={updateFlowMutation.error instanceof Error ? updateFlowMutation.error.message : null}
-        onOpenChange={(open) => {
-          if (!open && !updateFlowMutation.isPending) setEditingFlow(null);
-        }}
-        onSubmit={(name) => {
-          if (editingFlow) updateFlowMutation.mutate({ id: editingFlow.id, name });
-        }}
-      />
       <ProjectNoteDialog
         mode="edit"
         open={editingSidebarNote !== null}
-        onOpenChange={(open) => { if (!open) setEditingSidebarNote(null); }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingSidebarNote(null);
+            setEditingSidebarNoteError(null);
+          }
+        }}
         projectName={editingSidebarNote?.project.name ?? "this project"}
         value={editingSidebarNote ? { title: editingSidebarNote.note.title, content: editingSidebarNote.note.content } : { title: "", content: "" }}
         onValueChange={(field, value) => {
           setEditingSidebarNote((current) => current ? { ...current, note: { ...current.note, [field]: value } } : current);
         }}
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          if (!editingSidebarNote || !editingSidebarNote.note.title.trim() || !editingSidebarNote.note.content.trim()) return;
-          onEditProjectNote(editingSidebarNote.project.id, editingSidebarNote.note.id, editingSidebarNote.note.title, editingSidebarNote.note.content);
-          setEditingSidebarNote(null);
+          setEditingSidebarNoteError(null);
+          if (!editingSidebarNote || !editingSidebarNote.note.title.trim() || !editingSidebarNote.note.content.trim()) {
+            setEditingSidebarNoteError("Both title and content are required.");
+            return;
+          }
+          try {
+            await onEditProjectNote(
+              editingSidebarNote.project.id,
+              editingSidebarNote.note.id,
+              editingSidebarNote.note.title.trim(),
+              editingSidebarNote.note.content.trim(),
+            );
+            setEditingSidebarNote(null);
+            setEditingSidebarNoteError(null);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err || "Failed to update note");
+            setEditingSidebarNoteError(message);
+          }
         }}
         isSaving={isSavingNotes}
-      />
-      <ConfirmDialog
-        open={flowToDelete !== null}
-        onOpenChange={(open) => { if (!open) setFlowToDelete(null); }}
-        title="Delete flow"
-        description={`Delete flow “${flowToDelete?.name ?? ""}”? This cannot be undone.`}
-        confirmLabel="Delete flow"
-        onConfirm={() => { if (flowToDelete) onDeleteFlow(flowToDelete); }}
+        errorMessage={editingSidebarNoteError}
       />
       <ConfirmDialog
         open={sectionToDelete !== null}
@@ -4293,17 +4337,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
           void onDeleteSection(sectionToDelete.project.id, sectionToDelete.section.id)
             .then(() => setSectionToDelete(null))
             .catch(() => undefined);
-        }}
-      />
-      <ConfirmDialog
-        open={pendingTabCloseIds !== null}
-        onOpenChange={(open) => { if (!open) setPendingTabCloseIds(null); }}
-        title="Discard unsaved flow changes?"
-        description="One or more flow tabs have changes that have not been saved. Closing them will discard those changes."
-        confirmLabel="Discard and close"
-        onConfirm={() => {
-          if (pendingTabCloseIds) closeTabsNow(pendingTabCloseIds);
-          setPendingTabCloseIds(null);
         }}
       />
     </>

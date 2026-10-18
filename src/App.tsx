@@ -26,7 +26,8 @@ import { VSCodeShell, type VSCodeShellHandle } from "./components/vscode-shell";
 import { resolveTerminalFontFamilyValue, useAppPreferences } from "./hooks/use-app-preferences";
 import { useCommandSections } from "./hooks/use-command-sections";
 import { useCommandRuntime } from "./hooks/use-command-runtime";
-import { useFlowRuntime } from "./hooks/use-flow-runtime";
+import { ProjectDeleteDialog } from "./components/twofa/project-delete-dialog";
+import { useTwofa } from "./components/twofa/TwofaProvider";
 import { usePrdImportFlow } from "./hooks/use-prd-import-flow";
 import { useProjectNotes } from "./hooks/use-project-notes";
 import { useAppUpdater } from "./hooks/use-app-updater";
@@ -354,6 +355,7 @@ function App() {
   } = useAppPreferences();
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [editingCommand, setEditingCommand] = useState<ProjectCommand | null>(null);
   const [commandDialogProjectId, setCommandDialogProjectId] = useState<number | null>(null);
   const [commandDialogPreset, setCommandDialogPreset] = useState<{
@@ -645,25 +647,7 @@ function App() {
     [commandQueries, projects],
   );
 
-  const flowQueries = useQueries({
-    queries: projects.map((project) => ({
-      queryKey: ["flows", project.id],
-      queryFn: () => api.listFlows(project.id),
-      enabled: isDesktopRuntime(),
-    })),
-  });
-
-  const flowsByProjectId = useMemo(
-    () =>
-      projects.reduce<Record<number, import("./lib/api").ProjectFlow[]>>((acc, project, index) => {
-        const query = flowQueries[index];
-        if (query?.data !== undefined) {
-          acc[project.id] = query.data;
-        }
-        return acc;
-      }, {}),
-    [flowQueries, projects],
-  );
+  const { accounts: twofaAccounts } = useTwofa();
 
   const allCommands = useMemo(() => Object.values(commandsByProjectId).flat(), [commandsByProjectId]);
 
@@ -723,9 +707,12 @@ function App() {
   });
 
   const deleteProjectMutation = useMutation({
-    mutationFn: api.deleteProject,
-    onSuccess: (_, id) => {
+    mutationFn: ({ id, deleteExclusive2fa }: { id: number; deleteExclusive2fa?: boolean }) =>
+      api.deleteProject(id, deleteExclusive2fa),
+    onSuccess: (_, variables) => {
+      const id = variables.id;
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["twofa-accounts"] });
       setSelectedProjectId((current) => (current === id ? null : current));
       setCommandDialogProjectId((current) => (current === id ? null : current));
       setExportProjectId((current) => (current === id ? null : current));
@@ -800,8 +787,8 @@ function App() {
     handleToggleProjectNoteVisibility,
   } = useProjectNotes({
     projects,
-    onPersist: (projectId, input, successTitle) => {
-      projectNotesMutation.mutate({ id: projectId, input, successTitle });
+    onPersist: async (projectId, input, successTitle) => {
+      await projectNotesMutation.mutateAsync({ id: projectId, input, successTitle });
     },
   });
 
@@ -823,7 +810,6 @@ function App() {
     runs,
     terminalContentByCommandId,
     adHocInteractiveCommands,
-    flowExecutionCommands,
     interactiveSessionsByCommandId,
     openLogCommandIds,
     activeLogCommandId,
@@ -836,7 +822,6 @@ function App() {
     setKillPortsDialogOpen,
     killingPorts,
     startCommandRun,
-    startFlowNodeRun,
     handleRestartCommand,
     handleKillPortsClick,
     handleKillProcesses,
@@ -857,17 +842,9 @@ function App() {
     onError: showError,
   });
 
-  const { flowRuns, runFlow, stopFlow, clearFlowRuntime } = useFlowRuntime({
-    commandsByProjectId,
-    runs,
-    startFlowNodeRun,
-    stopCommandByCommandId,
-    onError: showError,
-  });
-
   const allCommandsWithAdHocTerminals = useMemo(
-    () => [...allCommands, ...adHocInteractiveCommands, ...flowExecutionCommands],
-    [adHocInteractiveCommands, allCommands, flowExecutionCommands],
+    () => [...allCommands, ...adHocInteractiveCommands],
+    [adHocInteractiveCommands, allCommands],
   );
 
   const {
@@ -917,20 +894,20 @@ function App() {
     if (result === "up-to-date") {
       setConfirmDialog({
         isOpen: true,
-        title: "Kiểm tra cập nhật",
-        description: "Không có bản cập nhật mới.",
+        title: "Check for Updates",
+        description: "You're up to date! No new updates are available.",
         confirmLabel: "OK",
-        cancelLabel: "Đóng",
+        cancelLabel: "Close",
         isDestructive: false,
         onConfirm: () => {},
       });
     } else if (result === "error") {
       setConfirmDialog({
         isOpen: true,
-        title: "Không thể kiểm tra cập nhật",
-        description: "Không thể kiểm tra, vui lòng thử lại sau.",
+        title: "Update Check Failed",
+        description: "Unable to check for updates. Please try again later.",
         confirmLabel: "OK",
-        cancelLabel: "Đóng",
+        cancelLabel: "Close",
         isDestructive: false,
         onConfirm: () => {},
       });
@@ -1043,11 +1020,11 @@ function App() {
       buildTitlebarSearchCollections({
         projects,
         commandsByProjectId,
-        flowsByProjectId,
+        twofaAccounts,
         notesByProjectId: sortedProjectNotesById,
         noteVisibility,
       }),
-    [commandsByProjectId, flowsByProjectId, noteVisibility, projects, sortedProjectNotesById],
+    [commandsByProjectId, noteVisibility, projects, sortedProjectNotesById, twofaAccounts],
   );
 
   function handleTitlebarSearchSelect(item: TitlebarSearchItem) {
@@ -1061,12 +1038,12 @@ function App() {
       return;
     }
 
-    if (item.kind === "flow") {
-      shellRef.current?.openFlow(item.projectId, item.flowId);
+    if (item.kind === "twofa") {
+      shellRef.current?.openTwofa(item.accountId);
       return;
     }
 
-      shellRef.current?.openNote(item.projectId, item.noteId);
+    shellRef.current?.openNote(item.projectId, item.noteId);
   }
 
   const interactiveTerminalOptions =
@@ -1120,20 +1097,6 @@ function App() {
             selectedProjectId={selectedProject?.id ?? null}
             commands={allCommandsWithAdHocTerminals}
             commandsByProjectId={commandsByProjectId}
-            flowsByProjectId={flowsByProjectId}
-            flowRuns={flowRuns}
-            onRunFlow={(flow) => { void runFlow(flow); }}
-            onStopFlow={stopFlow}
-            onDeleteFlow={(flow) => {
-              if (["starting", "running", "degraded"].includes(flowRuns[flow.id]?.status ?? "idle")) {
-                showError(new Error("Stop this flow before deleting it."));
-                return;
-              }
-              void api.deleteFlow(flow.id).then(() => {
-                clearFlowRuntime(flow.id);
-                return queryClient.invalidateQueries({ queryKey: ["flows", flow.project_id] });
-              }).catch(showError);
-            }}
             commandSectionsByProjectId={commandSectionsByProjectId}
             settingsProps={settingsProps}
             updateStatus={appUpdater.status}
@@ -1190,6 +1153,9 @@ function App() {
             onEditProject={(project) => {
               setSelectedProjectId(project.id);
               openProjectDialog(project);
+            }}
+            onDeleteProject={(project) => {
+              setProjectToDelete(project);
             }}
             onAddCommand={(projectId, defaultSectionName, preset) => {
               openCommandDialog(undefined, defaultSectionName, projectId, preset ?? null);
@@ -1249,18 +1215,8 @@ function App() {
           onProjectDialogOpenChange={setProjectDialogOpen}
           projectDialogPending={projectMutation.isPending}
           onDeleteProject={(project) => {
-            setConfirmDialog({
-              isOpen: true,
-              title: "Delete Project",
-              description: `Are you sure you want to delete "${project.name}"? This action cannot be undone and all associated commands will be permanently removed.`,
-              confirmLabel: "Delete Project",
-              cancelLabel: "Cancel",
-              isDestructive: true,
-              onConfirm: () => {
-                deleteProjectMutation.mutate(project.id);
-                setProjectDialogOpen(false);
-              },
-            });
+            setProjectDialogOpen(false);
+            setProjectToDelete(project);
           }}
           onProjectError={showError}
           onProjectSubmit={(input) =>
@@ -1331,6 +1287,19 @@ function App() {
           onKillProcesses={handleKillProcesses}
           isKillingPorts={killingPorts}
           onRefreshProcesses={handleRefreshProcesses}
+        />
+
+        <ProjectDeleteDialog
+          open={projectToDelete !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setProjectToDelete(null);
+            }
+          }}
+          project={projectToDelete}
+          onConfirm={async (projectId, deleteExclusive2fa) => {
+            await deleteProjectMutation.mutateAsync({ id: projectId, deleteExclusive2fa });
+          }}
         />
 
         <UpdateDialog

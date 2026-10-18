@@ -106,10 +106,26 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
-            xdg-utils
+            xdg-utils \
+            libxss-dev \
+            libdbus-1-dev \
+            pkg-config \
+            libclang-dev \
+            libx11-dev \
+            libxtst-dev
 
       - name: Install npm dependencies
         run: npm ci
+
+      - name: Verify TypeScript bindings
+        run: npm run bindings:check
+
+      - name: Run frontend tests
+        run: npm test
+
+      - name: Run backend tests
+        if: matrix.platform != 'macos' || runner.arch == 'arm64'
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Validate release metadata
         run: npm run release:check

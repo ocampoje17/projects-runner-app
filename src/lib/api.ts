@@ -1,7 +1,31 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { normalizeCommandScript } from "./command-utils";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "./interactive-terminal";
 import { parseProjectNotes, serializeProjectNotes } from "./project-notes";
+export type * from "../types/generated/twofa";
+export type * from "../types/generated/terminal";
+import type {
+  TwofaVaultStatus,
+  TwofaVaultSettings,
+  TwofaAccountSummary,
+  TwofaAccountInput,
+  TwofaAccountSecretPayload,
+  TwofaCodeBatch,
+  TwofaCopyResult,
+  TwofaScanScreenResult,
+  TwofaImportPreview,
+  CommitImportItemSelection,
+  TwofaImportCommitResult,
+  ProjectDelete2faPreview,
+  TwofaSecurityError,
+} from "../types/generated/twofa";
+import type {
+  InteractiveSessionInfo,
+  TerminalChannelEvent,
+} from "../types/generated/terminal";
+
+export type TwofaCopyCodeResult = TwofaCopyResult;
+export type InteractiveSession = InteractiveSessionInfo;
 
 const BROWSER_PREVIEW_ONLY_MESSAGE = "This action is only available in the desktop app.";
 const BROWSER_MOCK_STORAGE_KEY = "projects-runner:browser-mock-data";
@@ -178,6 +202,61 @@ async function invokeDesktop<T>(command: string, args?: Record<string, unknown>)
   return invoke<T>(command, args);
 }
 
+export class TwofaApiError extends Error {
+  code: string;
+  details: string | null;
+
+  constructor(code: string, message: string, details?: string | null) {
+    super(message);
+    this.name = "TwofaApiError";
+    this.code = code;
+    this.details = details ?? null;
+  }
+}
+
+export function parseTwofaSecurityError(err: unknown): TwofaSecurityError {
+  if (err instanceof TwofaApiError) {
+    return {
+      code: err.code,
+      message: err.message,
+      details: err.details,
+    };
+  }
+  if (typeof err === "object" && err !== null && "code" in err && "message" in err) {
+    const obj = err as Record<string, unknown>;
+    return {
+      code: String(obj.code),
+      message: String(obj.message),
+      details: typeof obj.details === "string" ? obj.details : null,
+    };
+  }
+  const rawMsg = err instanceof Error ? err.message : String(err ?? "Unknown error");
+  if (rawMsg.includes(": ")) {
+    const idx = rawMsg.indexOf(": ");
+    const code = rawMsg.slice(0, idx).trim();
+    const rest = rawMsg.slice(idx + 2).trim();
+    return {
+      code,
+      message: rest,
+      details: null,
+    };
+  }
+  return {
+    code: "UNKNOWN",
+    message: rawMsg,
+    details: null,
+  };
+}
+
+async function invokeTwofa<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await invokeDesktop<T>(command, args);
+  } catch (err) {
+    const parsed = parseTwofaSecurityError(err);
+    throw new TwofaApiError(parsed.code, parsed.message, parsed.details);
+  }
+}
+
 export type Project = {
   id: number;
   name: string;
@@ -226,39 +305,8 @@ export type CommandRun = {
   started_at: string;
   ended_at: string | null;
   exit_code: number | null;
-  flow_node_id: string | null;
 };
 
-export type FlowNodeRunStart = {
-  run: CommandRun;
-  interactive_session: InteractiveSession | null;
-};
-
-export type ProjectFlow = {
-  id: number;
-  project_id: number;
-  name: string;
-  created_at: string;
-  updated_at: string;
-  node_count?: number;
-};
-
-export type FlowNode = {
-  id: string;
-  flow_id: number;
-  command_id: number;
-  position_x: number;
-  position_y: number;
-};
-
-export type FlowEdge = {
-  id: string;
-  flow_id: number;
-  source_node_id: string;
-  target_node_id: string;
-};
-
-export type FlowDetail = { flow: ProjectFlow; nodes: FlowNode[]; edges: FlowEdge[] };
 export type ProjectFileEntry = {
   name: string;
   relative_path: string;
@@ -279,11 +327,6 @@ export type DevProjectTypeScan = { detected_type_ids: string[]; evidence: Record
 export type DevCacheCandidate = { id: string; relative_path: string; size_bytes: number; file_count: number; project_type_ids: string[]; is_dependency?: boolean };
 export type DevCacheCleanFailure = { id: string; relative_path: string; error: string };
 export type DevCacheCleanResult = { deleted_ids: string[]; failed_items: DevCacheCleanFailure[]; freed_bytes: number };
-export type FlowGraphInput = {
-  name: string;
-  nodes: Array<Pick<FlowNode, "id" | "command_id" | "position_x" | "position_y">>;
-  edges: Array<Pick<FlowEdge, "id" | "source_node_id" | "target_node_id">>;
-};
 
 export type ProjectInput = {
   name: string;
@@ -433,21 +476,10 @@ export type StopCommandResult = {
   was_active: boolean;
 };
 
-export type InteractiveSession = {
-  session_id: string;
-  run_id: number;
-  command_id: number;
-  flow_node_id: string | null;
-  cols: number;
-  rows: number;
-  started_at: string;
-};
-
 export type InteractiveSessionExitedPayload = {
   session_id: string;
   run_id: number;
   command_id: number;
-  flow_node_id: string | null;
   exit_code: number | null;
   ended_at: string;
   status: string;
@@ -457,7 +489,6 @@ export type InteractiveSessionDataPayload = {
   session_id: string;
   run_id: number;
   command_id: number;
-  flow_node_id: string | null;
   data: string;
 };
 
@@ -465,28 +496,24 @@ export type InteractiveSessionErrorPayload = {
   session_id: string;
   run_id: number;
   command_id: number;
-  flow_node_id: string | null;
   error: string;
 };
 
 export type RunStartedPayload = {
   run_id: number;
   command_id: number;
-  flow_node_id: string | null;
   started_at: string;
 };
 
 export type RunOutputPayload = {
   run_id: number;
   command_id: number;
-  flow_node_id: string | null;
   line: string;
 };
 
 export type RunFinishedPayload = {
   run_id: number;
   command_id: number;
-  flow_node_id: string | null;
   status: string;
   exit_code: number | null;
   ended_at: string;
@@ -504,7 +531,8 @@ export const api = {
     invokeDesktop<Project>("create_project", { input }),
   updateProject: (id: number, input: ProjectInput) =>
     invokeDesktop<Project>("update_project", { id, input }),
-  deleteProject: (id: number) => invokeDesktop<void>("delete_project", { id }),
+  deleteProject: (id: number, deleteExclusive2fa?: boolean) =>
+    invokeDesktop<void>("delete_project", { id, deleteExclusive2fa: deleteExclusive2fa ?? false }),
   listProjectFiles: (projectId: number, relativePath = "") =>
     invokeDesktop<ProjectFileEntry[]>("list_project_files", { projectId, relativePath }),
   listProjectFilesPage: (projectId: number, relativePath = "", offset = 0, limit = 64) =>
@@ -571,14 +599,194 @@ export const api = {
   renameCommandSection: (id: number, name: string) =>
     invokeDesktop<ProjectCommandSection>("rename_command_section", { id, input: { name } }),
   deleteCommandSection: (id: number) => invokeDesktop<void>("delete_command_section", { id }),
-  listFlows: (projectId: number) => invokeDesktop<ProjectFlow[]>("list_flows", { projectId }),
-  getFlow: (id: number) => invokeDesktop<FlowDetail>("get_flow", { id }),
-  createFlow: (projectId: number, name: string) => invokeDesktop<ProjectFlow>("create_flow", { input: { project_id: projectId, name } }),
-  updateFlow: (id: number, name: string) => invokeDesktop<ProjectFlow>("update_flow", { id, input: { name } }),
-  saveFlowGraph: (id: number, input: FlowGraphInput) => invokeDesktop<FlowDetail>("save_flow_graph", { id, input }),
-  deleteFlow: (id: number) => invokeDesktop<void>("delete_flow", { id }),
-  startFlowNode: (flowId: number, flowNodeId: string, cols = 120, rows = 32) =>
-    invokeDesktop<FlowNodeRunStart>("start_flow_node", { flowId, flowNodeId, cols, rows }),
+  twofaGetStatus: () => invokeTwofa<TwofaVaultStatus>("twofa_get_status"),
+  twofaSetupVault: (
+    password: string,
+    lockEnabled: boolean,
+    pin?: string | null,
+    settings?: TwofaVaultSettings | null,
+  ) =>
+    invokeTwofa<TwofaVaultStatus>("twofa_setup_vault", {
+      password,
+      lockEnabled,
+      pin: pin ?? null,
+      settings: settings ?? null,
+    }),
+  twofaUnlockVault: (password: string, operationId?: string | null) =>
+    invokeTwofa<TwofaVaultStatus>("twofa_unlock_vault", { password, operationId: operationId ?? null }),
+  twofaTryAutoUnlock: () =>
+    invokeTwofa<TwofaVaultStatus>("twofa_try_auto_unlock"),
+  twofaUnlockWithPin: (pin: string, operationId?: string | null) =>
+    invokeTwofa<TwofaVaultStatus>("twofa_unlock_with_pin", { pin, operationId: operationId ?? null }),
+  twofaCancelAuth: (operationId: string) =>
+    invokeTwofa<void>("twofa_cancel_auth", { operationId }),
+  twofaCleanupSetup: () =>
+    invokeTwofa<TwofaVaultStatus>("twofa_cleanup_setup"),
+  twofaLockVault: () => invokeTwofa<TwofaVaultStatus>("twofa_lock_vault"),
+  twofaSetLockEnabled: (
+    lockEnabled: boolean,
+    masterPassword: string,
+    expectedSessionId: string,
+    expectedRevision: number,
+  ) =>
+    invokeTwofa<TwofaVaultStatus>("twofa_set_lock_enabled", {
+      lockEnabled,
+      masterPassword,
+      expectedSessionId,
+      expectedRevision,
+    }),
+  twofaSetPin: (
+    pin: string,
+    masterPassword: string,
+    expectedSessionId: string,
+    expectedRevision: number,
+  ) =>
+    invokeTwofa<TwofaVaultStatus>("twofa_set_pin", {
+      pin,
+      masterPassword,
+      expectedSessionId,
+      expectedRevision,
+    }),
+  twofaRemovePin: (
+    masterPassword: string,
+    expectedSessionId: string,
+    expectedRevision: number,
+  ) =>
+    invokeTwofa<TwofaVaultStatus>("twofa_remove_pin", {
+      masterPassword,
+      expectedSessionId,
+      expectedRevision,
+    }),
+  twofaChangePassword: (
+    oldPassword: string,
+    newPassword: string,
+    expectedSessionId: string,
+    expectedRevision: number,
+  ) =>
+    invokeTwofa<TwofaVaultStatus>("twofa_change_password", {
+      oldPassword,
+      newPassword,
+      expectedSessionId,
+      expectedRevision,
+    }),
+  twofaUpdateSettings: (
+    settings: TwofaVaultSettings,
+    expectedSessionId: string,
+    expectedRevision: number,
+  ) =>
+    invokeTwofa<TwofaVaultStatus>("twofa_update_settings", {
+      settings,
+      expectedSessionId,
+      expectedRevision,
+    }),
+  twofaRetryRecovery: (
+    masterPassword: string,
+    expectedSessionId: string,
+    expectedRevision: number,
+  ) =>
+    invokeTwofa<TwofaVaultStatus>("twofa_retry_recovery", {
+      masterPassword,
+      expectedSessionId,
+      expectedRevision,
+    }),
+  twofaTouchActivity: (expectedSessionId: string) =>
+    invokeTwofa<void>("twofa_touch_activity", { expectedSessionId }),
+  twofaListAccounts: (expectedSessionId: string, projectId?: number, unassignedOnly?: boolean, search?: string) =>
+    invokeTwofa<TwofaAccountSummary[]>("twofa_list_accounts", {
+      expectedSessionId,
+      projectId: projectId ?? null,
+      unassignedOnly: unassignedOnly ?? false,
+      search: search ?? null,
+    }),
+  twofaGetCodes: (expectedSessionId: string, accountIds?: string[]) =>
+    invokeTwofa<TwofaCodeBatch>("twofa_get_codes", { expectedSessionId, accountIds: accountIds ?? null }),
+  twofaCreateAccount: (input: TwofaAccountInput, expectedSessionId: string) =>
+    invokeTwofa<TwofaAccountSummary>("twofa_create_account", { input, expectedSessionId }),
+  twofaUpdateAccount: (id: string, input: TwofaAccountInput, expectedSessionId: string) =>
+    invokeTwofa<TwofaAccountSummary>("twofa_update_account", { id, input, expectedSessionId }),
+  twofaDeleteAccount: (id: string, expectedSessionId: string) =>
+    invokeTwofa<void>("twofa_delete_account", { id, expectedSessionId }),
+  twofaGetAccountSecret: (id: string, expectedSessionId: string) =>
+    invokeTwofa<TwofaAccountSecretPayload>("twofa_get_account_secret", { id, expectedSessionId }),
+  twofaGetAccountQr: (id: string, expectedSessionId: string) =>
+    invokeTwofa<string>("twofa_get_account_qr", { id, expectedSessionId }),
+  twofaSaveQrPng: (id: string, expectedSessionId: string) =>
+    invokeTwofa<boolean>("twofa_save_qr_png", {
+      id,
+      expectedSessionId,
+    }),
+  twofaCopyCode: (accountId: string, expectedSessionId: string) =>
+    invokeTwofa<TwofaCopyCodeResult>("twofa_copy_code", {
+      accountId,
+      expectedSessionId,
+    }),
+  twofaScanScreenQr: (expectedSessionId: string) =>
+    invokeTwofa<TwofaScanScreenResult>("twofa_scan_screen_qr", {
+      expectedSessionId,
+    }),
+  twofaScanImageQr: (imageDataBase64: string, expectedSessionId: string) =>
+    invokeTwofa<TwofaAccountSecretPayload[]>("twofa_scan_image_qr", {
+      imageDataBase64,
+      expectedSessionId,
+    }),
+  twofaPickAndScanImageQr: (expectedSessionId: string) =>
+    invokeTwofa<TwofaAccountSecretPayload[]>("twofa_pick_and_scan_image_qr", {
+      expectedSessionId,
+    }),
+  twofaPreviewImport: (uris: string[], expectedSessionId: string) =>
+    invokeTwofa<TwofaImportPreview>("twofa_preview_import", {
+      uris,
+      expectedSessionId,
+    }),
+  twofaPreviewImportFromImage: (imageDataBase64: string, expectedSessionId: string) =>
+    invokeTwofa<TwofaImportPreview>("twofa_preview_import_from_image", {
+      imageDataBase64,
+      expectedSessionId,
+    }),
+  twofaPreviewImportFromImageDialog: (expectedSessionId: string) =>
+    invokeTwofa<TwofaImportPreview>("twofa_preview_import_from_image_dialog", {
+      expectedSessionId,
+    }),
+  twofaPreviewImportFromScreen: (expectedSessionId: string) =>
+    invokeTwofa<TwofaImportPreview>("twofa_preview_import_from_screen", {
+      expectedSessionId,
+    }),
+  twofaCancelImportPreview: (previewId: string, expectedSessionId: string) =>
+    invokeTwofa<void>("twofa_cancel_import_preview", {
+      previewId,
+      expectedSessionId,
+    }),
+  twofaImportAccounts: (
+    previewId: string,
+    selections: CommitImportItemSelection[],
+    expectedSessionId: string,
+  ) =>
+    invokeTwofa<TwofaImportCommitResult>("twofa_import_accounts", {
+      previewId,
+      selections,
+      expectedSessionId,
+    }),
+  twofaExportPlaintext: (expectedSessionId: string) =>
+    invokeTwofa<boolean>("twofa_export_plaintext", {
+      expectedSessionId,
+    }),
+  twofaExportEncryptedBackup: (password: string, expectedSessionId: string) =>
+    invokeTwofa<boolean>("twofa_export_encrypted_backup", {
+      password,
+      expectedSessionId,
+    }),
+  twofaImportEncryptedBackup: (
+    backupContent: string,
+    password: string,
+    expectedSessionId: string,
+  ) =>
+    invokeTwofa<TwofaImportPreview>("twofa_import_encrypted_backup", {
+      backupContent,
+      password,
+      expectedSessionId,
+    }),
+  twofaPreviewProjectDeletion: (projectId: number) =>
+    invokeTwofa<ProjectDelete2faPreview>("twofa_preview_project_deletion", { projectId }),
   createCommand: (input: CommandInput) =>
     invokeDesktop<ProjectCommand>("create_command", { input }),
   updateCommand: (id: number, input: CommandInput) =>
@@ -589,18 +797,51 @@ export const api = {
   restartCommand: (commandId: number) =>
     invokeDesktop<CommandRun>("restart_command", { commandId }),
   stopCommand: (runId: number) => invokeDesktop<StopCommandResult>("stop_command", { runId }),
-  startInteractiveCommand: (commandId: number, cols: number, rows: number) =>
-    invokeDesktop<InteractiveSession>("start_interactive_command", { commandId, cols, rows }),
-  startProjectInteractiveTerminal: (projectPath: string, terminalId: number, terminalKind: InteractiveTerminalKind, cols: number, rows: number) =>
-    invokeDesktop<InteractiveSession>("start_project_interactive_terminal", { projectPath, terminalId, terminalKind, cols, rows }),
+  startInteractiveCommand: (
+    commandId: number,
+    cols: number,
+    rows: number,
+    onEvent?: Channel<TerminalChannelEvent>,
+  ) =>
+    invokeDesktop<InteractiveSessionInfo>("start_interactive_command", { commandId, cols, rows, onEvent }),
+  startProjectInteractiveTerminal: (
+    projectPath: string,
+    terminalId: number,
+    terminalKind: InteractiveTerminalKind,
+    cols: number,
+    rows: number,
+    onEvent?: Channel<TerminalChannelEvent>,
+  ) =>
+    invokeDesktop<InteractiveSessionInfo>("start_project_interactive_terminal", {
+      projectPath,
+      terminalId,
+      terminalKind,
+      cols,
+      rows,
+      onEvent,
+    }),
+  ackTerminalOutput: (sessionId: string, generation: number, sequence: number, bytesProcessed: number) =>
+    invokeDesktop<void>("ack_terminal_output", {
+      payload: {
+        session_id: sessionId,
+        generation,
+        sequence,
+        bytes_processed: bytesProcessed,
+      },
+    }),
   writeInteractiveTerminal: (sessionId: string, data: string) =>
     invokeDesktop<void>("write_interactive_terminal", { sessionId, data }),
   resizeInteractiveTerminal: (sessionId: string, cols: number, rows: number) =>
     invokeDesktop<void>("resize_interactive_terminal", { sessionId, cols, rows }),
   stopInteractiveCommand: (sessionId: string) =>
     invokeDesktop<StopCommandResult>("stop_interactive_command", { sessionId }),
-  restartInteractiveCommand: (commandId: number, cols: number, rows: number) =>
-    invokeDesktop<InteractiveSession>("restart_interactive_command", { commandId, cols, rows }),
+  restartInteractiveCommand: (
+    commandId: number,
+    cols: number,
+    rows: number,
+    onEvent?: Channel<TerminalChannelEvent>,
+  ) =>
+    invokeDesktop<InteractiveSessionInfo>("restart_interactive_command", { commandId, cols, rows, onEvent }),
   listInteractiveTerminalOptions: () =>
     invokeDesktop<InteractiveTerminalOption[]>("list_interactive_terminal_options"),
   killPorts: (ports: number[]) => invokeDesktop<void>("kill_ports", { ports }),
