@@ -4288,6 +4288,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "which",
+ "x11rb",
  "xcap",
  "zeroize",
 ]

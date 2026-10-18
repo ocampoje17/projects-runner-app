@@ -732,7 +732,7 @@ pub fn detect_platform_capabilities() -> TwofaPlatformCapabilities {
     }
     #[cfg(target_os = "linux")]
     {
-        let can_idle = user_idle::UserIdle::get_time().is_ok();
+        let can_idle = get_os_idle_time().is_ok();
         if can_idle {
             TwofaPlatformCapabilities {
                 can_detect_os_idle: true,
@@ -760,10 +760,51 @@ pub fn detect_platform_capabilities() -> TwofaPlatformCapabilities {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 pub fn get_os_idle_time() -> Result<Duration, String> {
     match user_idle::UserIdle::get_time() {
         Ok(idle) => Ok(idle.duration()),
         Err(e) => Err(format!("Failed to get user idle: {:?}", e)),
+    }
+}
+
+// Use a checked Rust X11 connection: user-idle 0.6 dereferences a null display
+// when no X server is available (headless CI, native Wayland, or a lost session).
+#[cfg(target_os = "linux")]
+fn get_linux_idle_time(display: Option<&str>) -> Result<Duration, String> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::screensaver::ConnectionExt;
+
+    let (connection, screen_index) = x11rb::connect(display)
+        .map_err(|error| format!("Cannot connect to X11 for idle detection: {error}"))?;
+    let screen = connection.setup().roots.get(screen_index)
+        .ok_or_else(|| "X11 screen is unavailable".to_string())?;
+    let reply = connection.screensaver_query_info(screen.root)
+        .map_err(|error| format!("Cannot query X11 idle time: {error}"))?
+        .reply()
+        .map_err(|error| format!("Cannot read X11 idle time: {error}"))?;
+    Ok(Duration::from_millis(u64::from(reply.ms_since_user_input)))
+}
+
+#[cfg(target_os = "linux")]
+pub fn get_os_idle_time() -> Result<Duration, String> {
+    get_linux_idle_time(None)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_idle_tests {
+    #[test]
+    fn invalid_x11_display_returns_error_without_crashing() {
+        assert!(super::get_linux_idle_time(Some("invalid-display")).is_err());
+    }
+
+    #[test]
+    fn headless_vault_uses_conservative_locking() {
+        if std::env::var_os("DISPLAY").is_none() {
+            let state = super::TwofaVaultState::new();
+            assert!(!state.platform_capabilities.can_detect_os_idle);
+            assert!(state.platform_capabilities.is_conservative_mode);
+        }
     }
 }
 

@@ -1791,6 +1791,9 @@ mod tests {
         use std::time::{Duration, Instant};
 
         let mut state = TwofaVaultState::new();
+        // These cases simulate a platform with idle detection, independently of
+        // whether the test runner has a desktop session.
+        state.platform_capabilities.is_conservative_mode = false;
         let key = [42u8; 32];
         let mut settings = TwofaVaultSettings::default();
         settings.lock_time_setting = LockTimeSetting::FiveMinutes; // 300s
