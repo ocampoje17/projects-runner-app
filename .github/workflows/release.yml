@@ -111,6 +111,11 @@ jobs:
             libdbus-1-dev \
             pkg-config \
             libclang-dev \
+            libpipewire-0.3-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libwayland-dev \
+            libegl-dev \
             libx11-dev \
             libxtst-dev
 
