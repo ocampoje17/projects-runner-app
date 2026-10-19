@@ -1052,8 +1052,9 @@ fn build_interactive_pty_command(
     script_path: &Path,
     project_path: &Path,
     interactive_terminal_kind: &str,
+    keep_shell_open: bool,
 ) -> Result<PtyCommandBuilder, String> {
-    let cmd = match interactive_terminal_kind {
+    let mut cmd = match interactive_terminal_kind {
         INTERACTIVE_TERMINAL_KIND_CMD => {
             let mut cmd = PtyCommandBuilder::new("cmd.exe");
             cmd.arg("/Q");
@@ -1090,6 +1091,17 @@ fn build_interactive_pty_command(
         INTERACTIVE_TERMINAL_KIND_POWERSHELL | _ => build_pty_command(script_path),
     };
 
+    if keep_shell_open
+        && !matches!(
+            interactive_terminal_kind,
+            INTERACTIVE_TERMINAL_KIND_CMD
+                | INTERACTIVE_TERMINAL_KIND_BASH
+                | INTERACTIVE_TERMINAL_KIND_WSL2
+        )
+    {
+        // Insert before -File, whose remaining arguments belong to the script.
+        cmd.get_argv_mut().insert(1, OsString::from("-NoExit"));
+    }
     Ok(cmd)
 }
 
@@ -1098,6 +1110,7 @@ fn build_interactive_pty_command(
     script_path: &Path,
     _project_path: &Path,
     _interactive_terminal_kind: &str,
+    _keep_shell_open: bool,
 ) -> Result<PtyCommandBuilder, String> {
     Ok(build_pty_command(script_path))
 }
@@ -1504,6 +1517,59 @@ impl Utf8StreamDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn project_powershell_terminals_keep_shell_open_but_saved_commands_exit() {
+        for kind in [
+            INTERACTIVE_TERMINAL_KIND_POWERSHELL,
+            INTERACTIVE_TERMINAL_KIND_POWERSHELL_CORE,
+        ] {
+            for keep_shell_open in [false, true] {
+                let script = Path::new(r"C:\project with spaces\startup.ps1");
+                let command = build_interactive_pty_command(
+                    script,
+                    Path::new(r"C:\project with spaces"),
+                    kind,
+                    keep_shell_open,
+                )
+                .unwrap();
+                let args = command.get_argv();
+                assert_eq!(
+                    args[0],
+                    if kind == INTERACTIVE_TERMINAL_KIND_POWERSHELL {
+                        "powershell.exe"
+                    } else {
+                        "pwsh.exe"
+                    }
+                );
+                let no_exit = args.iter().position(|arg| arg == "-NoExit");
+                assert_eq!(no_exit.is_some(), keep_shell_open);
+                let file = args.iter().position(|arg| arg == "-File").unwrap();
+                assert_eq!(args[file + 1], script.as_os_str());
+                assert_eq!(file + 2, args.len());
+                if let Some(no_exit) = no_exit {
+                    assert!(no_exit < file);
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn keep_shell_open_does_not_change_cmd_bash_or_wsl_arguments() {
+        for kind in [
+            INTERACTIVE_TERMINAL_KIND_CMD,
+            INTERACTIVE_TERMINAL_KIND_BASH,
+            INTERACTIVE_TERMINAL_KIND_WSL2,
+        ] {
+            let script = Path::new(r"C:\project with spaces\startup.sh");
+            let project = Path::new(r"C:\project with spaces");
+            let command = build_interactive_pty_command(script, project, kind, false).unwrap();
+            let shell = build_interactive_pty_command(script, project, kind, true).unwrap();
+            assert_eq!(command.get_argv(), shell.get_argv());
+        }
+    }
 
     fn decode_utf8_chunks(chunks: &[&[u8]]) -> String {
         let mut decoder = Utf8StreamDecoder::default();
@@ -5835,13 +5901,17 @@ fn start_interactive_command(
             error.to_string()
         })?;
 
-    let mut pty_command =
-        build_interactive_pty_command(&script_path, &project_path, &interactive_terminal_kind)
-            .map_err(|e| {
-                state.terminal_supervisor.unreserve_command(command_id);
-                let _ = fs::remove_file(&script_path);
-                e
-            })?;
+    let mut pty_command = build_interactive_pty_command(
+        &script_path,
+        &project_path,
+        &interactive_terminal_kind,
+        false,
+    )
+    .map_err(|e| {
+        state.terminal_supervisor.unreserve_command(command_id);
+        let _ = fs::remove_file(&script_path);
+        e
+    })?;
     pty_command.cwd(project_path);
 
     state.terminal_supervisor.spawn_and_supervise(
@@ -5902,13 +5972,17 @@ fn start_project_interactive_terminal(
         e
     })?;
 
-    let mut pty_command =
-        build_interactive_pty_command(&script_path, &project_dir, &interactive_terminal_kind)
-            .map_err(|e| {
-                state.terminal_supervisor.unreserve_command(terminal_id);
-                let _ = fs::remove_file(&script_path);
-                e
-            })?;
+    let mut pty_command = build_interactive_pty_command(
+        &script_path,
+        &project_dir,
+        &interactive_terminal_kind,
+        true,
+    )
+    .map_err(|e| {
+        state.terminal_supervisor.unreserve_command(terminal_id);
+        let _ = fs::remove_file(&script_path);
+        e
+    })?;
     pty_command.cwd(project_dir);
 
     state.terminal_supervisor.spawn_and_supervise(

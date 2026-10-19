@@ -25,10 +25,48 @@ pub const SESSION_STOPPING: u8 = 2;
 pub const SESSION_EXITED: u8 = 3;
 pub const SESSION_FAILED: u8 = 4;
 
-const MAX_CHUNK_BYTES: usize = 32 * 1024; // 32 KiB
-const MAX_DEBOUNCE_MS: u64 = 8;
 const HIGH_WATERMARK_BYTES: usize = 1024 * 1024; // 1 MiB
 const LOW_WATERMARK_BYTES: usize = 256 * 1024; // 256 KiB
+
+// Deliver every read before attempting another blocking PTY read. A shell may
+// wait for a terminal response (for example CPR) before producing more output.
+fn read_pty_output(
+    mut reader: impl Read,
+    mut before_read: impl FnMut() -> bool,
+    mut on_output: impl FnMut(&[u8]),
+) -> std::io::Result<()> {
+    let mut buf = [0u8; 4096];
+    while before_read() {
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => on_output(&buf[..n]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn terminal_output_event(
+    session_id: &str,
+    generation: u64,
+    sequence: &AtomicU64,
+    unacked_bytes: &AtomicUsize,
+    bytes: &[u8],
+) -> TerminalChannelEvent {
+    unacked_bytes.fetch_add(bytes.len(), Ordering::SeqCst);
+    TerminalChannelEvent::Output {
+        session_id: session_id.to_owned(),
+        generation,
+        sequence: sequence.fetch_add(1, Ordering::SeqCst),
+        data: BASE64_STANDARD.encode(bytes),
+    }
+}
+
+fn close_pty_master(master: &Mutex<Option<Box<dyn MasterPty + Send>>>) {
+    let master = master.lock().ok().and_then(|mut master| master.take());
+    drop(master);
+}
 
 #[cfg(windows)]
 mod win_job {
@@ -156,7 +194,7 @@ pub struct ActiveSession {
     pub generation: u64,
     pub status: AtomicU8,
     pub script_path: PathBuf,
-    pub pty_master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
+    pub pty_master: Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>,
     pub pty_writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pub child_killer: Arc<Mutex<Box<dyn ChildKiller + Send + Sync>>>,
     pub unacked_bytes: Arc<AtomicUsize>,
@@ -304,6 +342,7 @@ impl TerminalSupervisor {
         }
         let session = self.get_session(session_id).ok_or("Terminal session not found")?;
         let master = session.pty_master.lock().map_err(|e| e.to_string())?;
+        let master = master.as_ref().ok_or("Terminal session is closing")?;
         master.resize(PtySize {
             rows,
             cols,
@@ -418,6 +457,9 @@ impl TerminalSupervisor {
             }
         };
 
+        // The master owns the console after spawning; do not retain the slave handle.
+        drop(pair.slave);
+
         let pid = child.process_id();
         #[cfg(windows)]
         let job_handle = pid.and_then(|p| win_job::WinJobHandle::create_and_assign(p).map(Arc::new));
@@ -433,7 +475,7 @@ impl TerminalSupervisor {
             generation,
             status: AtomicU8::new(SESSION_RUNNING),
             script_path: script_path.clone(),
-            pty_master: Arc::new(Mutex::new(pair.master)),
+            pty_master: Arc::new(Mutex::new(Some(pair.master))),
             pty_writer: Arc::new(Mutex::new(writer)),
             child_killer: Arc::new(Mutex::new(killer)),
             unacked_bytes: Arc::new(AtomicUsize::new(0)),
@@ -484,79 +526,52 @@ impl TerminalSupervisor {
         let session_for_reader = session.clone();
         let on_event_for_reader = on_event.clone();
         let reader_thread = std::thread::spawn(move || {
-            let mut buf = [0u8; 4096];
-            let mut accumulator = Vec::with_capacity(MAX_CHUNK_BYTES);
-            let mut last_flush = Instant::now();
-            let mut r = reader;
-
-            loop {
-                // Flow control wait if above high watermark
-                if session_for_reader.unacked_bytes.load(Ordering::SeqCst) >= HIGH_WATERMARK_BYTES {
-                    let (lock, cvar) = &*session_for_reader.flow_control;
-                    if let Ok(mut paused) = lock.lock() {
-                        *paused = true;
-                        while *paused && session_for_reader.status.load(Ordering::SeqCst) <= SESSION_STOPPING {
-                            let (new_guard, timeout_res) = cvar.wait_timeout(paused, Duration::from_millis(100)).unwrap();
-                            paused = new_guard;
-                            if timeout_res.timed_out() && session_for_reader.unacked_bytes.load(Ordering::SeqCst) < LOW_WATERMARK_BYTES {
-                                *paused = false;
-                                break;
+            let result = read_pty_output(
+                reader,
+                || {
+                    // Flow control wait if above high watermark
+                    if session_for_reader.unacked_bytes.load(Ordering::SeqCst) >= HIGH_WATERMARK_BYTES {
+                        let (lock, cvar) = &*session_for_reader.flow_control;
+                        if let Ok(mut paused) = lock.lock() {
+                            *paused = true;
+                            while *paused
+                                && session_for_reader.status.load(Ordering::SeqCst) <= SESSION_STOPPING
+                            {
+                                let (new_guard, timeout_res) = cvar
+                                    .wait_timeout(paused, Duration::from_millis(100))
+                                    .unwrap();
+                                paused = new_guard;
+                                if timeout_res.timed_out()
+                                    && session_for_reader.unacked_bytes.load(Ordering::SeqCst)
+                                        < LOW_WATERMARK_BYTES
+                                {
+                                    *paused = false;
+                                    break;
+                                }
                             }
                         }
                     }
-                }
 
-                if session_for_reader.status.load(Ordering::SeqCst) > SESSION_STOPPING {
-                    break;
-                }
-
-                match r.read(&mut buf) {
-                    Ok(0) => {
-                        // EOF
-                        if !accumulator.is_empty() {
-                            let seq = session_for_reader.sequence.fetch_add(1, Ordering::SeqCst);
-                            let encoded = BASE64_STANDARD.encode(&accumulator);
-                            let _ = on_event_for_reader.send(TerminalChannelEvent::Output {
-                                session_id: session_for_reader.session_id.clone(),
-                                generation: session_for_reader.generation,
-                                sequence: seq,
-                                data: encoded,
-                            });
-                            accumulator.clear();
-                        }
-                        break;
-                    }
-                    Ok(n) => {
-                        accumulator.extend_from_slice(&buf[..n]);
-                        let elapsed = last_flush.elapsed().as_millis() as u64;
-
-                        if accumulator.len() >= MAX_CHUNK_BYTES || elapsed >= MAX_DEBOUNCE_MS {
-                            let chunk_len = accumulator.len();
-                            session_for_reader.unacked_bytes.fetch_add(chunk_len, Ordering::SeqCst);
-                            let seq = session_for_reader.sequence.fetch_add(1, Ordering::SeqCst);
-                            let encoded = BASE64_STANDARD.encode(&accumulator);
-
-                            let _ = on_event_for_reader.send(TerminalChannelEvent::Output {
-                                session_id: session_for_reader.session_id.clone(),
-                                generation: session_for_reader.generation,
-                                sequence: seq,
-                                data: encoded,
-                            });
-
-                            accumulator.clear();
-                            last_flush = Instant::now();
-                        }
-                    }
-                    Err(e) => {
-                        let _ = on_event_for_reader.send(TerminalChannelEvent::Error {
-                            session_id: session_for_reader.session_id.clone(),
-                            generation: session_for_reader.generation,
-                            sequence: session_for_reader.sequence.fetch_add(1, Ordering::SeqCst),
-                            error: e.to_string(),
-                        });
-                        break;
-                    }
-                }
+                    session_for_reader.status.load(Ordering::SeqCst) <= SESSION_STOPPING
+                },
+                |bytes| {
+                    let event = terminal_output_event(
+                        &session_for_reader.session_id,
+                        session_for_reader.generation,
+                        &session_for_reader.sequence,
+                        &session_for_reader.unacked_bytes,
+                        bytes,
+                    );
+                    let _ = on_event_for_reader.send(event);
+                },
+            );
+            if let Err(error) = result {
+                let _ = on_event_for_reader.send(TerminalChannelEvent::Error {
+                    session_id: session_for_reader.session_id.clone(),
+                    generation: session_for_reader.generation,
+                    sequence: session_for_reader.sequence.fetch_add(1, Ordering::SeqCst),
+                    error: error.to_string(),
+                });
             }
         });
 
@@ -570,7 +585,12 @@ impl TerminalSupervisor {
             let wait_res = child.wait();
             let exit_code = wait_res.ok().map(|st| st.exit_code() as i32);
 
-            // Wait for reader thread to finish all PTY draining
+            // ConPTY keeps its output pipe open until the console is closed.
+            // Close the master while the reader is still draining; joining first
+            // waits forever for EOF even though the child has already exited.
+            close_pty_master(&session_for_wait.pty_master);
+
+            // Wait for reader thread to finish all PTY draining.
             let _ = reader_thread.join();
 
             let was_stopping = session_for_wait.status.load(Ordering::SeqCst) == SESSION_STOPPING;
@@ -629,5 +649,200 @@ impl TerminalSupervisor {
         });
 
         Ok(session_info)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+    use std::sync::mpsc::{self, Receiver};
+
+    // Each read after the first waits for the preceding output to be delivered.
+    // This models a shell waiting for CPR/input, without a permanently stuck test.
+    struct GatedReader {
+        chunks: VecDeque<Vec<u8>>,
+        delivered: Receiver<()>,
+        has_read: bool,
+    }
+
+    impl Read for GatedReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.has_read {
+                self.delivered
+                    .recv_timeout(Duration::from_secs(2))
+                    .map_err(|_| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "PTY output was held while attempting the next blocking read",
+                        )
+                    })?;
+            }
+            self.has_read = true;
+            let Some(chunk) = self.chunks.pop_front() else {
+                return Ok(0);
+            };
+            buf[..chunk.len()].copy_from_slice(&chunk);
+            Ok(chunk.len())
+        }
+    }
+
+    #[test]
+    fn small_cursor_query_is_delivered_before_next_read_or_eof() {
+        let (tx, rx) = mpsc::channel();
+        let reader = GatedReader {
+            chunks: VecDeque::from([b"\x1b[6n".to_vec()]),
+            delivered: rx,
+            has_read: false,
+        };
+        let mut output = Vec::new();
+        read_pty_output(
+            reader,
+            || true,
+            |bytes| {
+                output.extend_from_slice(bytes);
+                tx.send(()).unwrap();
+            },
+        )
+        .unwrap();
+        assert_eq!(output, b"\x1b[6n");
+    }
+
+    #[test]
+    fn output_preserves_split_utf8_ansi_sequence_and_unacked_byte_count() {
+        let expected = "\x1b[32mTiếng Việt\x1b[0m".as_bytes();
+        // One byte per read deliberately splits UTF-8 and escape sequences.
+        let chunks = expected.iter().map(|byte| vec![*byte]).collect();
+        let (tx, rx) = mpsc::channel();
+        let reader = GatedReader {
+            chunks,
+            delivered: rx,
+            has_read: false,
+        };
+        let sequence = AtomicU64::new(1);
+        let unacked = AtomicUsize::new(0);
+        let mut output = Vec::new();
+        let mut next_sequence = 1;
+        read_pty_output(
+            reader,
+            || true,
+            |bytes| {
+                let event = terminal_output_event("test-session", 42, &sequence, &unacked, bytes);
+                let TerminalChannelEvent::Output {
+                    session_id,
+                    generation,
+                    sequence,
+                    data,
+                } = event
+                else {
+                    panic!("expected an output event");
+                };
+                assert_eq!(session_id, "test-session");
+                assert_eq!(generation, 42);
+                assert_eq!(sequence, next_sequence);
+                next_sequence += 1;
+                output.extend(BASE64_STANDARD.decode(data).unwrap());
+                assert_eq!(unacked.load(Ordering::SeqCst), output.len());
+                tx.send(()).unwrap();
+            },
+        )
+        .unwrap();
+        assert_eq!(output, expected);
+        assert_eq!(unacked.load(Ordering::SeqCst), expected.len());
+        assert_eq!(sequence.load(Ordering::SeqCst), next_sequence);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn exited_child_closes_console_and_drains_tail_output() {
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 120,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut command = PtyCommandBuilder::new("cmd.exe");
+        command.args(["/D", "/Q", "/C", "echo qa-pty-drained"]);
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        let mut killer = child.clone_killer();
+        drop(pair.slave);
+        let reader = pair.master.try_clone_reader().unwrap();
+        let mut writer = pair.master.take_writer().unwrap();
+        let master = Mutex::new(Some(pair.master));
+        let (tx, rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let drain = std::thread::spawn(move || {
+                let mut output = Vec::new();
+                let result = read_pty_output(
+                    reader,
+                    || true,
+                    |bytes| {
+                        output.extend_from_slice(bytes);
+                        // ConPTY can request the terminal cursor during startup.
+                        if output.ends_with(b"\x1b[6n") {
+                            writer.write_all(b"\x1b[1;1R").unwrap();
+                            writer.flush().unwrap();
+                        }
+                    },
+                );
+                (result, output)
+            });
+            let status = child.wait().unwrap();
+            close_pty_master(&master);
+            tx.send((status.exit_code(), drain.join().unwrap()))
+                .unwrap();
+        });
+        let result = rx.recv_timeout(Duration::from_secs(10));
+        if result.is_err() {
+            let _ = killer.kill();
+        }
+        let (exit_code, (read_result, output)) =
+            result.expect("console did not deliver EOF after child exit");
+        worker.join().unwrap();
+        read_result.unwrap();
+        assert_eq!(exit_code, 0);
+        assert!(String::from_utf8_lossy(&output).contains("qa-pty-drained"));
+    }
+
+    #[test]
+    fn stopped_reader_does_not_read_or_emit() {
+        struct UnexpectedRead;
+        impl Read for UnexpectedRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("must check session status before reading");
+            }
+        }
+        read_pty_output(UnexpectedRead, || false, |_| panic!("unexpected output")).unwrap();
+    }
+
+    #[test]
+    fn interrupted_reads_retry_and_errors_preserve_preceding_output() {
+        struct FallibleReader(usize);
+        impl Read for FallibleReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.0 += 1;
+                match self.0 {
+                    1 => Err(std::io::ErrorKind::Interrupted.into()),
+                    2 => {
+                        buf[0] = b'x';
+                        Ok(1)
+                    }
+                    _ => Err(std::io::ErrorKind::BrokenPipe.into()),
+                }
+            }
+        }
+        let mut output = Vec::new();
+        let error = read_pty_output(
+            FallibleReader(0),
+            || true,
+            |bytes| {
+                output.extend_from_slice(bytes);
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        assert_eq!(output, b"x");
     }
 }
