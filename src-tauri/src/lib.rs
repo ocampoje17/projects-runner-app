@@ -1,5 +1,6 @@
 mod app_updates;
 mod dev_cache;
+pub mod data_sync;
 pub mod twofa;
 pub mod terminal_types;
 pub mod terminal_supervisor;
@@ -677,6 +678,7 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     )?;
     migrate_remove_flows(&mut conn)?;
     twofa::init_twofa_schema(&mut conn)?;
+    data_sync::init_schema(&mut conn)?;
     migrate_command_sections(&mut conn)?;
 
     sql_query(format!(
@@ -6632,6 +6634,7 @@ pub fn run() {
                 terminal_supervisor: terminal_supervisor.clone(),
             });
             app.manage(app_updates::UpdateState::default());
+            app.manage(data_sync::SyncService::default());
             let current_dir = std::env::current_dir().ok();
             for file_path in
                 collect_prd_paths_from_args(std::env::args_os().skip(1), current_dir.as_deref())
@@ -6676,6 +6679,12 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            data_sync::sync_get_status,
+            data_sync::sync_configure,
+            data_sync::sync_prepare,
+            data_sync::sync_commit,
+            data_sync::sync_cancel,
+            data_sync::sync_ack_preferences,
             list_projects,
             create_project,
             update_project,

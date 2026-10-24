@@ -1,4 +1,6 @@
 import type { AppInfo } from "../lib/api";
+import type { DataSyncController } from "../hooks/use-data-sync";
+import { SyncSettingsPanel } from "./data-sync";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import type { AccentColor, ThemePreference } from "../lib/theme";
 import type { MotionLevel } from "../lib/motion";
@@ -10,9 +12,10 @@ import {
   TwofaSettingsPanel,
 } from "./settings-panels";
 
-export type SettingsSectionId = "appearance" | "terminal" | "system" | "twofa";
+export type SettingsSectionId = "appearance" | "terminal" | "system" | "twofa" | "sync";
 
 export interface SettingsPageProps {
+  dataSync?: DataSyncController;
   appInfo?: AppInfo;
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
@@ -48,6 +51,7 @@ export interface SettingsPageProps {
 }
 
 export function SettingsPage({
+  dataSync,
   appInfo,
   theme,
   setTheme,
@@ -113,6 +117,8 @@ export function SettingsPage({
         showStreamName={showStreamName}
         setShowStreamName={setShowStreamName}
       />
+    ) : currentSection === "sync" ? (
+      dataSync ? <SyncSettingsPanel sync={dataSync} /> : null
     ) : currentSection === "twofa" ? (
       <TwofaSettingsPanel />
     ) : (

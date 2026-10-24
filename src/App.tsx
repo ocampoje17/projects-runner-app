@@ -39,6 +39,8 @@ import { readSavedSelectedProjectId, writeSavedSelectedProjectId } from "./lib/s
 import appIcon from "./assets/app-icon.png";
 import { UpdateDialog } from "./components/update-dialog";
 import { MiddleEllipsisText } from "./components/middle-ellipsis-text";
+import { useDataSync, type DataSyncController } from "./hooks/use-data-sync";
+import { SyncReviewDialog, SyncTitlebarButton } from "./components/data-sync";
 
 type PrdOpenRequestPayload = {
   file_path: string;
@@ -151,11 +153,13 @@ function AppContextMenu({
 }
 
 function AppTitleBar({
+  dataSync,
   selectedProjectName,
   searchCollections,
   onSearchSelect,
   onToggleSecondarySidebar,
 }: {
+  dataSync: DataSyncController;
   selectedProjectName: string | null;
   searchCollections: ReturnType<typeof buildTitlebarSearchCollections>;
   onSearchSelect: (item: TitlebarSearchItem) => void;
@@ -235,6 +239,7 @@ function AppTitleBar({
       <div className="flex min-w-0 flex-1 items-center gap-3 px-3">
         <img src={appIcon} alt="" className="h-4 w-4 shrink-0 rounded-[4px]" draggable={false} />
         <div className="hidden shrink-0 truncate text-[12px] font-medium text-foreground md:block">Projects Runner</div>
+        <SyncTitlebarButton sync={dataSync} />
         <div className="flex min-w-0 flex-1 justify-center">
           <TitlebarSearch collections={searchCollections} onSelect={onSearchSelect} />
         </div>
@@ -370,6 +375,7 @@ function App() {
     onConfirm: () => {},
   });
   const { toasts, showToast, dismissToast } = useAnimatedToastStack({ limit: 4, defaultDuration: 5200 });
+  const dataSync = useDataSync(() => shellRef.current?.openSettings("sync"), showToast);
   const [defaultSection, setDefaultSection] = useState<string | null>(null);
   const appUpdater = useAppUpdater();
 
@@ -967,6 +973,7 @@ function App() {
   };
 
   const settingsProps = {
+    dataSync,
     appInfo: appInfoQuery.data,
     theme,
     setTheme,
@@ -1082,6 +1089,7 @@ function App() {
     <MotionLevelProvider level={motionLevel}>
       <main className="app-shell flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-shell text-foreground">
         <AppTitleBar
+          dataSync={dataSync}
           selectedProjectName={selectedProject?.name ?? null}
           searchCollections={titlebarSearchCollections}
           onSearchSelect={handleTitlebarSearchSelect}
@@ -1314,6 +1322,7 @@ function App() {
           onInstallOrReveal={() => void appUpdater.installOrReveal()}
         />
 
+        <SyncReviewDialog sync={dataSync} />
         <AnimatedToastStack toasts={toasts} onDismiss={dismissToast} position="top-right" placement="fixed" />
         <AppContextMenu menuState={contextMenu} onClose={() => setContextMenu(null)} />
       </main>

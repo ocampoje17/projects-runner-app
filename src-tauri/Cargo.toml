@@ -1,6 +1,6 @@
 [package]
 name = "projects-runner-app"
-version = "0.7.3"
+version = "0.7.4"
 default-run = "projects-runner-app"
 description = "A desktop command runner for coding projects"
 authors = ["Projects Runner"]
@@ -51,6 +51,7 @@ xcap = "0.9.8"
 image = { version = "0.25.10", features = ["png", "jpeg", "webp"] }
 totp-rs = { version = "6.0.0", features = ["otpauth", "gen_secret"] }
 ts-rs = "12.0.1"
+fs4 = { version = "1", features = ["sync"] }
 keyring = "4.2.0"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]

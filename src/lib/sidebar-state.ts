@@ -216,7 +216,7 @@ export function readSavedSettingsSection(storage?: Storage): SettingsSectionId {
     const store = getStorage(storage);
     if (!store) return "appearance";
     const saved = store.getItem(SIDEBAR_STORAGE_KEYS.SETTINGS_SECTION);
-    return saved === "terminal" || saved === "system" || saved === "twofa" ? saved : "appearance";
+    return saved === "terminal" || saved === "system" || saved === "twofa" || saved === "sync" ? saved : "appearance";
   } catch {
     return "appearance";
   }
@@ -348,6 +348,13 @@ export function sanitizeTabs(
     }
 
     return true;
+  }).map((tab) => {
+    if (tab.kind !== "command") return tab;
+    const commands = commandsByProjectId[tab.projectId];
+    const command = Array.isArray(commands)
+      ? commands.find((item) => Boolean(item) && item.id === tab.commandId)
+      : undefined;
+    return command && command.name !== tab.title ? { ...tab, title: command.name } : tab;
   });
 }
 

@@ -74,6 +74,26 @@ export function useAppPreferences() {
   const [motionLevel, setMotionLevel] = useState<MotionLevel>("off");
 
   useEffect(() => {
+    const applySynced = () => {
+      const savedTheme = localStorage.getItem("theme");
+      if (savedTheme === "dark" || savedTheme === "light" || savedTheme === "system") setTheme(savedTheme);
+      const savedAccent = localStorage.getItem("accent");
+      if (isAccentColor(savedAccent)) setAccent(savedAccent);
+      const savedDate = localStorage.getItem("dateFormat");
+      if (isDateFormatPreference(savedDate)) setDateFormat(savedDate);
+      setTerminalFontSize(localStorage.getItem("terminalFontSize") || "13px");
+      setTerminalFontFamily(localStorage.getItem("terminalFontFamily") || "Consolas");
+      setAutoClearLogs(localStorage.getItem("autoClearLogs") !== "false");
+      setShowLogsTimestamp(localStorage.getItem("showLogsTimestamp") === "true");
+      setShowStreamName(localStorage.getItem("showStreamName") !== "false");
+      setAllowMultipleExplorerItems(localStorage.getItem("explorerAllowMultipleOpen") === "true");
+      setRestoreOpenTabs(localStorage.getItem("restoreOpenTabs") !== "false");
+    };
+    window.addEventListener("projects-runner:preferences-synced", applySynced);
+    return () => window.removeEventListener("projects-runner:preferences-synced", applySynced);
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem("theme", theme);
     const root = document.documentElement;
 

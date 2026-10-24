@@ -16,6 +16,7 @@ Save your everyday commands once. Run them whenever you need them.
 - **Keep 2FA close** — manage project-linked TOTP accounts in an encrypted vault, scan QR codes, and export encrypted backups.
 - **Free up disk space** — inspect project storage and choose which dev caches, build output, or dependencies to clean.
 - **Share your setup** — export and import projects as `.prd` files.
+- **Sync between computers** — manually exchange projects, commands, notes, avatars, and app preferences through a folder on a USB drive or external disk.
 
 Your projects, commands, and notes stay on your machine. No cloud account needed.
 
@@ -30,6 +31,17 @@ Your projects, commands, and notes stay on your machine. No cloud account needed
 | `.exe` installer | `.AppImage` or `.deb` | `.dmg` for Apple Silicon |
 
 Shared commands may need adjustments for a different operating system or shell.
+
+## Sync through an external drive
+
+1. Open **Settings → Data Sync**, choose a folder on the drive, and select the data groups to sync. All five groups are selected by default.
+2. Click the sync icon beside the app name, or **Sync now** in settings.
+3. On another computer, select the same folder and sync. Review any project matches or conflicting versions.
+4. Before moving the drive to another computer, sync your latest changes. When reconnecting it, click sync again.
+
+Each computer keeps its own working database and project folder paths. The drive contains a versioned `.projects-runner-sync` repository; keep that folder intact when moving or backing it up. If the drive letter changes, choose the folder again in settings.
+
+Turning off a data group pauses its synchronization without removing existing data. The sync folder, group selections, and last successful sync time are remembered locally for each repository. 2FA vaults, source files, terminal sessions, logs, run counts, and window layouts stay on each computer.
 
 ## A closer look
 

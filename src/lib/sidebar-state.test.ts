@@ -233,6 +233,37 @@ describe("sidebar-state helpers", () => {
       ]);
     });
 
+    it("updates open command tab titles after a rename without changing tab identity or order", () => {
+      const tabs: EditorTab[] = [
+        { id: "settings", kind: "settings", title: "Settings" },
+        { id: "command:10", kind: "command", projectId: 1, commandId: 10, title: "Build" },
+      ];
+      const command: ProjectCommand = {
+        id: 10,
+        project_id: 1,
+        name: "Build production",
+        script: "npm run build",
+        avatar_path: null,
+        ports: "",
+        section: "General",
+        order_index: 0,
+        runtime_mode: "internal_headless",
+        run_in_external_terminal: false,
+        external_terminal_kind: "default",
+        interactive_terminal_kind: "powershell",
+        run_count: 0,
+        created_at: "",
+        updated_at: "",
+      };
+
+      const result = sanitizeTabs(tabs, mockProjects, { 1: [command] }, {});
+
+      expect(result).toEqual([tabs[0], { ...tabs[1], title: "Build production" }]);
+      expect(result[0]).toBe(tabs[0]);
+      expect(tabs[1].title).toBe("Build");
+      expect(sanitizeTabs(result, mockProjects, { 1: [command] }, {})[1]).toBe(result[1]);
+    });
+
     it("does not remove command tabs if command queries are not yet loaded (undefined)", () => {
       const tabs: EditorTab[] = [
         { id: "command:10", kind: "command", projectId: 1, commandId: 10, title: "Build" },

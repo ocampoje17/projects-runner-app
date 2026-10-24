@@ -109,6 +109,7 @@ import {
 } from "../lib/sidebar-state";
 
 export type VSCodeShellHandle = {
+  openSettings: (section: SettingsSectionId) => void;
   openProject: (projectId: number) => void;
   openCommand: (projectId: number, commandId: number) => void;
   openNote: (projectId: number, noteId: string) => void;
@@ -3195,6 +3196,10 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   useImperativeHandle(
     ref,
     () => ({
+      openSettings(section: SettingsSectionId) {
+        setActiveSettingsSection(section);
+        handleOpenSettings();
+      },
       openProject(projectId: number) {
         handleSelectProject(projectId);
         const project = findProjectById(projects, projectId);
@@ -3675,6 +3680,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                 { id: "appearance", label: "Appearance", icon: <LayoutGrid size={14} /> },
                 { id: "terminal", label: "Terminal", icon: <TerminalSquare size={14} /> },
                 { id: "twofa", label: "2FA Security", icon: <ShieldCheck size={14} /> },
+                { id: "sync", label: "Data Sync", icon: <RefreshCw size={14} /> },
                 { id: "system", label: "System", icon: <Settings2 size={14} /> },
               ] as const
             ).map((item) => (
