@@ -1,3 +1,4 @@
+pub mod mcp;
 mod app_updates;
 mod dev_cache;
 pub mod data_sync;
@@ -279,6 +280,8 @@ const PRD_OPEN_EVENT: &str = "prd://open-request";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ProjectNoteItem {
     id: String,
+    #[serde(default)]
+    title: String,
     content: String,
     pinned: bool,
     #[serde(rename = "createdAt", alias = "created_at")]
@@ -550,7 +553,7 @@ pub(crate) fn db_path_string(paths: &AppPaths) -> String {
 pub(crate) fn connect(paths: &AppPaths) -> Result<SqliteConnection, String> {
     let mut conn =
         SqliteConnection::establish(&db_path_string(paths)).map_err(|error| error.to_string())?;
-    conn.batch_execute("PRAGMA foreign_keys = ON;")
+    conn.batch_execute("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")
         .map_err(|error| error.to_string())?;
     Ok(conn)
 }
@@ -679,6 +682,7 @@ fn init_db(paths: &AppPaths) -> Result<(), String> {
     migrate_remove_flows(&mut conn)?;
     twofa::init_twofa_schema(&mut conn)?;
     data_sync::init_schema(&mut conn)?;
+    mcp::store::init(&mut conn)?;
     migrate_command_sections(&mut conn)?;
 
     sql_query(format!(
@@ -2943,6 +2947,7 @@ fn parse_project_notes(value: Option<&str>) -> Vec<ProjectNoteItem> {
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
             notes.push(ProjectNoteItem {
+                title: object.get("title").and_then(|v|v.as_str()).unwrap_or("").to_string(),
                 id,
                 content,
                 pinned,
@@ -2955,6 +2960,7 @@ fn parse_project_notes(value: Option<&str>) -> Vec<ProjectNoteItem> {
 
     let fallback_time = now();
     vec![ProjectNoteItem {
+        title: String::new(),
         id: format!("legacy-note-{}", fallback_time),
         content: raw.to_string(),
         pinned: false,
@@ -2973,6 +2979,7 @@ fn serialize_project_notes(notes: &[ProjectNoteItem]) -> Result<Option<String>, 
             }
             Some(ProjectNoteItem {
                 id: note.id.clone(),
+                title: note.title.clone(),
                 content,
                 pinned: note.pinned,
                 created_at: note.created_at.clone(),
@@ -5062,6 +5069,7 @@ fn delete_project(
     delete_exclusive_2fa: Option<bool>,
     state: State<AppState>,
 ) -> Result<(), String> {
+    let _operation = state.terminal_supervisor.command_operations.lock().map_err(|_| "Command runtime unavailable")?;
     let mut conn = connect(&state.paths)?;
     let twofa_state = state
         .twofa_vault
@@ -5330,10 +5338,18 @@ fn update_command(
     state: State<AppState>,
 ) -> Result<ProjectCommand, String> {
     let mut conn = connect(&state.paths)?;
+    update_command_in_conn(&mut conn, id, input)
+}
+
+fn update_command_in_conn(
+    conn: &mut SqliteConnection,
+    id: i64,
+    input: CommandInput,
+) -> Result<ProjectCommand, String> {
     let order_index = input.order_index.unwrap_or(0);
     let ports = ports_to_json(&input.ports.unwrap_or_default())?;
     let section_name = clean_section(input.section);
-    let section = ensure_command_section(&mut conn, input.project_id, &section_name, None)?.name;
+    let section = ensure_command_section(conn, input.project_id, &section_name, None)?.name;
     let runtime_mode = normalize_runtime_mode(
         input.runtime_mode.as_deref(),
         input.run_in_external_terminal,
@@ -5363,17 +5379,21 @@ fn update_command(
         now(),
         id
     ))
-    .execute(&mut conn)
+    .execute(&mut *conn)
     .map_err(|error| error.to_string())?;
 
     sql_query(format!("SELECT * FROM commands WHERE id = {}", id))
-        .get_result::<ProjectCommand>(&mut conn)
+        .get_result::<ProjectCommand>(conn)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 fn delete_command(id: i64, state: State<AppState>) -> Result<(), String> {
+    let _operation = state.terminal_supervisor.command_operations.lock().map_err(|_| "Command runtime unavailable")?;
     let mut conn = connect(&state.paths)?;
+    if state.terminal_supervisor.get_session_by_command(id).is_some() || !sql_query(format!("SELECT * FROM command_runs WHERE command_id={id} AND status='running'")).load::<CommandRun>(&mut conn).map_err(|e|e.to_string())?.is_empty() {
+        return Err("Stop this command before deleting it.".into());
+    }
     sql_query(format!("DELETE FROM commands WHERE id = {}", id))
         .execute(&mut conn)
         .map(|_| ())
@@ -5507,6 +5527,19 @@ fn start_non_interactive_command(
     app: &AppHandle,
     state: &AppState,
 ) -> Result<CommandRun, String> {
+    let _operation = state.terminal_supervisor.command_operations.lock().map_err(|_| "Command runtime unavailable")?;
+    let (command, project) = load_command(&mut connect(&state.paths)?, command_id)?;
+    start_non_interactive_command_locked(command, project, app, state)
+}
+
+// Caller holds command_operations until the process has been registered.
+fn start_non_interactive_command_locked(
+    command: ProjectCommand,
+    project: Project,
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<CommandRun, String> {
+    let command_id = command.id;
     let mut conn = connect(&state.paths)?;
     mark_stale_running_runs(&mut conn, &state)?;
     let active_runs = sql_query(format!(
@@ -5519,7 +5552,6 @@ fn start_non_interactive_command(
         return Err("This command is already running".to_string());
     }
 
-    let (command, project) = load_command(&mut conn, command_id)?;
     let project_path = PathBuf::from(&project.path);
     if !project_path.exists() {
         return Err("Project path does not exist".to_string());
@@ -5550,6 +5582,7 @@ fn start_non_interactive_command(
     let run = sql_query("SELECT * FROM command_runs WHERE id = last_insert_rowid()")
         .get_result::<CommandRun>(&mut conn)
         .map_err(|error| error.to_string())?;
+    mcp::output::start(app,run.id,command.runtime_mode!=RUNTIME_MODE_EXTERNAL_TERMINAL);
     let run_in_external_terminal = runtime_mode_uses_external_terminal(&command.runtime_mode);
     let mut child = match build_process(
         &script_path,
@@ -5591,33 +5624,17 @@ fn start_non_interactive_command(
         },
     );
 
-    if let Some(stdout) = stdout {
-        spawn_output_reader(
-            app.clone(),
-            run.id,
-            command_id,
-            stdout,
-            "command://stdout",
-        );
-    }
-    if let Some(stderr) = stderr {
-        spawn_output_reader(
-            app.clone(),
-            run.id,
-            command_id,
-            stderr,
-            "command://stderr",
-        );
-    }
+    let mut readers=vec![];
+    if let Some(stdout)=stdout{readers.push(spawn_output_reader(app.clone(),run.id,command_id,stdout,"command://stdout"));}
+    if let Some(stderr)=stderr{readers.push(spawn_output_reader(app.clone(),run.id,command_id,stderr,"command://stderr"));}
 
     let paths = state.paths.clone();
     let app_for_wait = app.clone();
     std::thread::spawn(move || {
-        let status = process
-            .child
-            .lock()
-            .ok()
-            .and_then(|mut child| child.wait().ok());
+        let status = loop {
+            let result=process.child.lock().ok().and_then(|mut child|child.try_wait().ok());
+            match result {Some(Some(status))=>break Some(status),Some(None)=>std::thread::sleep(std::time::Duration::from_millis(50)),None=>break None}
+        };
         let exit_code = status.and_then(|status| status.code());
         let was_stopped = app_for_wait
             .try_state::<AppState>()
@@ -5666,6 +5683,10 @@ fn start_non_interactive_command(
                 ended_at,
             },
         );
+        // A descendant can inherit stdout after the saved command exits.
+        // Publish the process state before waiting for the output tail.
+        for reader in readers { let _ = reader.join(); }
+        mcp::output::finish(&app_for_wait, run.id);
     });
 
     Ok(run)
@@ -5843,6 +5864,44 @@ fn start_interactive_command(
     app: AppHandle,
     state: State<AppState>,
 ) -> Result<terminal_types::InteractiveSessionInfo, String> {
+    start_interactive_command_service(command_id, cols, rows, terminal_supervisor::TerminalSink::channel(on_event), app, &state)
+}
+
+#[tauri::command]
+fn detached_terminal_snapshots(state: State<AppState>)->Vec<serde_json::Value>{state.terminal_supervisor.detached_snapshots()}
+
+#[tauri::command]
+fn active_command_runs(state: State<AppState>) -> Result<Vec<CommandRun>, String> {
+    let ids = state.processes.lock().map_err(|_| "Runtime unavailable")?
+        .keys().copied().collect::<HashSet<_>>();
+    let mut runs = sql_query("SELECT * FROM command_runs WHERE status='running'")
+        .load::<CommandRun>(&mut connect(&state.paths)?)
+        .map_err(|_| "Unable to restore active runs")?;
+    runs.retain(|r| ids.contains(&r.id));
+    Ok(runs)
+}
+
+fn start_interactive_command_service(
+    command_id: i64, cols: u16, rows: u16,
+    on_event: terminal_supervisor::TerminalSink,
+    app: AppHandle, state: &AppState,
+) -> Result<terminal_types::InteractiveSessionInfo, String> {
+    let _operation = state.terminal_supervisor.command_operations.lock().map_err(|_| "Command runtime unavailable")?;
+    let (command, project) = load_command(&mut connect(&state.paths)?, command_id)?;
+    start_interactive_command_locked(command, project, cols, rows, on_event, app, state)
+}
+
+// Caller holds command_operations until the terminal has been registered.
+fn start_interactive_command_locked(
+    command: ProjectCommand,
+    project: Project,
+    cols: u16,
+    rows: u16,
+    on_event: terminal_supervisor::TerminalSink,
+    app: AppHandle,
+    state: &AppState,
+) -> Result<terminal_types::InteractiveSessionInfo, String> {
+    let command_id = command.id;
     state.terminal_supervisor.reserve_command(command_id)?;
 
     let mut conn = connect(&state.paths).map_err(|e| {
@@ -5854,10 +5913,10 @@ fn start_interactive_command(
         e
     })?;
 
-    let (command, project) = load_command(&mut conn, command_id).map_err(|e| {
-        state.terminal_supervisor.unreserve_command(command_id);
-        e
-    })?;
+    let existing=sql_query(format!("SELECT * FROM command_runs WHERE command_id={command_id} AND status='running'"))
+        .load::<CommandRun>(&mut conn).map_err(|e|{state.terminal_supervisor.unreserve_command(command_id);e.to_string()})?;
+    if !existing.is_empty(){state.terminal_supervisor.unreserve_command(command_id);return Err("This command is already running".into());}
+
     if command.runtime_mode != RUNTIME_MODE_INTERNAL_INTERACTIVE {
         state.terminal_supervisor.unreserve_command(command_id);
         return Err("This command is not configured for the interactive terminal.".to_string());
@@ -5995,7 +6054,7 @@ fn start_project_interactive_terminal(
         rows,
         script_path,
         pty_command,
-        on_event,
+        terminal_supervisor::TerminalSink::channel(on_event),
         state.paths.clone(),
         app,
     )
@@ -6325,12 +6384,7 @@ fn kill_process_tree(process: &RunProcess) -> Result<(), String> {
 
 #[cfg(not(target_os = "windows"))]
 fn kill_process_tree(process: &RunProcess) -> Result<(), String> {
-    process
-        .child
-        .lock()
-        .map_err(|_| "Process lock poisoned".to_string())?
-        .kill()
-        .map_err(|error| error.to_string())
+    if unsafe {libc::kill(-(process.pid as i32),libc::SIGKILL)}==0{Ok(())}else{Err(std::io::Error::last_os_error().to_string())}
 }
 
 fn stop_run_process(process: Arc<RunProcess>) -> Result<(), String> {
@@ -6370,7 +6424,7 @@ fn mark_stale_running_runs(conn: &mut SqliteConnection, state: &AppState) -> Res
     let ended_at = now();
 
     for run in running_runs {
-        if !active_run_ids.contains(&run.id) {
+        if !active_run_ids.contains(&run.id) && !state.terminal_supervisor.get_session_by_command(run.command_id).is_some_and(|s|s.run_id==run.id) {
             sql_query(format!(
                 "UPDATE command_runs SET status = 'failed', ended_at = '{}', exit_code = NULL WHERE id = {}",
                 ended_at, run.id
@@ -6558,6 +6612,7 @@ fn build_process(
     };
 
     command.current_dir(project_path);
+    #[cfg(unix)] {use std::os::unix::process::CommandExt; command.process_group(0);}
 
     if run_in_external_terminal {
         command
@@ -6577,27 +6632,18 @@ fn build_process(
 }
 
 fn spawn_output_reader<R>(
-    app: AppHandle,
-    run_id: i64,
-    command_id: i64,
-    reader: R,
-    event: &'static str,
-) where
-    R: std::io::Read + Send + 'static,
-{
-    std::thread::spawn(move || {
-        let reader = BufReader::new(reader);
-        for line in reader.lines().map_while(Result::ok) {
-            let _ = app.emit(
-                event,
-                RunOutputPayload {
-                    run_id,
-                    command_id,
-                    line,
-                },
-            );
+    app: AppHandle,run_id:i64,command_id:i64,reader:R,event:&'static str,
+)->std::thread::JoinHandle<()> where R:std::io::Read+Send+'static {
+    std::thread::spawn(move||{
+        let mut reader=BufReader::new(reader);let mut decoder=Utf8StreamDecoder::default();
+        loop{
+            let mut bytes=Vec::with_capacity(8192);
+            match Read::by_ref(&mut reader).take(65536).read_until(b'\n',&mut bytes){Ok(0)|Err(_)=>break,Ok(_)=>{}}
+            mcp::output::push(&app,run_id,&bytes);
+            let line=decoder.push(&bytes);
+            let _=app.emit(event,RunOutputPayload{run_id,command_id,line:line.trim_end_matches(['\r','\n']).to_string()});
         }
-    });
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -6635,6 +6681,14 @@ pub fn run() {
             });
             app.manage(app_updates::UpdateState::default());
             app.manage(data_sync::SyncService::default());
+            app.manage(mcp::McpService::default());
+            mcp::install_bridge(app.handle());
+            let mcp_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Ok(settings) = mcp::store::settings(&mcp_app.state::<AppState>().paths) {
+                    let _ = mcp_app.state::<mcp::McpService>().configure(mcp_app.clone(), settings, false).await;
+                }
+            });
             let current_dir = std::env::current_dir().ok();
             for file_path in
                 collect_prd_paths_from_args(std::env::args_os().skip(1), current_dir.as_deref())
@@ -6679,6 +6733,11 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            mcp::mcp_get_status,mcp::mcp_update_settings,mcp::mcp_restart_server,mcp::mcp_test_connection,
+            mcp::mcp_list_clients,mcp::mcp_create_client,mcp::mcp_update_client,mcp::mcp_rotate_client_token,
+            mcp::mcp_delete_client,mcp::mcp_list_activity,mcp::mcp_get_bridge_info,
+            mcp::sync_jobs::mcp_sync_ready,mcp::sync_jobs::mcp_sync_progress,
+            mcp::notes::project_notes_list,mcp::notes::project_notes_mutate,mcp::notes::project_metadata_update,
             data_sync::sync_get_status,
             data_sync::sync_configure,
             data_sync::sync_prepare,
@@ -6721,6 +6780,8 @@ pub fn run() {
             restart_command,
             stop_command,
             start_interactive_command,
+            detached_terminal_snapshots,
+            active_command_runs,
             start_project_interactive_terminal,
             list_interactive_terminal_options,
             write_interactive_terminal,
@@ -6789,6 +6850,7 @@ pub fn run() {
         .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<AppState>() {
+                    if let Some(mcp) = app_handle.try_state::<mcp::McpService>() { mcp.stop(); }
                     state.terminal_supervisor.terminate_all();
                     state.twofa_vault.clear_clipboard_if_matches(app_handle);
                 }

@@ -216,7 +216,7 @@ export function readSavedSettingsSection(storage?: Storage): SettingsSectionId {
     const store = getStorage(storage);
     if (!store) return "appearance";
     const saved = store.getItem(SIDEBAR_STORAGE_KEYS.SETTINGS_SECTION);
-    return saved === "terminal" || saved === "system" || saved === "twofa" || saved === "sync" ? saved : "appearance";
+    return saved === "terminal" || saved === "system" || saved === "twofa" || saved === "sync" || saved === "mcp" ? saved : "appearance";
   } catch {
     return "appearance";
   }
@@ -305,7 +305,7 @@ export function sanitizeTabs(
 ): EditorTab[] {
   if (!Array.isArray(tabs)) return [];
   if (!Array.isArray(projects) || projects.length === 0) {
-    return tabs.filter(
+    const retained = tabs.filter(
       (tab) =>
         Boolean(tab) &&
         (tab.kind === "settings" ||
@@ -313,9 +313,10 @@ export function sanitizeTabs(
           tab.kind === "twofa-overview" ||
           tab.kind === "twofa-account"),
     );
+    return retained.length === tabs.length ? tabs : retained;
   }
 
-  return tabs.filter((tab) => {
+  const nextTabs = tabs.filter((tab) => {
     if (!tab) return false;
     if (tab.kind === "welcome" || tab.kind === "settings" || tab.kind === "twofa-account") {
       return true;
@@ -356,6 +357,7 @@ export function sanitizeTabs(
       : undefined;
     return command && command.name !== tab.title ? { ...tab, title: command.name } : tab;
   });
+  return nextTabs.length === tabs.length && nextTabs.every((tab, index) => tab === tabs[index]) ? tabs : nextTabs;
 }
 
 export function readSavedProjectFilesExpandedPaths(projectId: number | null | undefined, storage?: Storage): Set<string> {

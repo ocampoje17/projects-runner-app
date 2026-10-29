@@ -1,3 +1,4 @@
+import { McpSettingsPanel } from "./mcp-settings-panel";
 import type { AppInfo } from "../lib/api";
 import type { DataSyncController } from "../hooks/use-data-sync";
 import { SyncSettingsPanel } from "./data-sync";
@@ -12,7 +13,7 @@ import {
   TwofaSettingsPanel,
 } from "./settings-panels";
 
-export type SettingsSectionId = "appearance" | "terminal" | "system" | "twofa" | "sync";
+export type SettingsSectionId = "appearance" | "terminal" | "system" | "twofa" | "sync" | "mcp";
 
 export interface SettingsPageProps {
   dataSync?: DataSyncController;
@@ -117,6 +118,8 @@ export function SettingsPage({
         showStreamName={showStreamName}
         setShowStreamName={setShowStreamName}
       />
+    ) : currentSection === "mcp" ? (
+      <McpSettingsPanel />
     ) : currentSection === "sync" ? (
       dataSync ? <SyncSettingsPanel sync={dataSync} /> : null
     ) : currentSection === "twofa" ? (
@@ -131,7 +134,7 @@ export function SettingsPage({
     );
 
   return (
-    <section className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-[var(--vscode-editor)]">
+    <section className="h-full min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-[var(--vscode-editor)]">
       <div className="mx-auto flex min-h-full w-full max-w-[1080px] flex-col px-6 py-5">
         {panel}
       </div>

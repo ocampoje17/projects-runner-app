@@ -48,3 +48,6 @@ Thumbs.db
 .codex/
 .codex-antigravity/
 tmp/
+
+# Built MCP sidecars
+src-tauri/binaries/projects-runner-mcp-*

@@ -196,6 +196,16 @@ describe("sidebar-state helpers", () => {
       },
     ];
 
+    it("preserves the array reference on no-op data refreshes and countdown renders", () => {
+      const tabs: EditorTab[] = [
+        { id: "project-overview:1", kind: "project-overview", projectId: 1, title: "Proj 1" },
+        { id: "twofa-account:one", kind: "twofa-account", accountId: "one", title: "GitHub" },
+      ];
+      expect(sanitizeTabs(tabs, mockProjects, {}, {})).toBe(tabs);
+      const globalTabs: EditorTab[] = [{ id: "welcome", kind: "welcome", title: "Welcome" }];
+      expect(sanitizeTabs(globalTabs, [], {}, {})).toBe(globalTabs);
+    });
+
     it("retains valid tabs when data is available", () => {
       const tabs: EditorTab[] = [
         { id: "project-overview:1", kind: "project-overview", projectId: 1, title: "Proj 1" },

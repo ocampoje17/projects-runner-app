@@ -47,7 +47,7 @@ import {
   KeyRound,
   X,
 } from "lucide-react";
-import { Group, Panel, Separator, type GroupImperativeHandle, type Layout } from "react-resizable-panels";
+import { Group, Panel, Separator, type GroupImperativeHandle } from "react-resizable-panels";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -60,11 +60,11 @@ import type { CommandSection, ProjectNote } from "./project-detail-types";
 import { CommandCard, LogPanel, type RunState } from "./project-runtime";
 import { TwofaOverview } from "./twofa/twofa-overview";
 import { useTwofa } from "./twofa/TwofaProvider";
+import { FilesTwofaPanel } from "./twofa/files-twofa-panel";
+import { FILE_EXPLORER_PREFERENCES_KEY, readFileExplorerPreferences, getFileExplorerLayout, type FileExplorerPreferences } from "../lib/file-explorer-preferences";
 import { CommandSectionDialog } from "./command-section-dialog";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { commandPorts, normalizeCommandScript, runtimeModeLabel } from "@/lib/command-utils";
 import { formatDateTime } from "@/lib/date-time";
 import { noteExcerpt, noteTitle, projectNoteVisibilityKey } from "@/lib/project-notes";
@@ -72,6 +72,8 @@ import { cn } from "@/lib/utils";
 import { removePathPrefix, renamePathPrefix } from "@/lib/file-tree-paths";
 import { TabsOverlayScrollbar } from "./tabs-overlay-scrollbar";
 import { useHorizontalScroll } from "../hooks/use-horizontal-scroll";
+import { useActiveTabReveal } from "../hooks/use-active-tab-reveal";
+import { CommandsOverviewToolbar, type CommandSortField, type CommandSortDirection } from "./commands-overview-toolbar";
 import { api, type Project, type ProjectCommand, type TwofaAccountSummary } from "../lib/api";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "../lib/interactive-terminal";
 import type { UpdateStatus } from "../hooks/use-app-updater";
@@ -128,29 +130,6 @@ const SIDEBAR_MIN_SIZE = "18%";
 const SIDEBAR_MAX_SIZE = "52%";
 const EDITOR_MIN_SIZE = "30%";
 const FILE_EXPLORER_SIDEBAR_KEY = "vscodeFileExplorerSidebar";
-const FILE_EXPLORER_PREFERENCES_KEY = "vscodeFileExplorerPreferences";
-
-type FileExplorerPreferences = { quickAccess: QuickAccessEntry[]; detailsCollapsed: boolean; quickAccessCollapsed: boolean; detailsExpandedSize: number; quickAccessExpandedSize: number; showSizeBars: boolean; panelLayout: Layout };
-const DEFAULT_FILE_EXPLORER_PREFERENCES: FileExplorerPreferences = { quickAccess: [], detailsCollapsed: false, quickAccessCollapsed: false, detailsExpandedSize: 25, quickAccessExpandedSize: 23, showSizeBars: true, panelLayout: { "file-tree": 52, "file-details": 25, "quick-access": 23 } };
-
-function readFileExplorerPreferences(): FileExplorerPreferences {
-  if (typeof window === "undefined") return DEFAULT_FILE_EXPLORER_PREFERENCES;
-  try {
-    const saved = JSON.parse(localStorage.getItem(FILE_EXPLORER_PREFERENCES_KEY) ?? "{}") as { quickAccess?: unknown; detailsCollapsed?: unknown; quickAccessCollapsed?: unknown; detailsExpandedSize?: unknown; quickAccessExpandedSize?: unknown; showSizeBars?: unknown; panelLayout?: unknown };
-    return {
-      quickAccess: Array.isArray(saved.quickAccess) ? saved.quickAccess.filter((item: unknown): item is QuickAccessEntry => Boolean(item) && typeof (item as QuickAccessEntry).projectId === "number" && typeof (item as QuickAccessEntry).relativePath === "string" && typeof (item as QuickAccessEntry).name === "string" && typeof (item as QuickAccessEntry).isDirectory === "boolean") : [],
-      detailsCollapsed: Boolean(saved.detailsCollapsed),
-      quickAccessCollapsed: Boolean(saved.quickAccessCollapsed),
-      detailsExpandedSize: typeof saved.detailsExpandedSize === "number" ? Math.max(18, saved.detailsExpandedSize) : DEFAULT_FILE_EXPLORER_PREFERENCES.detailsExpandedSize,
-      quickAccessExpandedSize: typeof saved.quickAccessExpandedSize === "number" ? Math.max(14, saved.quickAccessExpandedSize) : DEFAULT_FILE_EXPLORER_PREFERENCES.quickAccessExpandedSize,
-      showSizeBars: typeof saved.showSizeBars === "boolean" ? saved.showSizeBars : true,
-      panelLayout: saved.panelLayout && typeof saved.panelLayout === "object" ? saved.panelLayout as Layout : DEFAULT_FILE_EXPLORER_PREFERENCES.panelLayout,
-    };
-  } catch {
-    return DEFAULT_FILE_EXPLORER_PREFERENCES;
-  }
-}
-
 function readFileExplorerSidebar(): { secondarySidebarVisible: boolean; fileExplorerVisible: boolean; fileExplorerWidth: number } {
   if (typeof window === "undefined") return { secondarySidebarVisible: true, fileExplorerVisible: true, fileExplorerWidth: 320 };
   try {
@@ -315,21 +294,6 @@ function TabIcon({
 
   return null;
 }
-
-type CommandSortField = "runCount" | "updatedAt" | "createdAt" | "name";
-type CommandSortDirection = "desc" | "asc";
-
-const COMMAND_SORT_FIELD_OPTIONS: { value: CommandSortField; label: string }[] = [
-  { value: "runCount", label: "Run count" },
-  { value: "updatedAt", label: "Updated time" },
-  { value: "createdAt", label: "Created time" },
-  { value: "name", label: "Name" },
-];
-
-const COMMAND_SORT_DIRECTION_OPTIONS: { value: CommandSortDirection; label: string }[] = [
-  { value: "desc", label: "Descending" },
-  { value: "asc", label: "Ascending" },
-];
 
 type CommandOverviewMeta = {
   id: number;
@@ -1059,7 +1023,7 @@ function ProjectFileTree({ project, entry, level, selectedPath, onSelect, clipbo
   </div>;
 }
 
-function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Project | null; onOpenTerminal: (relativeDirectoryPath: string) => void; onView: (relativePath: string) => void }) {
+function ProjectFileExplorer({ project, onOpenTerminal, onView, onOpenTwofa, onError }: { project: Project | null; onOpenTerminal: (relativeDirectoryPath: string) => void; onView: (relativePath: string) => void; onOpenTwofa: () => void; onError: (message: string) => void }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<FileClipboard>(null);
@@ -1229,23 +1193,10 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
       const groupHeight = panelGroupElementRef.current?.clientHeight ?? 0;
       if (!group || groupHeight <= 0) return;
 
-      const collapsedSize = Math.min(30 / groupHeight * 100, 30);
-      let detailsSize = preferences.detailsCollapsed ? collapsedSize : preferences.detailsExpandedSize;
-      let quickAccessSize = preferences.quickAccessCollapsed ? collapsedSize : preferences.quickAccessExpandedSize;
-      const maxBottomPanelSize = 65;
-      const overflow = detailsSize + quickAccessSize - maxBottomPanelSize;
-      if (overflow > 0) {
-        if (!preferences.detailsCollapsed) detailsSize = Math.max(18, detailsSize - overflow);
-        if (detailsSize + quickAccessSize > maxBottomPanelSize && !preferences.quickAccessCollapsed) quickAccessSize = Math.max(14, maxBottomPanelSize - detailsSize);
-      }
-      group.setLayout({
-        "file-tree": 100 - detailsSize - quickAccessSize,
-        "file-details": detailsSize,
-        "quick-access": quickAccessSize,
-      });
+      group.setLayout(getFileExplorerLayout(preferences, groupHeight));
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [preferences.detailsCollapsed, preferences.detailsExpandedSize, preferences.quickAccessCollapsed, preferences.quickAccessExpandedSize]);
+  }, [preferences.detailsCollapsed, preferences.detailsExpandedSize, preferences.quickAccessCollapsed, preferences.quickAccessExpandedSize, preferences.twofaCollapsed, preferences.twofaExpandedSize]);
 
   if (!project) {
     return (
@@ -1406,10 +1357,10 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
           {rootDirectory.entries.map((entry) => <ProjectFileTree key={`${project.id}:${entry.relative_path}`} project={project} entry={entry} level={0} selectedPath={selectedPath ?? ""} onSelect={selectEntry} clipboard={clipboard} expandedPaths={expandedPaths} onToggleExpanded={toggleExpanded} refreshVersion={refreshVersion} onCreate={create} onCopy={(relativePath) => setClipboard({ relativePath, cut: false })} onCut={(relativePath) => setClipboard({ relativePath, cut: true })} onPaste={paste} onRename={rename} onDelete={setDeleteTarget} onReveal={(relativePath) => void api.revealProjectFile(project.id, relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to reveal item."))} onOpenTerminal={onOpenTerminal} onView={(entry) => { if (!entry.is_directory) onView(entry.relative_path); }} onOpenExternal={(relativePath) => void api.openProjectFile(project.id, relativePath).catch((value: unknown) => setError(value instanceof Error ? value.message : "Unable to open item."))} onToggleQuickAccess={toggleQuickAccess} onDevProjectTools={setDevProjectToolsRequest} pinnedPaths={pinnedPaths} folderDevTypesMap={folderDevTypesMap} />)}
         </Panel>
         <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
-        <Panel id="file-details" defaultSize="25%" minSize="18%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.detailsCollapsed || Math.abs(current.detailsExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, detailsExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.detailsCollapsed ? { overflow: "hidden" } : undefined}>
-          <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55"><span>Details</span><button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleDetailsPanel} aria-label="Toggle details"><ChevronDown size={14} className={cn(preferences.detailsCollapsed && "-rotate-90")} /></button></div>
+        <Panel id="file-details" defaultSize="20%" minSize="18%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.detailsCollapsed || Math.abs(current.detailsExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, detailsExpandedSize: size.asPercentage })} className="flex min-h-[30px] flex-col overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.detailsCollapsed ? { overflow: "hidden" } : undefined}>
+          <div className="flex h-[30px] shrink-0 items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55"><span>Details</span><button type="button" className="rounded p-1 hover:bg-[var(--vscode-list-hover)]" onClick={toggleDetailsPanel} aria-label="Toggle details"><ChevronDown size={14} className={cn(preferences.detailsCollapsed && "-rotate-90")} /></button></div>
           {!preferences.detailsCollapsed ? (
-            <div className="overflow-y-auto px-3 pb-3">
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
               {selectedPath === null ? (
                 <div className="text-[11px] text-[var(--vscode-foreground)]/55">Select a file or folder.</div>
               ) : selectedInfoQuery.isLoading ? (
@@ -1463,8 +1414,8 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
           ) : null}
         </Panel>
         <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
-        <Panel id="quick-access" defaultSize="23%" minSize="14%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.quickAccessCollapsed || Math.abs(current.quickAccessExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, quickAccessExpandedSize: size.asPercentage })} className="min-h-[30px] overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.quickAccessCollapsed ? { overflow: "hidden" } : undefined}>
-          <div className="flex h-[30px] items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55">
+        <Panel id="quick-access" defaultSize="20%" minSize="14%" collapsible collapsedSize="30px" onResize={(size) => setPreferences((current) => current.quickAccessCollapsed || Math.abs(current.quickAccessExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, quickAccessExpandedSize: size.asPercentage })} className="flex min-h-[30px] flex-col overflow-hidden border-t border-[var(--vscode-border)]" style={preferences.quickAccessCollapsed ? { overflow: "hidden" } : undefined}>
+          <div className="flex h-[30px] shrink-0 items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55">
             <span>Quick Access</span>
             <div className="flex items-center gap-0.5">
               <Tooltip content="Pin item by path">
@@ -1478,7 +1429,7 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
             </div>
           </div>
           {!preferences.quickAccessCollapsed ? (
-            <div className="overflow-y-auto px-2 pb-2">
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
               {quickAccess.length === 0 ? (
                 <div className="px-1 py-1 text-[11px] text-[var(--vscode-foreground)]/55">Pin a file or folder to open it quickly.</div>
               ) : (
@@ -1508,6 +1459,21 @@ function ProjectFileExplorer({ project, onOpenTerminal, onView }: { project: Pro
               )}
             </div>
           ) : null}
+        </Panel>
+        <Separator className="h-1.5 cursor-row-resize bg-[var(--vscode-border)]" />
+        <Panel id="project-twofa" defaultSize="20%" minSize="14%" collapsible collapsedSize="30px"
+          onResize={(size) => setPreferences((current) => current.twofaCollapsed || Math.abs(current.twofaExpandedSize - size.asPercentage) < 0.1 ? current : { ...current, twofaExpandedSize: size.asPercentage })}
+          className="flex min-h-[30px] flex-col overflow-hidden border-t border-[var(--vscode-border)]">
+          <div className="flex h-[30px] shrink-0 items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/55">
+            <span>2FA</span>
+            <div className="flex items-center gap-0.5">
+              <Tooltip content="Open project 2FA view"><button type="button" onClick={onOpenTwofa} aria-label="Open project 2FA view" className="rounded p-1 hover:bg-[var(--vscode-list-hover)] app-focus-ring"><LayoutGrid size={14} /></button></Tooltip>
+              <button type="button" onClick={() => setPreferences((current) => ({ ...current, twofaCollapsed: !current.twofaCollapsed }))} aria-label="Toggle project 2FA" aria-expanded={!preferences.twofaCollapsed} aria-controls="files-project-twofa" className="rounded p-1 hover:bg-[var(--vscode-list-hover)] app-focus-ring">
+                <ChevronDown size={14} className={cn(preferences.twofaCollapsed && "-rotate-90")} />
+              </button>
+            </div>
+          </div>
+          {!preferences.twofaCollapsed ? <div id="files-project-twofa" className="flex min-h-0 flex-1 flex-col"><FilesTwofaPanel projectId={project.id} onError={onError} /></div> : null}
         </Panel>
       </Group>
       <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }} title="Delete file or folder" description={`Delete “${deleteTarget?.name ?? ""}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (deleteTarget) deleteEntry(deleteTarget); setDeleteTarget(null); }} />
@@ -2082,7 +2048,7 @@ function CommandsOverviewPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-5">
-      <div className="mx-auto flex w-full max-w-[1320px] flex-col">
+      <div className="commands-overview-content mx-auto flex w-full min-w-0 max-w-[1320px] flex-col">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--vscode-border)] pb-3">
           <div>
             <h2 className="text-[20px] font-semibold text-foreground">{project.name} Commands</h2>
@@ -2101,54 +2067,13 @@ function CommandsOverviewPane({
         </div>
 
         <div className="py-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_220px_180px_220px]">
-            <div className="relative">
-              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search by name, section, or script"
-                className="pl-9"
-                aria-label="Search project commands"
-              />
-            </div>
-            <Select value={sortField} onValueChange={(value) => setSortField(value as CommandSortField)}>
-              <SelectTrigger aria-label="Sort commands by">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                {COMMAND_SORT_FIELD_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={sortDirection} onValueChange={(value) => setSortDirection(value as CommandSortDirection)}>
-              <SelectTrigger aria-label="Sort direction">
-                <SelectValue placeholder="Direction" />
-              </SelectTrigger>
-              <SelectContent>
-                {COMMAND_SORT_DIRECTION_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={sectionFilter} onValueChange={setSectionFilter}>
-              <SelectTrigger aria-label="Filter commands by section">
-                <SelectValue placeholder="Filter section" />
-              </SelectTrigger>
-              <SelectContent>
-                {sectionOptions.map((section) => (
-                  <SelectItem key={section} value={section}>
-                    {section === "all" ? "All sections" : section}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <CommandsOverviewToolbar
+            searchQuery={searchQuery} onSearchChange={setSearchQuery}
+            sortField={sortField} onSortFieldChange={setSortField}
+            sortDirection={sortDirection} onSortDirectionChange={setSortDirection}
+            sectionFilter={sectionFilter} onSectionFilterChange={setSectionFilter}
+            sections={sectionOptions}
+          />
           <div className="mt-3 text-[11px] text-muted-foreground">
             {visibleCommandCount} / {commands.length} commands
           </div>
@@ -2374,18 +2299,20 @@ function NoteDetailPane({
   note: ProjectNote;
   isVisible: boolean;
   onDelete: (noteId: string) => void;
-  onEdit: (noteId: string, title: string, content: string) => void;
+  onEdit: (noteId: string, title: string, content: string, expectedNote?: ProjectNote) => Promise<void> | void;
   onTogglePinned: (noteId: string) => void;
   onToggleVisibility: () => void;
 }) {
   const title = noteTitle(note);
   const createdTooltip = `Created ${formatDateTime(note.createdAt)}`;
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [originalNote, setOriginalNote] = useState(note);
+  const [editError,setEditError]=useState<string|null>(null);
   const [editDraft, setEditDraft] = useState({ title: note.title, content: note.content });
 
   useEffect(() => {
-    setEditDraft({ title: note.title, content: note.content });
-  }, [note.content, note.id, note.title]);
+    if(!isEditDialogOpen) setEditDraft({ title: note.title, content: note.content });
+  }, [note.content, note.id, note.title, isEditDialogOpen]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--vscode-editor)] px-6 py-4">
@@ -2411,7 +2338,7 @@ function NoteDetailPane({
                 {note.pinned ? <PinOff size={14} /> : <Pin size={14} />}
                 {note.pinned ? "Unpin" : "Pin"}
               </Button>
-              <Button variant="secondary" onClick={() => setIsEditDialogOpen(true)}>
+              <Button variant="secondary" onClick={() => {setOriginalNote(note);setEditError(null);setIsEditDialogOpen(true);}}>
                 <Pencil size={14} />
                 Edit
               </Button>
@@ -2447,7 +2374,7 @@ function NoteDetailPane({
             </div>
           </section>
 
-          <section className="py-1">
+          <section className="w-full py-1">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <div className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--vscode-foreground)]/50">Content</div>
@@ -2456,8 +2383,8 @@ function NoteDetailPane({
               {!isVisible ? <Badge variant="muted">Hidden</Badge> : null}
             </div>
             <div className="mb-4 h-px bg-[var(--vscode-border)]" aria-hidden="true" />
-            <Tooltip content={createdTooltip}>
-              <div>
+            <Tooltip content={createdTooltip} wrapperClassName="w-full min-w-0">
+              <div className="w-full min-w-0">
                 {isVisible ? (
                   <MarkdownPreview content={note.content || "_Empty note_"} className="min-h-[420px] overflow-y-auto rounded-[6px] bg-[var(--vscode-editor)] text-[12px]" />
                 ) : (
@@ -2473,17 +2400,18 @@ function NoteDetailPane({
         <ProjectNoteDialog
           mode="edit"
           open={isEditDialogOpen}
+          errorMessage={editError}
           onOpenChange={setIsEditDialogOpen}
           projectName={project.name}
           value={editDraft}
           onValueChange={(field, value) => setEditDraft((current) => ({ ...current, [field]: value }))}
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault();
-            if (!editDraft.title.trim() || !editDraft.content.trim()) {
+            if (!editDraft.title.trim()) {
               return;
             }
-            onEdit(note.id, editDraft.title, editDraft.content);
-            setIsEditDialogOpen(false);
+            try {await onEdit(note.id, editDraft.title, editDraft.content, originalNote);setIsEditDialogOpen(false);}
+            catch(error){setEditError(error instanceof Error ? error.message : String(error));}
           }}
           isSaving={false}
         />
@@ -2494,6 +2422,7 @@ function NoteDetailPane({
 
 type VSCodeShellProps = {
   projects: Project[];
+  onError: (error: unknown) => void;
   isProjectsLoaded?: boolean;
   selectedProject: Project | null;
   selectedProjectId: number | null;
@@ -2509,7 +2438,7 @@ type VSCodeShellProps = {
   newProjectNotesByProjectId: Record<number, { title: string; content: string }>;
   onNewProjectNoteChange: (projectId: number, field: "title" | "content", value: string) => void;
   onAddProjectNote: (projectId: number) => void;
-  onEditProjectNote: (projectId: number, noteId: string, title: string, content: string) => void;
+  onEditProjectNote: (projectId: number, noteId: string, title: string, content: string, expectedNote?: ProjectNote) => Promise<void> | void;
   onTogglePinnedProjectNote: (projectId: number, noteId: string) => void;
   onToggleProjectNoteVisibility: (projectId: number, noteId: string) => void;
   onDeleteProjectNote: (projectId: number, noteId: string) => void;
@@ -2564,6 +2493,7 @@ type VSCodeShellProps = {
 
 export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(function VSCodeShell({
   projects,
+  onError,
   isProjectsLoaded = true,
   selectedProject,
   selectedProjectId,
@@ -2655,7 +2585,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const [pinnedTabIds, setPinnedTabIds] = useState<Set<string>>(() => readSavedPinnedTabIds());
   const [tabContextMenu, setTabContextMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
   const [isTabsHeaderHovered, setIsTabsHeaderHovered] = useState(false);
-  const tabsContainerRef = useHorizontalScroll<HTMLDivElement>();
+  const tabsContainerRef = useHorizontalScroll<HTMLDivElement>(tabs.find((tab) => tab.id === activeTabId)?.kind !== "settings");
   const [isSecondarySidebarVisible, setIsSecondarySidebarVisible] = useState(() => readFileExplorerSidebar().secondarySidebarVisible);
   const [isFileExplorerVisible, setIsFileExplorerVisible] = useState(() => readFileExplorerSidebar().fileExplorerVisible);
   const [fileExplorerWidth, setFileExplorerWidth] = useState(() => readFileExplorerSidebar().fileExplorerWidth);
@@ -2664,7 +2594,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
   const pendingFileExplorerLayoutRef = useRef<{ previousWidth: number; sidebar: number } | null>(null);
   const [sectionDialogProject, setSectionDialogProject] = useState<Project | null>(null);
   const [sectionCreationError, setSectionCreationError] = useState<string | null>(null);
-  const [editingSidebarNote, setEditingSidebarNote] = useState<{ project: Project; note: ProjectNote } | null>(null);
+  const [editingSidebarNote, setEditingSidebarNote] = useState<{ project: Project; note: ProjectNote; original: ProjectNote } | null>(null);
   const [editingSidebarNoteError, setEditingSidebarNoteError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<
     | { kind: "note"; project: Project; note: ProjectNote }
@@ -2822,58 +2752,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     }
   }, [allowMultipleExplorerItems, activeContextProject]);
 
-  const scrollToActiveTab = useCallback(
-    (behavior: ScrollBehavior = "smooth") => {
-      if (!activeTabId || !tabsContainerRef.current) {
-        return;
-      }
-      const container = tabsContainerRef.current;
-      const activeTabEl = container.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(activeTabId)}"]`);
-      if (!activeTabEl) {
-        return;
-      }
-
-      const containerRect = container.getBoundingClientRect();
-      const tabRect = activeTabEl.getBoundingClientRect();
-
-      if (containerRect.width === 0 || tabRect.width === 0) {
-        return;
-      }
-
-      if (tabRect.left < containerRect.left) {
-        const diff = containerRect.left - tabRect.left;
-        container.scrollTo({
-          left: Math.max(0, container.scrollLeft - diff - 12),
-          behavior,
-        });
-      } else if (tabRect.right > containerRect.right) {
-        const diff = tabRect.right - containerRect.right;
-        container.scrollTo({
-          left: container.scrollLeft + diff + 12,
-          behavior,
-        });
-      }
-    },
-    [activeTabId, tabsContainerRef],
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    const raf1 = requestAnimationFrame(() => {
-      if (cancelled) return;
-      scrollToActiveTab("auto");
-      const raf2 = requestAnimationFrame(() => {
-        if (cancelled) return;
-        scrollToActiveTab("smooth");
-      });
-      return () => cancelAnimationFrame(raf2);
-    });
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(raf1);
-    };
-  }, [activeTabId, tabs, scrollToActiveTab]);
+  useActiveTabReveal(tabsContainerRef, activeTabId);
 
   useLayoutEffect(() => {
     const pendingLayout = pendingFileExplorerLayoutRef.current;
@@ -2948,7 +2827,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       return;
     }
     if (renameTarget.kind === "note") {
-      onEditProjectNote(renameTarget.project.id, renameTarget.note.id, name, renameTarget.note.content);
+      onEditProjectNote(renameTarget.project.id, renameTarget.note.id, name, renameTarget.note.content, renameTarget.note);
     } else {
       setTerminalNames((current) => ({ ...current, [renameTarget.command.id]: name }));
     }
@@ -3024,15 +2903,6 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
     if (!isProjectsLoaded) return;
     setTabs((current) => sanitizeTabs(current, projects, commandsByProjectId, sortedProjectNotesByProjectId));
   }, [commandsByProjectId, isProjectsLoaded, projects, sortedProjectNotesByProjectId]);
-
-  useEffect(() => {
-    setTabs((current) => current.map((tab) => {
-      if (tab.kind !== "twofa-account") return tab;
-      const acc = twofaAccounts.find((item) => item.id === tab.accountId);
-      const title = acc ? (acc.issuer || acc.account) : tab.title;
-      return title && title !== tab.title ? { ...tab, title } : tab;
-    }));
-  }, [twofaAccounts]);
 
   useEffect(() => {
     setActiveTabId((current) => {
@@ -3430,7 +3300,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
       {
         label: "Edit note",
         icon: <FilePenLine size={13} />,
-        onSelect: () => setEditingSidebarNote({ project, note }),
+        onSelect: () => setEditingSidebarNote({ project, note, original: note }),
       },
       { separator: true },
       {
@@ -3502,7 +3372,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
 
     if (activeTab.kind === "settings") {
       return (
-        <div className="min-h-0 flex-1 overflow-hidden bg-[var(--vscode-editor)]">
+        <div className="flex h-full min-h-0 flex-col bg-[var(--vscode-editor)]">
           <SettingsPage
             {...settingsProps}
             activeSection={activeSettingsSection}
@@ -3609,7 +3479,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
               newProjectNote={newProjectNotesByProjectId[tabProject.id] ?? { title: "", content: "" }}
               onNewProjectNoteChange={(field, value) => onNewProjectNoteChange(tabProject.id, field, value)}
               onAddProjectNote={() => onAddProjectNote(tabProject.id)}
-              onEditProjectNote={(noteId, title, content) => onEditProjectNote(tabProject.id, noteId, title, content)}
+              onEditProjectNote={(noteId, title, content, expectedNote) => onEditProjectNote(tabProject.id, noteId, title, content, expectedNote)}
               onTogglePinnedProjectNote={(noteId) => onTogglePinnedProjectNote(tabProject.id, noteId)}
               onToggleProjectNoteVisibility={(noteId) => onToggleProjectNoteVisibility(tabProject.id, noteId)}
               onDeleteProjectNote={(noteId) => onDeleteProjectNote(tabProject.id, noteId)}
@@ -3659,7 +3529,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
           note={note}
           isVisible={noteVisibility[projectNoteVisibilityKey(tabProject.id, note.id)] ?? true}
           onDelete={(noteId) => onDeleteProjectNote(tabProject.id, noteId)}
-          onEdit={(noteId, title, content) => onEditProjectNote(tabProject.id, noteId, title, content)}
+          onEdit={(noteId, title, content, expectedNote) => onEditProjectNote(tabProject.id, noteId, title, content, expectedNote)}
           onTogglePinned={(noteId) => onTogglePinnedProjectNote(tabProject.id, noteId)}
           onToggleVisibility={() => onToggleProjectNoteVisibility(tabProject.id, note.id)}
         />
@@ -3681,6 +3551,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
                 { id: "terminal", label: "Terminal", icon: <TerminalSquare size={14} /> },
                 { id: "twofa", label: "2FA Security", icon: <ShieldCheck size={14} /> },
                 { id: "sync", label: "Data Sync", icon: <RefreshCw size={14} /> },
+                { id: "mcp", label: "MCP", icon: <Blocks size={14} /> },
                 { id: "system", label: "System", icon: <Settings2 size={14} /> },
               ] as const
             ).map((item) => (
@@ -4241,7 +4112,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
             <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--vscode-foreground)]/58">Files</span>
             <button type="button" onClick={toggleFileExplorer} className="rounded-[4px] p-1 text-[var(--vscode-icon)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground" aria-label="Close file explorer"><X size={15} /></button>
           </div>
-          <ProjectFileExplorer key={activeContextProject?.id ?? "none"} project={activeContextProject} onView={(relativePath) => {
+          <ProjectFileExplorer key={activeContextProject?.id ?? "none"} project={activeContextProject} onError={onError} onOpenTwofa={() => { if (activeContextProject) handleOpenTwofaOverview(activeContextProject); }} onView={(relativePath) => {
             if (activeContextProject) openTab(fileViewTab(activeContextProject, relativePath));
           }} onOpenTerminal={(relativeDirectoryPath) => {
             if (activeContextProject) onOpenAdHocInteractiveTerminal(activeContextProject, defaultInteractiveTerminalKind, relativeDirectoryPath ? `${activeContextProject.path}/${relativeDirectoryPath}` : activeContextProject.path);
@@ -4309,8 +4180,8 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
         onSubmit={async (event) => {
           event.preventDefault();
           setEditingSidebarNoteError(null);
-          if (!editingSidebarNote || !editingSidebarNote.note.title.trim() || !editingSidebarNote.note.content.trim()) {
-            setEditingSidebarNoteError("Both title and content are required.");
+          if (!editingSidebarNote || !editingSidebarNote.note.title.trim()) {
+            setEditingSidebarNoteError("Note title is required.");
             return;
           }
           try {
@@ -4319,6 +4190,7 @@ export const VSCodeShell = forwardRef<VSCodeShellHandle, VSCodeShellProps>(funct
               editingSidebarNote.note.id,
               editingSidebarNote.note.title.trim(),
               editingSidebarNote.note.content.trim(),
+              editingSidebarNote.original,
             );
             setEditingSidebarNote(null);
             setEditingSidebarNoteError(null);

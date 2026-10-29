@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Copy, Minus, PanelLeft, Square, X } from "lucide-react";
 import {
   api,
@@ -22,6 +22,7 @@ import {
 import { AppDialogs } from "./components/app-dialogs";
 import type { ConfirmDialogState } from "./components/app-shell-types";
 import { TitlebarSearch } from "./components/titlebar-search";
+import { Tooltip } from "./components/motion/tooltip";
 import { VSCodeShell, type VSCodeShellHandle } from "./components/vscode-shell";
 import { resolveTerminalFontFamilyValue, useAppPreferences } from "./hooks/use-app-preferences";
 import { useCommandSections } from "./hooks/use-command-sections";
@@ -241,24 +242,28 @@ function AppTitleBar({
         <div className="hidden shrink-0 truncate text-[12px] font-medium text-foreground md:block">Projects Runner</div>
         <SyncTitlebarButton sync={dataSync} />
         <div className="flex min-w-0 flex-1 justify-center">
-          <TitlebarSearch collections={searchCollections} onSelect={onSearchSelect} />
+          <div className="flex w-full min-w-0 max-w-[676px] items-center gap-[8px]">
+            <Tooltip content="Toggle secondary sidebar" side="bottom" wrapperClassName="shrink-0">
+              <button
+                data-titlebar-interactive="true"
+                type="button"
+                className="flex h-6 w-7 shrink-0 items-center justify-center rounded-[4px] border border-transparent text-[var(--vscode-icon)] transition-[background-color,color,border-color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)] app-focus-ring"
+                onMouseDown={(event) => event.stopPropagation()}
+                onDoubleClick={(event) => event.stopPropagation()}
+                onClick={onToggleSecondarySidebar}
+                aria-label="Toggle secondary sidebar"
+              >
+                <PanelLeft size={15} />
+              </button>
+            </Tooltip>
+            <TitlebarSearch collections={searchCollections} onSelect={onSearchSelect} />
+          </div>
         </div>
         <div className="hidden min-w-0 max-w-[28%] shrink text-[11px] text-[var(--vscode-foreground)]/60 xl:block">
           <MiddleEllipsisText text={projectLabel} endLength={16} />
         </div>
       </div>
       <div className="relative z-10 flex shrink-0 items-stretch">
-        <button
-          data-window-control="true"
-          type="button"
-          className="mx-1 self-center flex h-6 w-7 items-center justify-center rounded-[4px] border border-transparent text-[var(--vscode-icon)] transition-[background-color,color,border-color] hover:border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hover)] hover:text-foreground active:bg-[var(--vscode-list-active)]"
-          onMouseDown={(event) => event.stopPropagation()}
-          onDoubleClick={(event) => event.stopPropagation()}
-          onClick={onToggleSecondarySidebar}
-          aria-label="Toggle secondary sidebar"
-        >
-          <PanelLeft size={15} />
-        </button>
         <button
           data-window-control="true"
           type="button"
@@ -376,6 +381,14 @@ function App() {
   });
   const { toasts, showToast, dismissToast } = useAnimatedToastStack({ limit: 4, defaultDuration: 5200 });
   const dataSync = useDataSync(() => shellRef.current?.openSettings("sync"), showToast);
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    const pending = listen("app://data-changed", () => {
+      for (const key of ["projects", "commands", "command-sections", "twofa-accounts"]) void queryClient.invalidateQueries({ queryKey: [key] });
+    });
+    return () => { void pending.then(fn => fn()); };
+  }, [queryClient]);
+
   const [defaultSection, setDefaultSection] = useState<string | null>(null);
   const appUpdater = useAppUpdater();
 
@@ -633,25 +646,19 @@ function App() {
     setExportProjectId(null);
   }, [exportDialogOpen, exportProject]);
 
-  const commandQueries = useQueries({
+  const combineCommands = useCallback((results: UseQueryResult<ProjectCommand[]>[]) =>
+    projects.reduce<Record<number, ProjectCommand[]>>((acc, project, index) => {
+      if (results[index]?.data !== undefined) acc[project.id] = results[index].data;
+      return acc;
+    }, {}), [projects]);
+  const commandsByProjectId = useQueries({
     queries: projects.map((project) => ({
       queryKey: ["commands", project.id],
       queryFn: () => api.listCommands(project.id),
       enabled: true,
     })),
+    combine: combineCommands,
   });
-
-  const commandsByProjectId = useMemo(
-    () =>
-      projects.reduce<Record<number, ProjectCommand[]>>((acc, project, index) => {
-        const query = commandQueries[index];
-        if (query?.data !== undefined) {
-          acc[project.id] = query.data;
-        }
-        return acc;
-      }, {}),
-    [commandQueries, projects],
-  );
 
   const { accounts: twofaAccounts } = useTwofa();
 
@@ -704,7 +711,7 @@ function App() {
   });
 
   const projectNotesMutation = useMutation({
-    mutationFn: ({ id, input }: { id: number; input: ProjectInput; successTitle: string }) => api.updateProject(id, input),
+    mutationFn: async ({ id }: { id: number; input: ProjectInput; successTitle: string }) => ({ id }),
     onSuccess: (_project, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
       showSuccess(variables.successTitle);
@@ -1098,6 +1105,7 @@ function App() {
 
         <div className="min-h-0 flex flex-1 overflow-hidden">
           <VSCodeShell
+            onError={showError}
             ref={shellRef}
             projects={projects}
             isProjectsLoaded={projectsQuery.isSuccess}

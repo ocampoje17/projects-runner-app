@@ -17,6 +17,7 @@ Save your everyday commands once. Run them whenever you need them.
 - **Free up disk space** — inspect project storage and choose which dev caches, build output, or dependencies to clean.
 - **Share your setup** — export and import projects as `.prd` files.
 - **Sync between computers** — manually exchange projects, commands, notes, avatars, and app preferences through a folder on a USB drive or external disk.
+- **Connect AI clients with MCP** — grant access to projects, commands, notes, selected OTP accounts and Data Sync in **Settings → MCP**. Supports local HTTP and a bundled stdio bridge. [MCP setup guide](docs/mcp.md).
 
 Your projects, commands, and notes stay on your machine. No cloud account needed.
 

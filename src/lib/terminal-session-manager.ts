@@ -251,7 +251,7 @@ export class ManagedTerminalSession {
     return this.channel;
   }
 
-  private handleChannelEvent(event: TerminalChannelEvent) {
+  public handleChannelEvent(event: TerminalChannelEvent) {
     if (this.isDisposed) return;
 
     if (event.type === "started") {

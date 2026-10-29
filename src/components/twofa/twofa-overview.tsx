@@ -18,6 +18,7 @@ import {
   type TwofaAccountSummary,
 } from "@/lib/api";
 import { TwofaTokenCard } from "./twofa-token-card";
+import { sortTwofaAccounts } from "./twofa-utils";
 import { TwofaAccountDialog } from "./twofa-account-dialog";
 import { TwofaLockDialog, type TwofaLockDialogMode } from "./twofa-lock-dialog";
 import { TwofaExportDialog, type TwofaExportMode } from "./twofa-export-dialog";
@@ -195,22 +196,7 @@ export function TwofaOverview({
       );
     }
 
-    // Sort
-    result.sort((a, b) => {
-      switch (sortBy) {
-        case "ISSUER_DESC":
-          return (b.issuer || b.account || "").localeCompare(a.issuer || a.account || "");
-        case "CREATED_DESC":
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        case "CREATED_ASC":
-          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-        case "ISSUER_ASC":
-        default:
-          return (a.issuer || a.account || "").localeCompare(b.issuer || b.account || "");
-      }
-    });
-
-    return result;
+    return sortTwofaAccounts(result, sortBy);
   }, [accounts, projectFilter, searchQuery, sortBy]);
 
   const activeProject =

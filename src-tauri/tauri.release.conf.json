@@ -20,6 +20,9 @@
     },
     "macOS": {
       "signingIdentity": "-"
-    }
+    },
+    "externalBin": [
+      "binaries/projects-runner-mcp"
+    ]
   }
 }

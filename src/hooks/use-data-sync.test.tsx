@@ -2,17 +2,20 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { useDataSync } from "./use-data-sync";
 import { DEFAULT_SYNC_SCOPES, applySyncPreferences, readSyncPreferences } from "../lib/data-sync";
 import type { SyncPreview, SyncStatus } from "../lib/data-sync";
 
+vi.mock("@tauri-apps/api/event",()=>({listen:vi.fn()}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../lib/api", () => ({ isDesktopRuntime: () => true, api: { pickProjectFolder: vi.fn() } }));
 const initial: SyncStatus = { folder: "E:/USB", repository_id: "repo", scopes: DEFAULT_SYNC_SCOPES, last_synced_at: "2026-01-01T00:00:00Z", pending_preferences: {} };
 const preview: SyncPreview = { session_id: "session", links: [], conflicts: [] };
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(listen).mockResolvedValue(()=>{});
   const values = new Map<string, string>();
   const storage: Storage = { get length() { return values.size; }, clear: () => values.clear(),
     getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); },
@@ -34,6 +37,27 @@ function setup(status: SyncStatus = initial) {
   return { ...hook, open, notify };
 }
 describe("manual sync orchestration", () => {
+  it("runs an MCP job using current preferences and reports completion",async()=>{
+    const hook=setup();await waitFor(()=>expect(hook.result.current.loading).toBe(false));
+    localStorage.setItem("theme","light");
+    const handler=vi.mocked(listen).mock.calls.find(([name])=>name==="mcp://sync-request")![1];
+    act(()=>handler({event:"mcp://sync-request",id:0,payload:{id:"job-1"}}));
+    await waitFor(()=>expect(invoke).toHaveBeenCalledWith("mcp_sync_progress",{id:"job-1",state:"completed",errorCode:null}));
+    expect(invoke).toHaveBeenCalledWith("sync_prepare",expect.objectContaining({mcpJobId:"job-1",preferences:expect.objectContaining({theme:"light"})}));
+    expect(invoke).toHaveBeenCalledWith("sync_commit",expect.objectContaining({mcpJobId:"job-1"}));
+  });
+  it("keeps MCP conflict review in the existing dialog and reports cancellation",async()=>{
+    const hook=setup();await waitFor(()=>expect(hook.result.current.loading).toBe(false));
+    const implementation=vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async(command,args,options)=>command==="sync_prepare" ? {...preview,conflicts:[{id:"c",kind:"note",label:"Note",local:"a",remote:"b"}]} : implementation(command,args,options));
+    const handler=vi.mocked(listen).mock.calls.find(([name])=>name==="mcp://sync-request")![1];
+    act(()=>handler({event:"mcp://sync-request",id:0,payload:{id:"job-review"}}));
+    await waitFor(()=>expect(hook.result.current.preview).not.toBeNull());
+    expect(invoke).toHaveBeenCalledWith("mcp_sync_progress",{id:"job-review",state:"needs_review",errorCode:null});
+    await act(()=>hook.result.current.cancel());
+    expect(invoke).toHaveBeenCalledWith("sync_cancel",{sessionId:"session",mcpJobId:"job-review"});
+    expect(invoke).toHaveBeenCalledWith("mcp_sync_progress",{id:"job-review",state:"cancelled",errorCode:null});
+  });
   it("opens sync settings when no folder is configured without preparing a repository", async () => {
     const hook = setup({ ...initial, folder: null });await waitFor(() => expect(hook.result.current.loading).toBe(false));
     act(() => hook.result.current.start());expect(hook.open).toHaveBeenCalledOnce();
@@ -41,7 +65,7 @@ describe("manual sync orchestration", () => {
   });
   it("does not sync on mount and coalesces repeated clicks", async () => {
     const hook = setup();await waitFor(() => expect(hook.result.current.loading).toBe(false));
-    expect(vi.mocked(invoke).mock.calls.map(([c]) => c)).toEqual(["sync_get_status"]);
+    expect(vi.mocked(invoke).mock.calls.map(([c]) => c).filter(c=>!c.startsWith("mcp_"))).toEqual(["sync_get_status"]);
     act(() => { hook.result.current.start();hook.result.current.start(); });
     await waitFor(() => expect(hook.result.current.status.last_synced_at).toBe("2026-02-01T00:00:00Z"));
     expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === "sync_prepare")).toHaveLength(1);

@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Projects Runner",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "identifier": "com.projectsrunner.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:6810",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && npm run mcp:bridge:build",
     "frontendDist": "../dist"
   },
   "app": {

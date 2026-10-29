@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+import type { TerminalChannelEvent } from "../lib/api";
 import { listen } from "@tauri-apps/api/event";
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -111,6 +113,8 @@ export function useCommandRuntime({
   onError: (error: unknown) => void;
 }) {
   const onErrorRef = useRef(onError);
+  const detachedIdsRef=useRef(new Map<string,number>());
+  const pendingDetachedRef=useRef(new Map<string,TerminalChannelEvent[]>());
   const interactiveSessionsByCommandIdRef = useRef<Record<number, InteractiveSession>>({});
   const interactiveSizesByCommandIdRef = useRef<Record<number, InteractiveTerminalSize>>({});
   const stoppingInteractiveSessionIdsRef = useRef<Set<string>>(new Set());
@@ -296,6 +300,24 @@ export function useCommandRuntime({
           void api.runCommand(cmdId).catch(onErrorRef.current);
         }
       }),
+      listen<TerminalChannelEvent>("mcp://terminal-event", ({payload}) => {
+        if(payload.type==="started"){
+          detachedIdsRef.current.set(payload.session_id,payload.command_id);
+          prepareInteractiveSession(payload.command_id);
+          TerminalSessionManager.getOrCreate(payload.command_id,{fontSize:15}).handleChannelEvent(payload);
+          setOpenLogCommandIds(current=>current.includes(payload.command_id)?current:[...current,payload.command_id]);setActiveLogCommandId(payload.command_id);
+        }else{
+          const cid=detachedIdsRef.current.get(payload.session_id);
+          if(cid!==undefined) TerminalSessionManager.getOrCreate(cid,{fontSize:15}).handleChannelEvent(payload);
+          else {
+            const pending=pendingDetachedRef.current.get(payload.session_id)??[];pending.push(payload);
+            if(pending.length>256)pending.shift();
+            pendingDetachedRef.current.set(payload.session_id,pending);
+            if(pendingDetachedRef.current.size>16)pendingDetachedRef.current.delete(pendingDetachedRef.current.keys().next().value!);
+          }
+          if(payload.type==="exited")detachedIdsRef.current.delete(payload.session_id);
+        }
+      }),
       listen<InteractiveSession>("pty://started", (event) => {
         stoppingInteractiveSessionIdsRef.current.delete(event.payload.session_id);
         const terminalId = event.payload.command_id;
@@ -376,6 +398,31 @@ export function useCommandRuntime({
       }),
     ];
 
+    void Promise.all(unlisteners).then(async () => {
+      const active = await invoke<Array<{id:number;command_id:number;started_at:string}>>("active_command_runs");
+      setRuns(current => {
+        const next={...current};
+        for(const run of active) if(!next[run.command_id]) next[run.command_id]={runId:run.id,commandId:run.command_id,status:"running",startedAt:run.started_at};
+        return next;
+      });
+      setOpenLogCommandIds(current => [...new Set([...current,...active.map(r=>r.command_id)])]);
+      const snapshots=await invoke<Array<{info:InteractiveSession;generation:number;sequence:number;data:string}>>("detached_terminal_snapshots");
+      for(const snapshot of snapshots){const info=snapshot.info;
+        if (interactiveSessionsByCommandIdRef.current[info.command_id]) continue;
+        interactiveSessionsByCommandIdRef.current={...interactiveSessionsByCommandIdRef.current,[info.command_id]:info};
+        setInteractiveSessionsByCommandId(current=>({...current,[info.command_id]:info}));
+        setRuns(current=>({...current,[info.command_id]:{runId:info.run_id,commandId:info.command_id,status:"running",startedAt:info.started_at}}));
+        setOpenLogCommandIds(current=>current.includes(info.command_id)?current:[...current,info.command_id]);
+        detachedIdsRef.current.set(info.session_id,info.command_id);
+        prepareInteractiveSession(info.command_id);
+        setActiveLogCommandId(current=>current??info.command_id);
+        const terminal=TerminalSessionManager.getOrCreate(info.command_id,{fontSize:15});
+        terminal.handleChannelEvent({type:"started",...info,generation:snapshot.generation,sequence:0});
+        terminal.handleChannelEvent({type:"output",session_id:info.session_id,generation:snapshot.generation,sequence:snapshot.sequence,data:snapshot.data});
+        for(const pending of pendingDetachedRef.current.get(info.session_id)??[]){if(pending.sequence>snapshot.sequence)terminal.handleChannelEvent(pending);}
+        pendingDetachedRef.current.delete(info.session_id);
+      }
+    }).catch(onErrorRef.current);
     return () => {
       void Promise.all(unlisteners).then((items) => items.forEach((unlisten) => unlisten()));
     };

@@ -97,6 +97,12 @@ jobs:
       - name: Validate release metadata
         run: npm run release:check
 
+      - name: Build MCP sidecar
+        shell: bash
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.platform == 'macos' && 'aarch64-apple-darwin' || '' }}
+        run: npm run mcp:bridge:build
+
       - name: Build release bundles
         shell: bash
         run: npm run release:build -- ${{ matrix.tauri_args }}

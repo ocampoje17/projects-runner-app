@@ -1,7 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { normalizeCommandScript } from "./command-utils";
 import type { InteractiveTerminalKind, InteractiveTerminalOption } from "./interactive-terminal";
-import { parseProjectNotes, serializeProjectNotes } from "./project-notes";
+import { parseProjectNotes } from "./project-notes";
 export type * from "../types/generated/twofa";
 export type * from "../types/generated/terminal";
 import type {
@@ -53,10 +53,17 @@ function normalizeProject(project: Project): Project {
     return project;
   }
 
-  const normalizedNotes = parseProjectNotes(project.notes);
+  let raw: unknown;
+  try { raw = JSON.parse(project.notes); } catch { raw = null; }
+  const stable = Array.isArray(raw) ? raw.filter(note=>note&&typeof note==="object").map((note, index) => ({ ...note,
+    id: typeof note.id === "string" && note.id ? note.id : `legacy-${project.id}-${index}`,
+    createdAt: note.createdAt ?? note.created_at ?? project.created_at,
+    updatedAt: note.updatedAt ?? note.updated_at ?? project.updated_at,
+  })) : [{ id: `legacy-${project.id}`, title: project.notes.split(/\r?\n/)[0].replace(/^#+\s*/, "").trim() || "Project Note", content: project.notes, pinned: false, createdAt: project.created_at, updatedAt: project.updated_at }];
+  const normalizedNotes = parseProjectNotes(JSON.stringify(stable));
   return {
     ...project,
-    notes: serializeProjectNotes(normalizedNotes),
+    notes: normalizedNotes.length ? JSON.stringify(normalizedNotes) : null,
   };
 }
 
@@ -199,7 +206,10 @@ async function invokeDesktop<T>(command: string, args?: Record<string, unknown>)
     throw new Error(BROWSER_PREVIEW_ONLY_MESSAGE);
   }
 
-  return invoke<T>(command, args);
+  return invoke<T>(command, args).catch(error=>{
+    if(error&&typeof error==="object"&&"message" in error) throw new Error(String(error.message));
+    throw error;
+  });
 }
 
 export class TwofaApiError extends Error {
@@ -522,7 +532,7 @@ export type RunFinishedPayload = {
 export const api = {
   listProjects: () => {
     if (isDesktopRuntime()) {
-      return invokeDesktop<Project[]>("list_projects");
+      return invokeDesktop<Project[]>("list_projects").then(items=>items.map(normalizeProject));
     }
 
     return readBrowserMockPayloadAsync().then((payload) => payload?.projects ?? []);
@@ -530,7 +540,9 @@ export const api = {
   createProject: (input: ProjectInput) =>
     invokeDesktop<Project>("create_project", { input }),
   updateProject: (id: number, input: ProjectInput) =>
-    invokeDesktop<Project>("update_project", { id, input }),
+    invokeDesktop<Project>("project_metadata_update", { id, patch: { name: input.name, path: input.path, description: input.description, avatar_path: input.avatar_path } }),
+  projectNotesList: (projectId: number) => invokeDesktop<import("./project-notes").ProjectNote[]>("project_notes_list", { projectId }),
+  projectNotesMutate: (projectId: number, action: "create" | "update" | "delete", input: Record<string, unknown>) => invokeDesktop<import("./project-notes").ProjectNote>("project_notes_mutate", { projectId, action, input }),
   deleteProject: (id: number, deleteExclusive2fa?: boolean) =>
     invokeDesktop<void>("delete_project", { id, deleteExclusive2fa: deleteExclusive2fa ?? false }),
   listProjectFiles: (projectId: number, relativePath = "") =>

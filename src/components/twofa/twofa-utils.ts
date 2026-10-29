@@ -1,3 +1,5 @@
+import type { TwofaAccountSummary, SortOrderSetting } from "@/lib/api";
+
 // Utility functions for 2FA UI
 
 export function formatTotpCode(code: string): string {
@@ -135,4 +137,15 @@ export async function copyToClipboardWithAutoClear(
       }
     }, timeoutSecs * 1000);
   }
+}
+
+export function sortTwofaAccounts(accounts: TwofaAccountSummary[], order: SortOrderSetting): TwofaAccountSummary[] {
+  return [...accounts].sort((a, b) => {
+    switch (order) {
+      case "ISSUER_DESC": return (b.issuer || b.account || "").localeCompare(a.issuer || a.account || "");
+      case "CREATED_DESC": return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      case "CREATED_ASC": return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      default: return (a.issuer || a.account || "").localeCompare(b.issuer || b.account || "");
+    }
+  });
 }

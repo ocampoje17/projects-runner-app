@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Project, ProjectInput } from "../lib/api";
+import { api, isDesktopRuntime, type Project, type ProjectInput } from "../lib/api";
 import {
   parseProjectNotes,
+  projectNoteVersion,
   projectNoteVisibilityKey,
   serializeProjectNotes,
   sortProjectNotes,
@@ -103,23 +104,27 @@ export function useProjectNotes({
     }));
   }
 
-  async function persistProjectNotes(projectId: number, nextNotes: ProjectNote[], successTitle: string): Promise<void> {
+  async function persistProjectNotes(projectId: number, nextNotes: ProjectNote[], successTitle: string, expectedNote?: ProjectNote): Promise<ProjectNote[]> {
     const project = projectsById[projectId];
-    if (!project) {
-      throw new Error(`Project ${projectId} not found`);
+    if (!project) throw new Error(`Project ${projectId} not found`);
+    if (isDesktopRuntime()) {
+      const previous = (projectNotesById[projectId] ?? []).map(note=>note.id===expectedNote?.id ? expectedNote : note);
+      for (const note of nextNotes) {
+        const old = previous.find(item => item.id === note.id);
+        if (!old) await api.projectNotesMutate(projectId, "create", { title: note.title, content: note.content, pinned: note.pinned });
+        else if (old.title !== note.title || old.content !== note.content || old.pinned !== note.pinned) {
+          await api.projectNotesMutate(projectId, "update", { note_id: note.id, expected_version: await projectNoteVersion(old), title: note.title, content: note.content, pinned: note.pinned });
+        }
+      }
+      for (const old of previous) {
+        if (!nextNotes.some(note => note.id === old.id)) await api.projectNotesMutate(projectId, "delete", { note_id: old.id, expected_version: await projectNoteVersion(old) });
+      }
+      const saved = await api.projectNotesList(projectId);
+      await onPersist(project.id, { name: project.name, path: project.path, avatar_path: project.avatar_path, description: project.description, notes: serializeProjectNotes(saved) }, successTitle);
+      return saved;
     }
-
-    await onPersist(
-      project.id,
-      {
-        name: project.name,
-        path: project.path,
-        avatar_path: project.avatar_path,
-        description: project.description,
-        notes: serializeProjectNotes(nextNotes),
-      },
-      successTitle,
-    );
+    await onPersist(project.id, { name: project.name, path: project.path, avatar_path: project.avatar_path, description: project.description, notes: serializeProjectNotes(nextNotes) }, successTitle);
+    return nextNotes;
   }
 
   function handleAddProjectNote(projectId: number): Promise<void> {
@@ -145,11 +150,11 @@ export function useProjectNotes({
         ...currentNotes,
       ];
 
-      await persistProjectNotes(projectId, nextNotes, "Note added");
+      const saved = await persistProjectNotes(projectId, nextNotes, "Note added");
 
       setProjectNotesById((current) => ({
         ...current,
-        [projectId]: nextNotes,
+        [projectId]: saved,
       }));
       setNewProjectNotesById((current) => ({
         ...current,
@@ -163,11 +168,12 @@ export function useProjectNotes({
     noteId: string,
     title: string,
     content: string,
+    expectedNote?: ProjectNote,
   ): Promise<void> {
     const normalizedTitle = title.trim();
     const normalizedContent = content.trim();
-    if (!normalizedTitle || !normalizedContent) {
-      return Promise.reject(new Error("Note title and content cannot be empty."));
+    if (!normalizedTitle) {
+      return Promise.reject(new Error("Note title cannot be empty."));
     }
 
     return enqueuePersist(projectId, async () => {
@@ -185,11 +191,12 @@ export function useProjectNotes({
         )
         .filter((note) => note.title || note.content);
 
-      await persistProjectNotes(projectId, nextNotes, "Note updated");
+      if(expectedNote&&!currentNotes.some(note=>note.id===noteId)) throw new Error("Note changed. Reload before saving.");
+      const saved = await persistProjectNotes(projectId, nextNotes, "Note updated", expectedNote);
 
       setProjectNotesById((current) => ({
         ...current,
-        [projectId]: nextNotes,
+        [projectId]: saved,
       }));
     });
   }
@@ -200,11 +207,11 @@ export function useProjectNotes({
       const nextNotes = currentNotes.filter((note) => note.id !== noteId);
       const visibilityKey = projectNoteVisibilityKey(projectId, noteId);
 
-      await persistProjectNotes(projectId, nextNotes, "Note deleted");
+      const saved = await persistProjectNotes(projectId, nextNotes, "Note deleted");
 
       setProjectNotesById((current) => ({
         ...current,
-        [projectId]: nextNotes,
+        [projectId]: saved,
       }));
       setNoteVisibility((current) => {
         const next = { ...current };
@@ -227,7 +234,7 @@ export function useProjectNotes({
           : note,
       );
 
-      await persistProjectNotes(
+      const saved = await persistProjectNotes(
         projectId,
         nextNotes,
         nextNotes.find((note) => note.id === noteId)?.pinned ? "Note pinned" : "Note unpinned",
@@ -235,7 +242,7 @@ export function useProjectNotes({
 
       setProjectNotesById((current) => ({
         ...current,
-        [projectId]: nextNotes,
+        [projectId]: saved,
       }));
     });
   }

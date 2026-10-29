@@ -5159,6 +5159,11 @@ pub fn delete_project_with_policy(
     }
 
     with_transaction(conn, |c| {
+        #[derive(QueryableByName)]
+        struct RunningCount { #[diesel(sql_type = Integer)] count: i32 }
+        let running = sql_query("SELECT COUNT(*) count FROM command_runs r JOIN commands c ON c.id=r.command_id WHERE c.project_id=? AND r.status='running'")
+            .bind::<Integer, _>(target_project_id as i32).get_result::<RunningCount>(c).map_err(|e|e.to_string())?;
+        if running.count > 0 { return Err("Stop project commands before deleting the project.".into()); }
         // Always remove links to this project
         sql_query("DELETE FROM twofa_account_projects WHERE project_id = ?")
             .bind::<Integer, _>(target_project_id as i32)
@@ -5178,6 +5183,7 @@ pub fn delete_project_with_policy(
             }
         }
 
+        sql_query("DELETE FROM projects WHERE id=?").bind::<Integer, _>(target_project_id as i32).execute(c).map_err(|e|e.to_string())?;
         Ok(())
     })
 }

@@ -194,6 +194,7 @@ struct Session {
 }
 #[derive(Default)]
 pub struct SyncService {
+    pub coordination: Mutex<()>,
     session: Mutex<Option<Session>>,
     operation: Mutex<()>,
     #[cfg(test)]
@@ -1730,11 +1731,14 @@ pub fn sync_ack_preferences(
 }
 #[tauri::command]
 pub async fn sync_configure(
+    app: tauri::AppHandle,
     folder: Option<String>,
     scopes: SyncScopes,
     state: State<'_, AppState>,
     service: State<'_, SyncService>,
 ) -> Result<SyncStatus, String> {
+    let _coordination=service.coordination.lock().map_err(|_|"Sync coordination unavailable")?;
+    crate::mcp::sync_jobs::authorize(&app, None)?;
     configure_sync(folder, scopes, &state, &service)
 }
 
@@ -1819,12 +1823,16 @@ fn configure_sync(
 
 #[tauri::command]
 pub async fn sync_prepare(
+    app: tauri::AppHandle,
+    mcp_job_id: Option<String>,
     preferences: Preferences,
     links: Option<Vec<SyncLink>>,
     session_id: Option<String>,
     state: State<'_, AppState>,
     service: State<'_, SyncService>,
 ) -> Result<SyncPreview, String> {
+    let _coordination=service.coordination.lock().map_err(|_|"Sync coordination unavailable")?;
+    crate::mcp::sync_jobs::authorize(&app, mcp_job_id.as_deref())?;
     prepare_sync(preferences, links, session_id, &state, &service)
 }
 
@@ -1928,13 +1936,24 @@ fn prepare_sync(
 
 #[tauri::command]
 pub async fn sync_commit(
+    app: tauri::AppHandle,
+    mcp_job_id: Option<String>,
     session_id: String,
     choices: Choices,
     preferences: Preferences,
     state: State<'_, AppState>,
     service: State<'_, SyncService>,
 ) -> Result<SyncResult, String> {
-    commit_sync(session_id, choices, preferences, &state, &service)
+    let _coordination=service.coordination.lock().map_err(|_|"Sync coordination unavailable")?;
+    crate::mcp::sync_jobs::authorize(&app, mcp_job_id.as_deref())?;
+    crate::mcp::sync_jobs::committing(&app, mcp_job_id.as_deref(), true);
+    let result = commit_sync(session_id, choices, preferences, &state, &service);
+    // Keep successful commits protected until the frontend applies preferences
+    // and reports completion. Revocation cannot undo a committed transaction.
+    if result.is_err() {
+        crate::mcp::sync_jobs::committing(&app, mcp_job_id.as_deref(), false);
+    }
+    result
 }
 
 fn commit_sync(
@@ -2075,7 +2094,9 @@ fn commit_sync(
     result
 }
 #[tauri::command]
-pub fn sync_cancel(session_id: String, service: State<SyncService>) -> Result<(), String> {
+pub fn sync_cancel(session_id: String, service: State<SyncService>, app: tauri::AppHandle, mcp_job_id: Option<String>) -> Result<(), String> {
+    let _coordination=service.coordination.lock().map_err(|_|"Sync coordination unavailable")?;
+    crate::mcp::sync_jobs::authorize(&app, mcp_job_id.as_deref())?;
     let _op = service
         .operation
         .try_lock()
@@ -2085,6 +2106,15 @@ pub fn sync_cancel(session_id: String, service: State<SyncService>) -> Result<()
         *session = None;
     }
     Ok(())
+}
+
+pub fn is_busy(service: &SyncService) -> bool {
+    service.operation.try_lock().is_err() || service.session.lock().map(|s|s.is_some()).unwrap_or(true)
+}
+pub fn cancel_mcp_session(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let service = app.state::<SyncService>();
+    if let Ok(_op) = service.operation.try_lock() { if let Ok(mut s)=service.session.lock(){ *s=None; } };
 }
 
 #[cfg(test)]

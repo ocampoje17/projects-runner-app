@@ -14,7 +14,7 @@ use portable_pty::{
     native_pty_system, ChildKiller, CommandBuilder as PtyCommandBuilder, MasterPty, PtySize,
 };
 use tauri::ipc::Channel;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use crate::terminal_types::{InteractiveSessionInfo, TerminalChannelEvent};
 use crate::AppPaths;
@@ -27,6 +27,26 @@ pub const SESSION_FAILED: u8 = 4;
 
 const HIGH_WATERMARK_BYTES: usize = 1024 * 1024; // 1 MiB
 const LOW_WATERMARK_BYTES: usize = 256 * 1024; // 256 KiB
+
+// ConPTY's INHERIT_CURSOR handshake blocks the child until a terminal answers.
+// A detached MCP session has no renderer yet. Answer its first CPR at 1;1 and
+// omit that query from the replay stream so a later renderer cannot answer twice.
+#[derive(Default)]
+struct StartupCursorResponder {pending:Vec<u8>,answered:bool}
+impl StartupCursorResponder {
+    fn process(&mut self,bytes:&[u8])->(Vec<u8>,bool){
+        if self.answered{return (bytes.to_vec(),false);}
+        const QUERY:&[u8]=b"\x1b[6n";
+        let mut output=Vec::with_capacity(bytes.len());let mut respond=false;
+        for byte in bytes{
+            if self.answered{output.push(*byte);continue;}
+            self.pending.push(*byte);
+            while !QUERY.starts_with(&self.pending){output.push(self.pending.remove(0));}
+            if self.pending==QUERY{self.pending.clear();self.answered=true;respond=true;}
+        }
+        (output,respond)
+    }
+}
 
 // Deliver every read before attempting another blocking PTY read. A shell may
 // wait for a terminal response (for example CPR) before producing more output.
@@ -187,11 +207,38 @@ mod win_job {
     }
 }
 
+#[derive(Clone)]
+pub struct TerminalSink { channel: Option<Channel<TerminalChannelEvent>>, detached: Option<(AppHandle,i64)> }
+impl TerminalSink {
+    pub fn channel(channel: Channel<TerminalChannelEvent>) -> Self { Self {channel:Some(channel),detached:None} }
+    pub fn detached(app:AppHandle,command:i64)->Self {Self{channel:None,detached:Some((app,command))}}
+    fn is_detached(&self)->bool {self.detached.is_some()}
+    fn send(&self,event:TerminalChannelEvent)->Result<(),String>{
+        if let Some(channel)=&self.channel{return channel.send(event).map_err(|e|e.to_string());}
+        if let Some((app,cid))=&self.detached {
+            let _=app.emit("mcp://terminal-event", &event);
+            if matches!(&event,TerminalChannelEvent::Output{..}) {return Ok(());}
+
+            let payload=match &event {
+                TerminalChannelEvent::Started{session_id,run_id,cols,rows,started_at,..}=>serde_json::json!({"session_id":session_id,"run_id":run_id,"command_id":cid,"cols":cols,"rows":rows,"started_at":started_at}),
+                TerminalChannelEvent::Output{session_id,data,..}=>serde_json::json!({"session_id":session_id,"command_id":cid,"data":String::from_utf8_lossy(&BASE64_STANDARD.decode(data).unwrap_or_default())}),
+                TerminalChannelEvent::Exited{session_id,run_id,status,exit_code,ended_at,..}=>serde_json::json!({"session_id":session_id,"run_id":run_id,"command_id":cid,"status":status,"exit_code":exit_code,"ended_at":ended_at}),
+                TerminalChannelEvent::Error{session_id,error,..}=>serde_json::json!({"session_id":session_id,"command_id":cid,"error":error}),
+            };
+            let name=match event {TerminalChannelEvent::Started{..}=>"pty://started",TerminalChannelEvent::Output{..}=>"pty://data",TerminalChannelEvent::Exited{..}=>"pty://exit",TerminalChannelEvent::Error{..}=>"pty://error"};
+            app.emit(name,payload).map_err(|e|e.to_string())?;
+        }Ok(())
+    }
+}
+
 pub struct ActiveSession {
     pub session_id: String,
     pub run_id: i64,
     pub command_id: i64,
     pub generation: u64,
+    pub info: InteractiveSessionInfo,
+    pub detached: bool,
+    pub raw_output: Mutex<std::collections::VecDeque<u8>>,
     pub status: AtomicU8,
     pub script_path: PathBuf,
     pub pty_master: Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>,
@@ -206,6 +253,7 @@ pub struct ActiveSession {
 }
 
 pub struct TerminalSupervisor {
+    pub command_operations: Mutex<()>,
     sessions: Arc<Mutex<HashMap<String, Arc<ActiveSession>>>>,
     sessions_by_command: Arc<Mutex<HashMap<i64, String>>>,
     sessions_by_terminal: Arc<Mutex<HashMap<i64, String>>>,
@@ -216,6 +264,7 @@ pub struct TerminalSupervisor {
 impl TerminalSupervisor {
     pub fn new() -> Self {
         Self {
+            command_operations: Mutex::new(()),
             sessions: Arc::new(Mutex::new(HashMap::new())),
             sessions_by_command: Arc::new(Mutex::new(HashMap::new())),
             sessions_by_terminal: Arc::new(Mutex::new(HashMap::new())),
@@ -276,6 +325,14 @@ impl TerminalSupervisor {
             }
         }
         active
+    }
+
+    pub fn detached_snapshots(&self)->Vec<serde_json::Value>{
+        let Ok(sessions)=self.sessions.lock() else{return vec![]};
+        sessions.values().filter(|s|s.detached&&s.status.load(Ordering::SeqCst)<=SESSION_STOPPING).map(|s|{
+            let raw=s.raw_output.lock().unwrap();let output=raw.iter().copied().collect::<Vec<_>>();
+            serde_json::json!({"info":s.info,"generation":s.generation,"sequence":s.sequence.load(Ordering::SeqCst).saturating_sub(1),"data":BASE64_STANDARD.encode(output)})
+        }).collect()
     }
 
     pub fn wake_flow_control(&self, session: &ActiveSession) {
@@ -428,9 +485,9 @@ impl TerminalSupervisor {
         rows: u16,
         script_path: PathBuf,
         pty_command: PtyCommandBuilder,
-        on_event: Channel<TerminalChannelEvent>,
+        on_event: TerminalSink,
         paths: AppPaths,
-        _app: AppHandle,
+        output_app: AppHandle,
     ) -> Result<InteractiveSessionInfo, String> {
         let generation = self.generation_counter.fetch_add(1, Ordering::SeqCst);
         let session_id = uuid::Uuid::new_v4().to_string();
@@ -473,6 +530,9 @@ impl TerminalSupervisor {
             run_id,
             command_id,
             generation,
+            info: InteractiveSessionInfo{session_id:session_id.clone(),run_id,command_id,cols:cols.max(2),rows:rows.max(1),started_at:Utc::now().to_rfc3339()},
+            detached: on_event.is_detached(),
+            raw_output: Mutex::new(Default::default()),
             status: AtomicU8::new(SESSION_RUNNING),
             script_path: script_path.clone(),
             pty_master: Arc::new(Mutex::new(Some(pair.master))),
@@ -510,6 +570,7 @@ impl TerminalSupervisor {
             started_at: started_at.clone(),
         };
 
+        crate::mcp::output::start(&output_app,run_id,true);
         // Emit channel Started event
         let _ = on_event.send(TerminalChannelEvent::Started {
             session_id: session_id.clone(),
@@ -525,7 +586,9 @@ impl TerminalSupervisor {
         // 1. Spawn PTY reader thread
         let session_for_reader = session.clone();
         let on_event_for_reader = on_event.clone();
+        let app_for_output = output_app.clone();
         let reader_thread = std::thread::spawn(move || {
+            let mut startup_cursor=StartupCursorResponder::default();
             let result = read_pty_output(
                 reader,
                 || {
@@ -555,6 +618,15 @@ impl TerminalSupervisor {
                     session_for_reader.status.load(Ordering::SeqCst) <= SESSION_STOPPING
                 },
                 |bytes| {
+                    let processed;
+                    let bytes=if cfg!(windows)&&on_event_for_reader.is_detached(){
+                        let (output,respond)=startup_cursor.process(bytes);
+                        if respond{if let Ok(mut writer)=session_for_reader.pty_writer.lock(){let _=writer.write_all(b"\x1b[1;1R");let _=writer.flush();}}
+                        processed=output;processed.as_slice()
+                    }else{bytes};
+                    if bytes.is_empty(){return;}
+                    let mut raw=session_for_reader.raw_output.lock().unwrap();raw.extend(bytes);let discard=raw.len().saturating_sub(1024*1024);raw.drain(..discard);
+                    crate::mcp::output::push(&app_for_output, run_id, bytes);
                     let event = terminal_output_event(
                         &session_for_reader.session_id,
                         session_for_reader.generation,
@@ -563,6 +635,7 @@ impl TerminalSupervisor {
                         bytes,
                     );
                     let _ = on_event_for_reader.send(event);
+                    if on_event_for_reader.is_detached() { session_for_reader.unacked_bytes.store(0, Ordering::SeqCst); }
                 },
             );
             if let Err(error) = result {
@@ -635,6 +708,7 @@ impl TerminalSupervisor {
             }
             let _ = fs::remove_file(&session_for_wait.script_path);
 
+            crate::mcp::output::finish(&output_app, run_id);
             // Send Channel Exited event
             let _ = on_event.send(TerminalChannelEvent::Exited {
                 session_id: session_for_wait.session_id.clone(),
@@ -657,6 +731,14 @@ mod tests {
     use super::*;
     use std::collections::VecDeque;
     use std::sync::mpsc::{self, Receiver};
+    #[test]
+    fn detached_startup_answers_split_cpr_once_without_replaying_query(){
+        let mut responder=StartupCursorResponder::default();let mut output=vec![];let mut answers=0;
+        for byte in b"\x1b[6n\x1b[32mhello\x1b[0m\x1b[6n"{
+            let (bytes,answer)=responder.process(&[*byte]);output.extend(bytes);answers+=usize::from(answer);
+        }
+        assert_eq!(answers,1);assert_eq!(output,b"\x1b[32mhello\x1b[0m\x1b[6n");
+    }
 
     // Each read after the first waits for the preceding output to be delivered.
     // This models a shell waiting for CPR/input, without a permanently stuck test.

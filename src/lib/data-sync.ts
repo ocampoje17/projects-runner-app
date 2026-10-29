@@ -34,10 +34,10 @@ export function changeSyncScope(scopes: SyncScopes, key: keyof SyncScopes, check
 export const syncApi = {
   status: () => invoke<SyncStatus>("sync_get_status"),
   configure: (folder: string | null, scopes: SyncScopes) => invoke<SyncStatus>("sync_configure", { folder, scopes }),
-  prepare: (links: SyncLink[] | null = null, sessionId: string | null = null) =>
-    invoke<SyncPreview>("sync_prepare", { preferences: readSyncPreferences(), links, sessionId }),
-  commit: (sessionId: string, choices: Record<string, string>, preferences = readSyncPreferences()) =>
-    invoke<SyncResult>("sync_commit", { sessionId, choices, preferences }),
-  cancel: (sessionId: string) => invoke<void>("sync_cancel", { sessionId }),
+  prepare: (links: SyncLink[] | null = null, sessionId: string | null = null, mcpJobId: string | null = null) =>
+    invoke<SyncPreview>("sync_prepare", { preferences: readSyncPreferences(), links, sessionId, mcpJobId }),
+  commit: (sessionId: string, choices: Record<string, string>, preferences = readSyncPreferences(), mcpJobId: string | null = null) =>
+    invoke<SyncResult>("sync_commit", { sessionId, choices, preferences, mcpJobId }),
+  cancel: (sessionId: string, mcpJobId: string | null = null) => invoke<void>("sync_cancel", { sessionId, mcpJobId }),
   acknowledge: (preferences: Record<string, string>) => invoke<void>("sync_ack_preferences", { preferences }),
 };

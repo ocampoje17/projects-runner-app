@@ -21,7 +21,7 @@ try {
     { cwd: rootDir, stdio: "inherit" },
   );
 
-  const files = ["twofa.ts", "terminal.ts", "sync.ts"];
+  const files = ["twofa.ts", "terminal.ts", "sync.ts", "mcp.ts"];
   let hasMismatch = false;
 
   for (const file of files) {

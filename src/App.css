@@ -542,6 +542,74 @@ p {
   display: none;
 }
 
+.commands-overview-content {
+  container: commands-overview / inline-size;
+}
+
+.commands-overview-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, 36px);
+  gap: 8px;
+  align-items: center;
+}
+
+.commands-filter-wrapper {
+  width: 100%;
+  min-width: 0;
+}
+
+.commands-filter-trigger {
+  height: 36px;
+  min-width: 0;
+  padding-inline: 0;
+  justify-content: center;
+}
+
+.commands-filter-trigger > span:first-child {
+  min-width: 0;
+}
+
+.commands-filter-trigger > svg:last-child,
+.commands-filter-label {
+  display: none;
+}
+
+.commands-search input {
+  height: 36px;
+}
+
+@container commands-overview (min-width: 900px) {
+  .commands-overview-toolbar {
+    grid-template-columns: minmax(0, 1.5fr) 220px 180px 220px;
+    gap: 12px;
+  }
+
+  .commands-filter-trigger {
+    justify-content: space-between;
+    padding-inline: 12px;
+    gap: 8px;
+  }
+
+  .commands-filter-label {
+    display: inline;
+  }
+
+  .commands-filter-trigger > svg:last-child {
+    display: flex;
+    flex-shrink: 0;
+  }
+}
+
+@container commands-overview (width < 360px) {
+  .commands-overview-toolbar {
+    grid-template-columns: repeat(3, 36px) minmax(0, 1fr);
+  }
+
+  .commands-search {
+    grid-column: 1 / -1;
+  }
+}
+
 .empty-editor-actions {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
 }

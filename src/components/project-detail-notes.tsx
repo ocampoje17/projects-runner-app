@@ -138,7 +138,7 @@ export function ProjectNoteDialog({
               value={value.content}
               onChange={(event) => onValueChange("content", event.target.value)}
               rows={10}
-              aria-invalid={Boolean(errorMessage && !value.content.trim())}
+              aria-invalid={Boolean(mode === "create" && errorMessage && !value.content.trim())}
               aria-describedby={errorMessage ? `${mode}-project-note-error` : undefined}
               className="min-h-[220px] bg-[var(--script-preview-bg)] font-mono text-[11.5px] leading-6 text-[var(--script-preview-color)]"
               placeholder={"## Local setup\n- `pnpm install`\n- `pnpm dev`\n\n### Test accounts\n- user: demo@example.com\n- pass: demo123"}
@@ -174,7 +174,7 @@ export function ProjectNoteDialog({
             </Button>
             <StatefulButton
               type="submit"
-              disabled={!value.title.trim() || !value.content.trim()}
+              disabled={!value.title.trim() || (mode === "create" && !value.content.trim())}
               state={isSaving ? "loading" : "idle"}
               icon={submitIcon}
               loadingText="Saving"
@@ -208,7 +208,7 @@ export function ProjectDetailNotes({
   newProjectNote: ProjectNoteDraftValue;
   onNewProjectNoteChange: (field: keyof ProjectNoteDraftValue, value: string) => void;
   onAddProjectNote: () => Promise<void> | void;
-  onEditProjectNote: (noteId: string, title: string, content: string) => Promise<void> | void;
+  onEditProjectNote: (noteId: string, title: string, content: string, expectedNote?: ProjectNote) => Promise<void> | void;
   onTogglePinnedProjectNote: (noteId: string) => void;
   onToggleProjectNoteVisibility: (noteId: string) => void;
   onDeleteProjectNote: (noteId: string) => void;
@@ -217,6 +217,7 @@ export function ProjectDetailNotes({
 }) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [addNoteError, setAddNoteError] = useState<string | null>(null);
+  const [editingOriginal, setEditingOriginal] = useState<ProjectNote | undefined>();
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<ProjectNoteDraftValue>({ title: "", content: "" });
   const [editNoteError, setEditNoteError] = useState<string | null>(null);
@@ -265,6 +266,7 @@ export function ProjectDetailNotes({
 
   function openEditDialog(note: ProjectNote) {
     setEditingNoteId(note.id);
+    setEditingOriginal(note);
     setEditNoteError(null);
     setEditingDraft({
       title: note.title,
@@ -283,13 +285,13 @@ export function ProjectDetailNotes({
   async function handleSubmitEditNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setEditNoteError(null);
-    if (!editingNoteId || !editingDraft.title.trim() || !editingDraft.content.trim()) {
-      setEditNoteError("Both title and content are required.");
+    if (!editingNoteId || !editingDraft.title.trim()) {
+      setEditNoteError("Note title is required.");
       return;
     }
 
     try {
-      await onEditProjectNote(editingNoteId, editingDraft.title, editingDraft.content);
+      await onEditProjectNote(editingNoteId, editingDraft.title, editingDraft.content, editingOriginal);
       closeEditDialog(false);
       setEditNoteError(null);
     } catch (err: unknown) {

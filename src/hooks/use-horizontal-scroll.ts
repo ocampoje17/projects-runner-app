@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react";
 
-export function useHorizontalScroll<T extends HTMLElement = HTMLDivElement>() {
+export function useHorizontalScroll<T extends HTMLElement = HTMLDivElement>(enabled = true) {
   const containerRef = useRef<T | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) {
+    if (!container || !enabled) {
       return;
     }
 
@@ -36,7 +36,7 @@ export function useHorizontalScroll<T extends HTMLElement = HTMLDivElement>() {
     return () => {
       container.removeEventListener("wheel", handleWheel);
     };
-  }, []);
+  }, [enabled]);
 
   return containerRef;
 }

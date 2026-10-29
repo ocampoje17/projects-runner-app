@@ -192,3 +192,9 @@ export function compareProjectNoteMeta(
 
   return sortDirection === "asc" ? result : -result;
 }
+
+export async function projectNoteVersion(note: ProjectNote): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify([note.id, note.title.trim(), note.content, note.pinned, note.createdAt, note.updatedAt]));
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
+}
