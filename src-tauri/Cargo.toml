@@ -1,6 +1,6 @@
 [package]
 name = "projects-runner-app"
-version = "0.7.6"
+version = "0.7.7"
 default-run = "projects-runner-app"
 description = "A desktop command runner for coding projects"
 authors = ["Projects Runner"]

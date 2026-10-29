@@ -23,7 +23,8 @@ jobs:
             tauri_args: --bundles appimage,deb
           - platform: macos
             runs_on: macos-26
-            tauri_args: --target aarch64-apple-darwin --bundles dmg
+            # Retain the .app so the executable checks can inspect the bundle.
+            tauri_args: --target aarch64-apple-darwin --bundles app,dmg
 
     steps:
       - name: Check out source
