@@ -119,4 +119,4 @@ cargo build --manifest-path src-tauri/Cargo.toml --bin projects-runner-mcp
 cargo run --manifest-path src-tauri/Cargo.toml --features mcp-integration --bin mcp-smoke
 ```
 
-The opt-in integration app uses a temporary database and fake OTP account. It runs saved fixture scripts, including a short external terminal. A desktop environment is required. Production builds exclude this harness. Release builds compile the sidecar for the Tauri target and bundle it using `tauri.release.conf.json` on Windows, Linux and macOS.
+The opt-in integration app uses a temporary database and fake OTP account. It runs saved fixture scripts, including a short external terminal. A desktop environment is required. Its entry point lives in `src-tauri/dev-bin/` so the release bundler cannot rediscover it as a production binary. Production builds exclude this harness. Release builds compile the sidecar for the Tauri target and bundle it using `tauri.release.conf.json` on Windows, Linux and macOS.

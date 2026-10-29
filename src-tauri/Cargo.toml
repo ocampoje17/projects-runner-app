@@ -1,6 +1,6 @@
 [package]
 name = "projects-runner-app"
-version = "0.7.5"
+version = "0.7.6"
 default-run = "projects-runner-app"
 description = "A desktop command runner for coding projects"
 authors = ["Projects Runner"]
@@ -11,7 +11,8 @@ mcp-integration = ["rmcp/transport-child-process"]
 
 [[bin]]
 name = "mcp-smoke"
-path = "src/bin/mcp-smoke.rs"
+# Keep feature-gated test tools outside the bundler's src/bin auto-discovery.
+path = "dev-bin/mcp-smoke.rs"
 required-features = ["mcp-integration"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

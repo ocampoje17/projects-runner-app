@@ -107,6 +107,15 @@ jobs:
         shell: bash
         run: npm run release:build -- ${{ matrix.tauri_args }}
 
+      - name: Verify macOS bundle executables
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          EXECUTABLES="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Projects Runner.app/Contents/MacOS"
+          test -x "$EXECUTABLES/projects-runner-app"
+          test -x "$EXECUTABLES/projects-runner-mcp"
+          test ! -e "$EXECUTABLES/mcp-smoke"
+
       - name: Collect release artifacts
         run: npm run release:artifacts -- ${{ matrix.platform }} ci-artifacts/${{ matrix.platform }}
 
